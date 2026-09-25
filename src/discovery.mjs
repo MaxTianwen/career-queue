@@ -1,8 +1,10 @@
-import { canonicalUrl, normalizeJob, evaluateJob, comparePreference, TARGET_TERMS } from './core.mjs';
+import { normalizeJob, evaluateJob, comparePreference, TARGET_TERMS } from './core.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
+import { fetchWorkday } from './workday.mjs';
 import { extractDeadline } from './deadlines.mjs';
 import { postingMetadata } from './posting-metadata.mjs';
 import { locationRegion } from '../web/job-facts.js';
+import { postingUrl, sourceName, mergeDiscoveryJobs, discoveryCoverage } from './discovery-records.mjs';
 
 export const SOURCE = {
   name: 'Simplify / Pitt CSC · 2027 Internships',
@@ -21,10 +23,11 @@ async function readJson(url, fetchImpl) {
   return JSON.parse(text);
 }
 
-// Only build requests to the three fixed public ATS API hosts; never fetch feed URLs directly.
+// Restrict each adapter to its public ATS hosts and supported job-detail paths.
 export async function officialJob(candidate, fetchImpl = fetch, boards = new Map()) {
   const u = new URL(candidate.url);
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
+  if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) return fetchWorkday(candidate, fetchImpl);
   if (['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(u.hostname) && /^\/[\w-]+\/jobs\/\d+\/?$/.test(u.pathname)) {
     return fetchGreenhouse(u.href, candidate.company, fetchImpl);
   }
@@ -67,13 +70,17 @@ export async function officialJob(candidate, fetchImpl = fetch, boards = new Map
 }
 
 export function extractFacts(job) {
-  const titleTerms = [...(job.jd ? job.title : '').matchAll(/\b(Summer|Fall|Winter|Spring)\s+(20\d{2})\b/gi)].map(m => `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2]}`);
+  const officialTitle = job.jd ? job.title : '';
+  const titleTerms = [...officialTitle.matchAll(/\b(Summer|Fall|Winter|Spring)(?:[\s/-]+(?:co[ -]?op|intern(?:ship)?))?\s+(20\d{2})\b/gi)].map(m => `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2]}`);
+  titleTerms.push(...[...officialTitle.matchAll(/\b(20\d{2})\s+(Summer|Fall|Winter|Spring)\b/gi)].map(m => `${m[2][0].toUpperCase()}${m[2].slice(1).toLowerCase()} ${m[1]}`));
   const terms = [...new Set(titleTerms)];
   const body = job.jd || '';
   const months = '(January|February|March|April|May|June|July|August|September|October|November|December)';
   const start = job.title.match(new RegExp(`\\b${months}\\s+(?:[-–]|to)\\s+${months}\\s+(20\\d{2})\\b`, 'i'));
   const datedStart = body.match(new RegExp(`(?:start date|starting|starts)\\s*:?\\s*${months}\\s+(20\\d{2})\\b`, 'i'));
   const season = month => /January|February|March/i.test(month) ? 'Winter' : /April/i.test(month) ? 'Spring' : /May|June|July|August/i.test(month) ? 'Summer' : 'Fall';
+  const titleMonth = [...officialTitle.matchAll(new RegExp(`\\b${months}\\s+(20\\d{2})\\b`, 'gi'))];
+  if (!terms.length && !start && titleMonth.length === 1) terms.push(`${season(titleMonth[0][1])} ${titleMonth[0][2]}`);
   if (!terms.length && start && job.jd) terms.push(`${season(start[1])} ${start[3]}`);
   if (!terms.length && datedStart) terms.push(`${season(datedStart[1])} ${datedStart[2]}`);
   // Ambiguous lengths ("8 or 12 months") are left for review; no guessed duration.
@@ -104,23 +111,23 @@ export function extractFacts(job) {
 }
 
 export async function discover({ fetchImpl = fetch, now = new Date(), onProgress = () => {} } = {}) {
-  const report = { dataVersion: 2, source: SOURCE, targetTerms: [...TARGET_TERMS], startedAt: now.toISOString(), finishedAt: null, total: 0, candidates: 0, duplicates: 0, skipped: 0, processed: 0, results: [], errors: [] };
+  const report = { dataVersion: 4, source: SOURCE, targetTerms: [...TARGET_TERMS], startedAt: now.toISOString(), finishedAt: null, total: 0, candidates: 0, duplicates: 0, skipped: 0, processed: 0, results: [], errors: [] };
   onProgress({ phase: '正在读取公开实习索引…', report });
   const data = await readJson(SOURCE.dataUrl, fetchImpl);
   if (!Array.isArray(data) || !data.length || !data.some(x => typeof x.company_name === 'string' && Array.isArray(x.terms))) throw new Error('职位索引格式变化或为空，请稍后重试');
   report.total = data.length;
-  const seen = new Set(), candidates = [];
+  const seen = new Map(), candidates = [];
   for (const entry of data) {
     if (!entry.active || !entry.is_visible || !entry.terms?.some(t => TARGET_TERMS.has(t)) || !entry.locations?.some(l => geography.test(l)) || !role.test(entry.title)) { report.skipped++; continue; }
     try {
-      const url = canonicalUrl(entry.url);
+      const url = postingUrl(entry.url);
       // Application suffixes are not a separate job. Terms are kept as source hints, never asserted as employer facts.
-      const identity = url.replace(/\/(?:apply|application)(?:\?.*)?$/, '');
-      if (seen.has(identity)) { report.duplicates++; continue; }
-      seen.add(identity);
-      candidates.push({ company: entry.company_name, title: entry.title, url, location: entry.locations.join(' / '), jd: '',
+      const identity = JSON.stringify([url, [...entry.terms].sort(), entry.company_name, entry.title, [...entry.locations].sort()]);
+      if (seen.has(identity)) { seen.get(identity).sourceLinks.push(entry.url); report.duplicates++; continue; }
+      const candidate = { company: entry.company_name, title: entry.title, url, location: entry.locations.join(' / '), jd: '', sourceLinks: [entry.url],
         indexEvidence: { url: SOURCE.url, terms: entry.terms, addedAt: Number.isFinite(entry.date_posted) ? new Date(entry.date_posted * 1000).toISOString() : null,
-          note: '索引收录时间不是雇主发布时间；批次与地点需对照官方 JD。' } });
+          note: '索引收录时间不是雇主发布时间；批次与地点需对照官方 JD。' } };
+      candidates.push(candidate); seen.set(identity, candidate);
     } catch { report.errors.push('索引中的一条链接无效，已跳过'); }
   }
   report.candidates = candidates.length;
@@ -132,18 +139,22 @@ export async function discover({ fetchImpl = fetch, now = new Date(), onProgress
       let job = candidate, fetchError = null;
       try {
         const official = await officialJob(candidate, fetchImpl, boards);
-        if (official) job = { ...official, indexEvidence: candidate.indexEvidence };
+        if (official) job = { ...official, indexEvidence: candidate.indexEvidence, sourceLinks: candidate.sourceLinks };
       } catch (e) { fetchError = e.message; }
       job = extractFacts(job);
       const evaluation = evaluateJob(job, now);
       const result = { ...job, ...evaluation, key: normalizeJob({ ...job, jd: job.jd || 'identity only' }).key,
-        fullJd: Boolean(job.jd), fetchError };
+        fullJd: Boolean(job.jd), fetchError, sourceName: sourceName(job) };
       if (!result.fullJd) result.reasons.unshift(fetchError ? `官方 JD 读取失败：${fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
       report.results.push(result); report.processed++;
       onProgress({ phase: `已检查 ${report.processed} / ${report.candidates} 条候选`, report });
     }
   }
   await Promise.all([worker(), worker(), worker()]);
+  const merged = mergeDiscoveryJobs(report.results);
+  report.results = merged.results;
+  report.duplicates += merged.duplicates;
+  report.coverage = discoveryCoverage(report.results);
   report.results.sort((a, b) => Number(a.decision === 'REJECT') - Number(b.decision === 'REJECT') || Number(b.fullJd) - Number(a.fullJd) || comparePreference(a, b) || a.company.localeCompare(b.company));
   report.finishedAt = new Date().toISOString();
   return report;

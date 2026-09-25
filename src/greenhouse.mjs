@@ -32,6 +32,6 @@ export async function fetchGreenhouse(url, company, fetchImpl = fetch) {
     postedAtKind: source.first_published ? 'first' : 'official', deadline: metadata?.deadline || null,
     salary: '未披露', coverLetterRequired: null,
     sourceEvidence: { url: apiUrl, retrievedAt: new Date().toISOString(), postedAtField: source.first_published ? 'first_published' : metadata?.postedAt ? 'JobPosting.datePosted' : null,
-      publicationUrl: metadata?.url, publicationError: metadata?.error,
+      publicationUrl: metadata?.url, publicationError: metadata?.error, requisitionIdField: source.requisition_id ? 'requisition_id' : null,
       updatedAt: source.updated_at ?? null, note: '未将 updated_at 当发布时间。薪资 / 任期 / 办公方式等须根据完整 JD 补充后导入。' } };
 }

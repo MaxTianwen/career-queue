@@ -1,4 +1,4 @@
-# Career Queue v1.0
+# Career Queue v1.0.2
 
 **中文** | [English](Readme_EN.md)
 
@@ -6,7 +6,7 @@
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 上传为待提交 → 本人确认已投递。**
 
-版本：`1.0.0`，收口日期：2026-09-25。功能与验证边界见 [CHANGELOG](CHANGELOG.md)，当前规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。首次版本提交包含 v1.0 代码和随后确认的路线图；规划中的功能均未实施。
+版本：`1.0.2`，收口日期：2026-09-25。功能与验证边界见 [CHANGELOG](CHANGELOG.md)，当前规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。v1.0.2 在前版基础上增加 Workday 公开页面全文读取；新增发现源、v1.1 / v2.0 仍待后续启动。
 
 ## 启动与验证
 
@@ -26,13 +26,15 @@ node src/cli.mjs check
 node src/cli.mjs preview --input examples/jobs.example.json
 ```
 
-示例为合成数据，不要导入正式 Notion。收口测试 68 项全通过，包含 Notion 链接配置回归。没有私有文档环境的公开副本会跳过对应文档保护测试，不能将跳过等同通过。`check` 仅检查配置；`verify` 才读取真实 Notion schema。
+示例为合成数据，不要导入正式 Notion。v1.0.2 回归 84 项全通过，包含 Workday 读取、异常、日期、去重与缓存升级；未用测试写入正式 Notion。没有私有文档环境的公开副本会跳过对应文档保护测试，不能将跳过等同通过。`check` 仅检查配置；`verify` 才读取真实 Notion schema。
 
 ## 当前功能
 
-| 区域 | v1.0 能力 |
+| 区域 | v1.0.2 能力 |
 |---|---|
 | 发现职位 | 公开索引发现、支持来源的官方 JD、进度 / 错误提示、本机搜索快照。 |
+| 岗位速览 | 发现卡片、发现详情及 Queue 详情突出时长、地点、薪资、办公方式与匹配技能；未知不推测。 |
+| 来源与去重 | 分来源完整 JD / 字段统计，保留来源链接；确定重复合并，疑似重复提示，身份冲突需核实后手动录入。 |
 | 筛选排序 | 开始季、任期、办公方式、Toronto / GTA / GTA 外、城市；按分数或官方发布时间排序。 |
 | 已保存 Queue | 明确选择后保存到 Notion，去重、备注、归档；保存后定位并高亮记录。 |
 | 申请记录 | 材料上传完成后待提交；本人确认日期后已投递；后续进展和下一步。 |
@@ -44,7 +46,8 @@ node src/cli.mjs preview --input examples/jobs.example.json
 ## 搜索和评分边界
 
 - 自动发现只有一个公开索引：Simplify / Pitt CSC 的 Summer2027-Internships，不是全网搜索。
-- 自动官方 JD 读取支持 **Greenhouse、Lever、Ashby**；手动链接 `fetch-job` 入口只支持 Greenhouse。接口、日期含义与覆盖限制见 [DATA_SOURCES](docs/DATA_SOURCES.md)。
+- 自动官方 JD 读取支持 **Greenhouse、Lever、Ashby、Workday**；手动链接 `fetch-job` 入口只支持 Greenhouse。接口、日期含义与覆盖限制见 [DATA_SOURCES](docs/DATA_SOURCES.md)。
+- Workday 从受支持的官方职位页读取 JobPosting 正文 / 日期 / 编号，无需账号或付费 API；重定向、登录页、缺失或冲突数据保持失败提示。不是全 Workday 岗位搜索。
 - 24 小时是可选视图，不是岗位有效期。首次发布、官方日期、最近重新发布分别标注；未知日期不使用索引收录时间代替。
 - 已识别截止时间且已过期的岗位从发现列表和待选 Queue 隐藏，申请历史保留。未知 deadline 保持待核实，不能保证识别全部关闭岗位。
 - Match Score 是本地关键词证据覆盖：技能 70%、经历主题 30%，无识别项的部分重新归一化。详情提供依据及缺口；不等于 ATS 分数、完整资格判断或录取概率。
@@ -87,4 +90,4 @@ Queue 过滤 Status = Queue；Applications 过滤待提交 / 已投递 / 面试�
 - 无自动投递、自动填表、批量简历、每日调度、邮箱同步或模型 API。
 - 本机功能验证不等于完整真实申请验收；尚未以真实材料上传并走完待提交 / 已投递链路。
 
-后续规划见 [ROADMAP](ROADMAP.md)：1.0.x 三项待办、v1.1 学校 portal 申请关联、v2.0 多用户方向，均未实施；当前产品仍为 1.0.0。
+后续规划见 [ROADMAP](ROADMAP.md)：v1.0.2 已加入 Workday 全文，v1.0.1 的高亮、统计与去重继续保留；新增发现源待确认。v1.1 学校 portal 申请关联、v2.0 多用户方向尚未启动。

@@ -12,7 +12,7 @@ test('discovery scopes the feed, deduplicates, reads official JD and never subst
   const calls = [];
   const result = await discover({ now, fetchImpl: async url => {
     calls.push(url);
-    if (url === SOURCE.dataUrl) return reply([entry(1), entry(1, { url: entry(1).url + '?utm_source=test' }), entry(2), entry(3),
+    if (url === SOURCE.dataUrl) return reply([entry(1), entry(1, { url: 'https://boards.greenhouse.io/synthetic/jobs/1/apply?utm_source=test' }), entry(2), entry(3),
       entry(4, { active: false }), entry(5, { locations: ['New York, NY'] }), entry(6, { title: 'Registered Nurse Intern' }), entry(7, { terms: ['Winter 2026'] }),
       entry(8, { url: 'https://127.0.0.1/private' })]);
     const id = Number(url.split('/').at(-1));
@@ -20,6 +20,7 @@ test('discovery scopes the feed, deduplicates, reads official JD and never subst
       first_published: id === 1 ? '2026-09-24T15:00:00Z' : id === 2 ? '2026-09-20T10:00:00Z' : null, updated_at: now.toISOString() });
   } });
   assert.equal(result.candidates, 4); assert.equal(result.duplicates, 1); assert.equal(result.skipped, 4);
+  assert.equal(result.results.find(x => x.url.endsWith('/1')).sourceLinks.length, 2);
   assert.equal(result.results.filter(x => x.fullJd).length, 3);
   assert.equal(result.results.find(x => x.url.endsWith('/2')).decision, 'REVIEW');
   assert.equal(result.results.find(x => x.url.endsWith('/3')).postedAt, null);

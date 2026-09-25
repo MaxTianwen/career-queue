@@ -10,6 +10,7 @@ import { normalizeJob, newRecord, comparePreference, TARGET_TERMS, evaluateJob }
 import { getRecord, ingest, prepare, complete, submit } from './pipeline.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import { discover, extractFacts } from './discovery.mjs';
+import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
 import { buildProfile, matchJob } from './matching.mjs';
 import { classifyResume } from './resume-track.mjs';
@@ -63,13 +64,14 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         workMode: record.workMode && record.workMode !== 'unknown' ? record.workMode : extracted.workMode };
       const evaluation = evaluateJob(job);
       if (record.fullJd === false) evaluation.reasons.unshift(record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
-      return { ...job, ...evaluation, expired: deadlineExpired(job.deadline), match: matchJob(job, profile), resumeClassification: classifyResume(job) };
+      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), match: matchJob(job, profile), resumeClassification: classifyResume(job) };
     });
   }
   async function presentSearch() {
     if (!search.report) return search;
     const results = await presentJobs(search.report.results);
-    return { ...search, report: { ...search.report, expiredCount: results.filter(j => j.expired).length, results: results.filter(j => !j.expired) } };
+    const visible = results.filter(j => !j.expired);
+    return { ...search, report: { ...search.report, expiredCount: results.filter(j => j.expired).length, results: visible, coverage: discoveryCoverage(visible) } };
   }
   async function storeFor(mode) {
     if (mode === 'demo') return demo;
@@ -111,7 +113,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/job-view.js', '/job-facts.js', '/style.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/style.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -174,7 +176,9 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         let job;
         if (body.source === 'discovery') {
           await loadedSearch;
+          if (search.state === 'running') throw fail('搜索尚未完成，请等待去重结束后操作');
           job = search.report?.results.find(x => x.key === body.key);
+          if (job?.identityConflict) throw fail('岗位身份有冲突，请核对官网后手动添加');
           if (job) [job] = await presentJobs([job]);
           if (!job || !job.fullJd || evaluateJob({ ...job, ...extractDeadline(job) }).decision === 'REJECT') throw fail('请选择未排除且有完整 JD 的岗位');
         } else if (body.source === 'queue') {
@@ -187,7 +191,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         await loadedSearch;
         if (mode !== 'live') throw fail('自动搜索使用真实工作区，不写入演示记录');
         if (search.state === 'running') return send(await presentSearch(), 202);
-        if (search.state === 'done' && search.report.dataVersion === 2 && JSON.stringify(search.report.targetTerms) === JSON.stringify([...TARGET_TERMS]) && Date.now() - Date.parse(search.report.finishedAt) < 5 * 60 * 1000) return send({ ...(await presentSearch()), cached: true });
+        if (search.state === 'done' && search.report.dataVersion === 4 && JSON.stringify(search.report.targetTerms) === JSON.stringify([...TARGET_TERMS]) && Date.now() - Date.parse(search.report.finishedAt) < 5 * 60 * 1000) return send({ ...(await presentSearch()), cached: true });
         search = { state: 'running', phase: '正在连接职位来源…', report: null, error: null };
         void (async () => {
           try {
@@ -201,8 +205,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       }
       if (url.pathname === '/api/discovery/save') {
         await loadedSearch;
+        if (search.state === 'running') throw fail('搜索尚未完成，请等待去重结束后操作');
         if (mode !== 'live') throw fail('真实搜索结果只能保存到正式 Queue');
         let job = search.report?.results.find(x => x.key === body.key);
+        if (job?.identityConflict) throw fail('岗位身份有冲突，请核对官网后手动添加');
         if (job) [job] = await presentJobs([job]);
         if (!job?.fullJd || evaluateJob({ ...job, ...extractDeadline(job) }).decision === 'REJECT') throw fail('此结果还不能入队，请核实筛选条件并补齐 JD');
         if (deadlineExpired(extractDeadline(job).deadline)) throw fail('申请已截止，不能加入 Queue');

@@ -1,4 +1,4 @@
-# Career Queue v1.0
+# Career Queue v1.0.2
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ma
 
 **Discover jobs → Save to Queue → Generate and review materials → Upload and mark ready to submit → Personally confirm submission.**
 
-Version: `1.0.0`. Baseline date: September 25, 2026. See [CHANGELOG](CHANGELOG.md) for features and verification limits, and [PROJECT_SPEC](PROJECT_SPEC.md) for the current specification. The initial commit includes the v1.0 code and the subsequently confirmed roadmap; planned features have not been implemented. These supporting documents are currently in Chinese.
+Version: `1.0.2`. Baseline date: September 25, 2026. See [CHANGELOG](CHANGELOG.md) for features and verification limits, and [PROJECT_SPEC](PROJECT_SPEC.md) for the current specification. Version 1.0.2 adds public Workday job-page retrieval on top of the previous highlights, source coverage report, and conservative deduplication. Additional discovery sources and v1.1 / v2.0 remain deferred. These supporting documents are currently in Chinese.
 
 ## Start and verify
 
@@ -26,13 +26,15 @@ node src/cli.mjs check
 node src/cli.mjs preview --input examples/jobs.example.json
 ```
 
-Examples contain synthetic data; do not import them into your live Notion database. All 68 baseline tests passed, including the Notion link configuration regression test. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
+Examples contain synthetic data; do not import them into your live Notion database. All 84 v1.0.2 regression tests passed, including Workday retrieval, failure handling, dates, deduplication, and cache upgrades. Tests did not write to the live Notion database. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
 
 ## Current features
 
-| Area | v1.0 capabilities |
+| Area | v1.0.2 capabilities |
 |---|---|
 | Job discovery | Public index discovery, official job descriptions from supported sources, progress and error reporting, and local search snapshots. |
+| Job overview | Discovery cards, discovery details, and Queue details highlight duration, location, pay, work arrangement, and evidence-backed skills; missing facts remain unknown. |
+| Sources and duplicates | Per-source JD and field coverage, retained source links, conservative merges, and suspected-duplicate warnings. Conflicting identities require verification and manual entry. |
 | Filtering and sorting | Start term, duration, work arrangement, Toronto / GTA / outside GTA, and city keywords; sorting by score or official publication date. |
 | Saved Queue | Explicitly save selected jobs to Notion, detect duplicates, add notes, and archive; locate and highlight a record after saving. |
 | Applications | Mark ready to submit after materials are uploaded; mark submitted only after personal confirmation and a submission date; record progress and next steps. |
@@ -44,7 +46,8 @@ Click outside a details or preview dialog, or press Esc, to close it. Unsaved ed
 ## Search and scoring limits
 
 - Automatic discovery uses one public index: Simplify / Pitt CSC's Summer2027-Internships. It is not a search of the entire web.
-- Automatic official job-description retrieval supports **Greenhouse, Lever, and Ashby**. The manual `fetch-job` URL entry point supports Greenhouse only. See [DATA_SOURCES](docs/DATA_SOURCES.md) for endpoints, date semantics, and coverage limits.
+- Automatic official job-description retrieval supports **Greenhouse, Lever, Ashby, and Workday**. The manual `fetch-job` URL entry point supports Greenhouse only. See [DATA_SOURCES](docs/DATA_SOURCES.md) for endpoints, date semantics, and coverage limits.
+- Workday reads JobPosting data from supported public job pages without an account or paid API. Redirects, login shells, missing data, and conflicting identities remain explicit failures. This does not search every Workday employer.
 - The 24-hour view is an optional filter, not a job's validity period. First publication, official dates, and latest republication are labeled separately. Index inclusion dates never substitute for unknown publication dates.
 - Jobs with recognized deadlines that have passed are hidden from discovery and the pending Queue; application history is retained. Unknown deadlines remain unverified, so the app cannot identify every closed posting.
 - Match Score measures local keyword evidence coverage: skills contribute 70% and experience themes 30%, with weights normalized when one component has no recognized items. Details show supporting evidence and gaps. It is not an ATS score, a complete eligibility assessment, or a probability of receiving an offer.
@@ -89,4 +92,4 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - There is no automatic application submission, form filling, bulk resume generation, daily scheduling, email synchronization, or model API integration.
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
-See [ROADMAP](ROADMAP.md) for future plans: three 1.0.x items, school-portal application linking in v1.1, and a multi-user direction for v2.0. None has been implemented; the current product version remains 1.0.0.
+See [ROADMAP](ROADMAP.md): v1.0.2 adds Workday full descriptions; v1.0.1 highlights, source coverage, and conservative deduplication remain available. New discovery sources await a decision. School-portal linking (v1.1) and a multi-user service (v2.0) have not started.

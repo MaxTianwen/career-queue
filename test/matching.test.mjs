@@ -15,6 +15,7 @@ const profile = buildProfile(knowledge);
 test('matching uses supported knowledge rows, not prohibitions, search goals or unverified resume skills', () => {
   const result = matchJob({ jd: 'Qualifications\nPython, SQL, React, Kubernetes, Power BI, Docker.' }, profile);
   assert.equal(result.score, 42); // (1 + 1 + .5) / 6
+  assert.ok(result.matched.every(x => x.kind === 'skill'));
   assert.ok(result.matched.some(x => x.name === 'Power BI' && x.level === .5));
   assert.ok(result.gaps.some(x => x.name === 'React' && x.unverified));
   assert.ok(result.gaps.some(x => x.name === 'Kubernetes'));

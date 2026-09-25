@@ -57,7 +57,8 @@ export function matchJob(job, profile) {
   if (!parts.length) return { score: null, reason: '未识别到可计分要求，请阅读 JD 核实' };
   const weight = parts.reduce((n, p) => n + p.weight, 0);
   const score = Math.round(parts.reduce((n, p) => n + p.weight * p.rows.reduce((sum, r) => sum + r.level, 0) / p.rows.length, 0) / weight * 100);
-  const evidence = [...technical, ...experience].map(({ name, level, evidence, unverified }) => ({ name, level, evidence: evidence || null, unverified: Boolean(unverified) }));
+  const evidence = [...technical.map(item => ({ ...item, kind: 'skill' })), ...experience.map(item => ({ ...item, kind: 'experience' }))]
+    .map(({ name, level, evidence, unverified, kind }) => ({ name, level, evidence: evidence || null, unverified: Boolean(unverified), kind }));
   const checks = job.jd.split(/\n|(?<=[.!?])\s+/).filter(l => /\b(?:\d+\+?\s*(?:years?|yrs?)|citizen|citizenship|security clearance|return(?:ing)? to school|enroll|degree|graduat)\b/i.test(l)).slice(0, 6).map(l => l.trim().slice(0, 350));
   return { score, version: '本地规则 v1', evidenceCount: evidence.length, comparedSection: qualifications ? 'JD 资格要求段落' : 'JD 全文（未识别独立资格段落）',
     components: parts.map(p => ({ name: p.name, weight: Math.round(p.weight / weight * 100), matched: p.rows.reduce((n, r) => n + r.level, 0), total: p.rows.length })),
