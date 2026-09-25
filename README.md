@@ -1,5 +1,7 @@
 # Career Queue v1.0
 
+**中文** | [English](Readme_EN.md)
+
 个人加拿大 co-op / intern 求职工作台。手动触发岗位发现，筛选 Winter / Summer / Fall 2027 职位，保存到 Notion，并为选中的岗位准备、预览和修改一页简历。
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 上传为待提交 → 本人确认已投递。**
