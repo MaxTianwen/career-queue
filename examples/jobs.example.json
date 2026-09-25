@@ -1,0 +1,30 @@
+[
+  {
+    "company": "Example Company (TEST ONLY)",
+    "title": "Software Developer Intern — Summer 2027",
+    "url": "https://example.com/jobs/software-intern-2027",
+    "requisitionId": "TEST-2027-1",
+    "jd": "SYNTHETIC TEST FIXTURE, not a real vacancy. Software Developer Internship, Summer 2027, Toronto hybrid, 8 months. Compensation not disclosed.",
+    "term": "Summer 2027",
+    "location": "Toronto, Ontario",
+    "workMode": "hybrid",
+    "inGta": true,
+    "durationMonths": 8,
+    "isIntern": true,
+    "relevant": true,
+    "salary": "未披露",
+    "paid": null,
+    "meetsMinimumWage": null,
+    "postedAt": null,
+    "deadline": null,
+    "citizenOnly": false,
+    "graduateOnly": false,
+    "coverLetterRequired": false,
+    "eligibilityNotes": "Example only: verify co-op enrollment / return-to-school if required.",
+    "sourceEvidence": {
+      "url": "https://example.com/jobs/software-intern-2027",
+      "retrievedAt": null,
+      "postedAtText": null
+    }
+  }
+]

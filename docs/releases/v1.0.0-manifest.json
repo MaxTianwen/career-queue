@@ -1,0 +1,191 @@
+{
+  "version": "1.0.0",
+  "date": "2026-09-25",
+  "scope": "Git-unignored public candidates; manifest excludes itself. No Git commit/tag/push.",
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "1d1927012f2ccd53a02bd7ec4b29569c05694deec493a32510194dcfe7eda54c"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "4a347f52bf990ad9f26635dcb057e94ad090c3c4fd3d0e4671a5f574e1f0ec9f"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "8c9328a57db5bb423f8ed77d01d52046c79e2002694f715fda8691936a8c3aec"
+    },
+    {
+      "path": "PROJECT_SPEC.md",
+      "sha256": "30f7bbeccde8bf4c5b0f109106aad5b83ce6d0892bf8bef2fda4c6cd3e3484aa"
+    },
+    {
+      "path": "README.md",
+      "sha256": "28b4a69bd3f1e2fc63efad78e7f0c1f23a1b69a6f0dcde1cee14b8fefc7a7620"
+    },
+    {
+      "path": "ROADMAP.md",
+      "sha256": "3aa0ad46c71aee1660975e6c5f2dba83c61c57799359819dc0dc62e2c23102b5"
+    },
+    {
+      "path": "docs/DATA_SOURCES.md",
+      "sha256": "ae78341f836c66b3d1940e96716d3d35c8b7236ac12f07cace98e413c38b05c3"
+    },
+    {
+      "path": "examples/jobs.example.json",
+      "sha256": "897e09dbe166562b1b8c36330fd19d9afc44aff51128722d4b3017016b5e647c"
+    },
+    {
+      "path": "package.json",
+      "sha256": "6759edc6092012a840ae9e7bc6e74633c32c1e0bceb53da267e328a641008ec1"
+    },
+    {
+      "path": "scripts/export-resume.ps1",
+      "sha256": "16be07f9b46bcf9e958baf794ecbb0395ad1005d28ae4c8c0a7be578661c238a"
+    },
+    {
+      "path": "scripts/preview_pdf.py",
+      "sha256": "640915df16c9e7c855655419b619a4a8c35c117aee8e435378811e146dd90e95"
+    },
+    {
+      "path": "scripts/resume_document.py",
+      "sha256": "919778662099d2f06bf51279e852cea53a7866b58b757f6f53d860b706ac4fb0"
+    },
+    {
+      "path": "src/cli.mjs",
+      "sha256": "f1c97457b993712c263738f3a22851aace29a7bd0e51638ed319aaa4e28b6051"
+    },
+    {
+      "path": "src/core.mjs",
+      "sha256": "7ab785535d16650c812e0769fd48361ca0565ba6d1e93bc58a99ea73cff3b26a"
+    },
+    {
+      "path": "src/dashboard.mjs",
+      "sha256": "43865c5f98bf951f55107e7e689b44d56b373c3fbd7ae8d10295d6dc1b1606d7"
+    },
+    {
+      "path": "src/deadlines.mjs",
+      "sha256": "299780606776e0432079504890b6b68dd9679f251710080ab5ddfbb85bc0c89a"
+    },
+    {
+      "path": "src/demo-store.mjs",
+      "sha256": "96e443af36ed4e900fdaeb20febe252a1fec6e4a93fe6a7f076fb78078ec8bdc"
+    },
+    {
+      "path": "src/discovery.mjs",
+      "sha256": "1ca153d0e860f8b38ed23622c690bf0fcf308d615706f0ec3eab62e1b2c52d7a"
+    },
+    {
+      "path": "src/greenhouse.mjs",
+      "sha256": "c74812c8141f036583f20b26dccfaaabcf85776e0784d3c5173cffb671e91a74"
+    },
+    {
+      "path": "src/matching.mjs",
+      "sha256": "93d1d69c0c008e75dfbcfb434039e04ad86f3ac3410e96af86fa4c3b215affbd"
+    },
+    {
+      "path": "src/notion.mjs",
+      "sha256": "0356101aaccb4aa9d9ad0ff15af2bf57e05316f71bba98dfd0665b3cc14f60ab"
+    },
+    {
+      "path": "src/pdf-preview.mjs",
+      "sha256": "fd0fccf8b406c2b2df25f2cf0e4a51ef8d9828b5b327768321d03e6e9528894e"
+    },
+    {
+      "path": "src/pipeline.mjs",
+      "sha256": "a56a9c40a8c269a2ebd1891b70c6ce5f70780132b5381869d61d2f25017af53b"
+    },
+    {
+      "path": "src/posting-metadata.mjs",
+      "sha256": "ab07f408e00ba4affd2afa108031e0b5b0320414d85084ac09d42cf6a4aef159"
+    },
+    {
+      "path": "src/resume-track.mjs",
+      "sha256": "7414848879e84a81b5663f697674465e1e7be7b235a72359c53bd4e16f25e57b"
+    },
+    {
+      "path": "src/resume.mjs",
+      "sha256": "dfd4eeba5c8c199d26e66f0d94d89771fde2bf7d50403a2fdd91d450e36be605"
+    },
+    {
+      "path": "test/core.test.mjs",
+      "sha256": "a20f42330e6e2aaebbd4584ed83f084247f8302ff22abf9e07328f6383010b23"
+    },
+    {
+      "path": "test/dashboard.test.mjs",
+      "sha256": "2c24d5149a22989454b458932dce07a5586ef9935dcb36b7d157dcffdeac811a"
+    },
+    {
+      "path": "test/deadlines.test.mjs",
+      "sha256": "84d3ce4f5d671159863e645b3de91c0be5846afd9433463491006288474ed125"
+    },
+    {
+      "path": "test/discovery.test.mjs",
+      "sha256": "b7df5dd4feb6a2229b7b0d0c2d4c38d8681d36d6becf1d53cb7f99058d34ee19"
+    },
+    {
+      "path": "test/greenhouse.test.mjs",
+      "sha256": "282f24a945f25b5fd25545021195d60b97d6209fefccd7947b23e4b7f6d7273e"
+    },
+    {
+      "path": "test/job-view.test.mjs",
+      "sha256": "75e7570e5af2972058e6968de01b587032d900a492d319894014a4f2abaabe82"
+    },
+    {
+      "path": "test/matching.test.mjs",
+      "sha256": "3f8ee1c6675ae52dcb86649f9e609dcfbbe919d0eedd0e2dfc0bbf398fce67b6"
+    },
+    {
+      "path": "test/notion.test.mjs",
+      "sha256": "b9f04f75301d718650c58ef00093c54f2bede690ea706e7101608f6a92b5d5dd"
+    },
+    {
+      "path": "test/pdf-preview.test.mjs",
+      "sha256": "f52a350d81c4ab8428e8431cfe5cf86c97b65d05f1e454991a0fb78d280efffb"
+    },
+    {
+      "path": "test/pipeline.test.mjs",
+      "sha256": "01d5b5ba0eb56494981973b95bd67a2897c392ebf4c97e27a631917bfd18f12a"
+    },
+    {
+      "path": "test/posting-metadata.test.mjs",
+      "sha256": "79973b5ff76a4c469d221ce712f20cde83bacbf85368a8facfbeb5fc5c06fd07"
+    },
+    {
+      "path": "test/resume-document.test.mjs",
+      "sha256": "ef9ef3d2e71fa823cbccd250d9563d0dc24d27583179742f8355f7695a207716"
+    },
+    {
+      "path": "test/resume-track.test.mjs",
+      "sha256": "7dc427bb8d3babf16111d30f7a8ebabb0720f516e9f1a8b2089e335e694a32c3"
+    },
+    {
+      "path": "test/resume.test.mjs",
+      "sha256": "961260924d0789d9d399a2282b5726a45cd1a30fa029189de3519b7f8f234b3a"
+    },
+    {
+      "path": "test/resume_document_test.py",
+      "sha256": "0812acca2678676710aea170fe70563eaeb5d7ccb3d12d00a9a9cf8deff7a03c"
+    },
+    {
+      "path": "web/app.js",
+      "sha256": "7c353abda6a9f2e771071140b5f8c2d016d55259490f9782ad37be490640f6ea"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "7dbc8e35dc680b1a3db37368a06eab8371e53192080943fbf6b74d50587e965c"
+    },
+    {
+      "path": "web/job-facts.js",
+      "sha256": "cbc6b3ee2ecaeec237ab09eee04e6b4fc3e2426260e3f59620dbb0df07fa0ab0"
+    },
+    {
+      "path": "web/job-view.js",
+      "sha256": "7059d651dd7e50269943d886dc9eab19aba3239484cecfd57b547f5de587fc6d"
+    },
+    {
+      "path": "web/style.css",
+      "sha256": "210ae8b616bc14b10a734881bbd4da47d38d35f3237c02ec01a16236f8178544"
+    }
+  ]
+}

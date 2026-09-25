@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+private/
+career_knowledge_base.md
+output/
+node_modules/
+*.pdf
+*.docx
+*.zip
+__pycache__/
+*.py[cod]
+*.log
+# Local operator instructions contain machine paths; not part of the public release.
+/AGENTS.md
+# Deferred integration draft, not installed or validated in v1.0.
+/openclaw/
