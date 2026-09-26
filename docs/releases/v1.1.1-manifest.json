@@ -1,0 +1,260 @@
+{
+  "version": "1.1.1",
+  "date": "2026-09-25",
+  "scope": "Release baseline for resume uploads, editorial workbench, direction filtering and JD readability. Excludes private artifacts and this manifest. v1.1.2 functionality is not included.",
+  "tests": {
+    "passed": 98,
+    "failed": 0,
+    "skipped": 0
+  },
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "1d1927012f2ccd53a02bd7ec4b29569c05694deec493a32510194dcfe7eda54c"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "4a347f52bf990ad9f26635dcb057e94ad090c3c4fd3d0e4671a5f574e1f0ec9f"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "8cc540556b210d1c90c9c01ca4ef85590f767b854575b5601bd69123295a15e9"
+    },
+    {
+      "path": "PROJECT_SPEC.md",
+      "sha256": "dc0f9a852a8dba598e6297fe577b90394b983cf41f0b0f457e85cb2c769bebd7"
+    },
+    {
+      "path": "README.md",
+      "sha256": "945d4f976b70a3c4255376ed7d2b8bc4ba1da9bf23f3fa65413df38038e5a74a"
+    },
+    {
+      "path": "ROADMAP.md",
+      "sha256": "0420188d4c42c0e2618174fd6856a0fff1440ee5a87ced2cc062571278764beb"
+    },
+    {
+      "path": "Readme_EN.md",
+      "sha256": "0cee6dbcf1881a5b1c2e8fed0009f02acad828b397277c3ae79e31695a7a2b53"
+    },
+    {
+      "path": "docs/DATA_SOURCES.md",
+      "sha256": "555f97b0ab68580570304172a0001da081fc121ba9890948eacff98f2f7348ca"
+    },
+    {
+      "path": "docs/releases/v1.0.0-manifest.json",
+      "sha256": "24a5783762b35db9e6ca5d4544d48be2c62547a097a590e34334dfae39455a7e"
+    },
+    {
+      "path": "docs/releases/v1.0.1-manifest.json",
+      "sha256": "2f97480ce591365e532a144b83aeb3c1cee756fc2e00d0aec830cac6eb555371"
+    },
+    {
+      "path": "docs/releases/v1.0.2-manifest.json",
+      "sha256": "1d8ec2e9a0a5100c05e5949d02eaa0440c66ada74f05c563d33bd31e7910e20d"
+    },
+    {
+      "path": "examples/jobs.example.json",
+      "sha256": "897e09dbe166562b1b8c36330fd19d9afc44aff51128722d4b3017016b5e647c"
+    },
+    {
+      "path": "package.json",
+      "sha256": "742148fb87e14043bd23e1b4f1434090f121ce136db34cf1c00cf3c8840a5636"
+    },
+    {
+      "path": "scripts/export-resume.ps1",
+      "sha256": "16be07f9b46bcf9e958baf794ecbb0395ad1005d28ae4c8c0a7be578661c238a"
+    },
+    {
+      "path": "scripts/preview_pdf.py",
+      "sha256": "640915df16c9e7c855655419b619a4a8c35c117aee8e435378811e146dd90e95"
+    },
+    {
+      "path": "scripts/resume_base.py",
+      "sha256": "b5de44103c5fce2f7f97ff7e00c586ca75685ab51f903d1eb19e38424380233c"
+    },
+    {
+      "path": "scripts/resume_document.py",
+      "sha256": "919778662099d2f06bf51279e852cea53a7866b58b757f6f53d860b706ac4fb0"
+    },
+    {
+      "path": "src/cli.mjs",
+      "sha256": "f1c97457b993712c263738f3a22851aace29a7bd0e51638ed319aaa4e28b6051"
+    },
+    {
+      "path": "src/core.mjs",
+      "sha256": "7ab785535d16650c812e0769fd48361ca0565ba6d1e93bc58a99ea73cff3b26a"
+    },
+    {
+      "path": "src/dashboard.mjs",
+      "sha256": "2c23e41b6829fa4ace34b3ae88ae6dd8cdd31afd538e07ba295057bc835c9b94"
+    },
+    {
+      "path": "src/deadlines.mjs",
+      "sha256": "299780606776e0432079504890b6b68dd9679f251710080ab5ddfbb85bc0c89a"
+    },
+    {
+      "path": "src/demo-store.mjs",
+      "sha256": "96e443af36ed4e900fdaeb20febe252a1fec6e4a93fe6a7f076fb78078ec8bdc"
+    },
+    {
+      "path": "src/discovery-records.mjs",
+      "sha256": "1d554206f8d6e86604b983b769a5bbea0ef1a1f7a0df653364cc3f437163d2ad"
+    },
+    {
+      "path": "src/discovery.mjs",
+      "sha256": "4fe036d0fb58af924fcf8904cb77e138bc8ace47b24b3e69c4fc609a92de9850"
+    },
+    {
+      "path": "src/greenhouse.mjs",
+      "sha256": "bd9f1d4dc3bf6a213dcab6e194e7dd669b7b1a01231d99f498aa953bd2ccc2c8"
+    },
+    {
+      "path": "src/matching.mjs",
+      "sha256": "b648508410c97dfc7a94fdc65e8e6fd614a0d58f542cac3fd652116f070057b4"
+    },
+    {
+      "path": "src/notion.mjs",
+      "sha256": "0356101aaccb4aa9d9ad0ff15af2bf57e05316f71bba98dfd0665b3cc14f60ab"
+    },
+    {
+      "path": "src/pdf-preview.mjs",
+      "sha256": "fd0fccf8b406c2b2df25f2cf0e4a51ef8d9828b5b327768321d03e6e9528894e"
+    },
+    {
+      "path": "src/pipeline.mjs",
+      "sha256": "a56a9c40a8c269a2ebd1891b70c6ce5f70780132b5381869d61d2f25017af53b"
+    },
+    {
+      "path": "src/posting-metadata.mjs",
+      "sha256": "ab07f408e00ba4affd2afa108031e0b5b0320414d85084ac09d42cf6a4aef159"
+    },
+    {
+      "path": "src/resume-bases.mjs",
+      "sha256": "5f53243eb652c507688b2e602bcefe710b20b2117e6abc461c1fee80411408cc"
+    },
+    {
+      "path": "src/resume-track.mjs",
+      "sha256": "fbfae09fc56e03f2b2501f3c76a139d45adc888ffb45373632644702ebd0f964"
+    },
+    {
+      "path": "src/resume.mjs",
+      "sha256": "6c51d0d78928f02d82d97a95eb0ed1d9cbad206401793f7eb88af4d176d271c0"
+    },
+    {
+      "path": "src/workday.mjs",
+      "sha256": "ebd9dc259e94a1aa2850f269951deb2a76f27b069bc1b7a77e3422a6aa48913e"
+    },
+    {
+      "path": "test/core.test.mjs",
+      "sha256": "a20f42330e6e2aaebbd4584ed83f084247f8302ff22abf9e07328f6383010b23"
+    },
+    {
+      "path": "test/dashboard.test.mjs",
+      "sha256": "29cccc4b188b92cee945bbb2b2ae986530ae7a8277633657932bd448acd14ecb"
+    },
+    {
+      "path": "test/deadlines.test.mjs",
+      "sha256": "84d3ce4f5d671159863e645b3de91c0be5846afd9433463491006288474ed125"
+    },
+    {
+      "path": "test/discovery-records.test.mjs",
+      "sha256": "bf58226f84efc829075f26464ce83a8b2bd0c0fb1e64c767210a14b82978af64"
+    },
+    {
+      "path": "test/discovery.test.mjs",
+      "sha256": "d005ffb347d6142e81844876414ef71a2ff1a1d6cc26e8cb00a35c0a6daacd31"
+    },
+    {
+      "path": "test/greenhouse.test.mjs",
+      "sha256": "282f24a945f25b5fd25545021195d60b97d6209fefccd7947b23e4b7f6d7273e"
+    },
+    {
+      "path": "test/job-description.test.mjs",
+      "sha256": "e14205d787e64404123acbdb52db62945ea7fe5350d4858106f3a7cd5df29ab6"
+    },
+    {
+      "path": "test/job-view.test.mjs",
+      "sha256": "a5272de29698de2f5be9816b4843e896a2344ad2237b9e0715d4fb59d350f644"
+    },
+    {
+      "path": "test/matching.test.mjs",
+      "sha256": "c2e7ee8965c84bdcb2638be8e9ec5c6d4f16b19f562064387825033cc122246b"
+    },
+    {
+      "path": "test/notion.test.mjs",
+      "sha256": "b9f04f75301d718650c58ef00093c54f2bede690ea706e7101608f6a92b5d5dd"
+    },
+    {
+      "path": "test/pdf-preview.test.mjs",
+      "sha256": "f52a350d81c4ab8428e8431cfe5cf86c97b65d05f1e454991a0fb78d280efffb"
+    },
+    {
+      "path": "test/pipeline.test.mjs",
+      "sha256": "01d5b5ba0eb56494981973b95bd67a2897c392ebf4c97e27a631917bfd18f12a"
+    },
+    {
+      "path": "test/posting-metadata.test.mjs",
+      "sha256": "79973b5ff76a4c469d221ce712f20cde83bacbf85368a8facfbeb5fc5c06fd07"
+    },
+    {
+      "path": "test/resume-bases.test.mjs",
+      "sha256": "5af971f899e5ef077d1ab872f5328d61046411abc751fe05ac605e0b455ee4f3"
+    },
+    {
+      "path": "test/resume-document.test.mjs",
+      "sha256": "ef9ef3d2e71fa823cbccd250d9563d0dc24d27583179742f8355f7695a207716"
+    },
+    {
+      "path": "test/resume-track.test.mjs",
+      "sha256": "9315de425aa3bf183b2fd333c92a855830e11158afe4009c5d9d006d79e3eac6"
+    },
+    {
+      "path": "test/resume.test.mjs",
+      "sha256": "961260924d0789d9d399a2282b5726a45cd1a30fa029189de3519b7f8f234b3a"
+    },
+    {
+      "path": "test/resume_base_test.py",
+      "sha256": "401ce6f6ab084e31285be98bf08cf21d6b1123d3aa5ecdcf862f46de33bbb823"
+    },
+    {
+      "path": "test/resume_document_test.py",
+      "sha256": "0812acca2678676710aea170fe70563eaeb5d7ccb3d12d00a9a9cf8deff7a03c"
+    },
+    {
+      "path": "test/workday.test.mjs",
+      "sha256": "7ba8e7dbafd4d140c47a11e49bf2e46eebed60fb169da0975124bd0041bbfad0"
+    },
+    {
+      "path": "web/app.js",
+      "sha256": "5afc090e608f2f7fc14df33c7a2431f262db1c69be017bf11090977bf981ad04"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "757016cff56ac33ad75c3fe9ad24fbee51320857381d7a1e1aeb0c7ae50b3d8f"
+    },
+    {
+      "path": "web/job-description.js",
+      "sha256": "6fe00da5f52bcbb738af4d35850c7b709ed5a71ace4641e760958bf9584752b6"
+    },
+    {
+      "path": "web/job-facts.js",
+      "sha256": "cbc6b3ee2ecaeec237ab09eee04e6b4fc3e2426260e3f59620dbb0df07fa0ab0"
+    },
+    {
+      "path": "web/job-summary.js",
+      "sha256": "9a0c097373aa3637eab98dda4a2ffdd11a9f730581714eb7f4004c54760e5b69"
+    },
+    {
+      "path": "web/job-view.js",
+      "sha256": "71302b44acbd08739acd39cdf779aff306e7d0b2cabf634f51f1f4b6b71891bd"
+    },
+    {
+      "path": "web/style.css",
+      "sha256": "012711744d50211ad41c633d1e6858a0230036eea525ee0e7db50d472000a673"
+    },
+    {
+      "path": "web/workbench.css",
+      "sha256": "9c4932a07628a32f62495c875b7a4ab1c046b2a57886d2df20fc0bc3b9822c8a"
+    }
+  ]
+}

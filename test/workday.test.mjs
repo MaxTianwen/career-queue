@@ -22,7 +22,7 @@ test('Workday reads the matching public JobPosting, retains dates/locations/pay 
     return new Response(html({ '@graph': [{ ...post, identifier: { value: 'OTHER' } }, post] }));
   });
   assert.equal(calls, 1); assert.equal(job.title, 'Software & Data Intern Summer 2027');
-  assert.match(job.jd, /Qualifications\nPython & SQL\nDuration: 4 months/);
+  assert.match(job.jd, /Qualifications\n+• Python & SQL\n+• Duration: 4 months/);
   assert.equal(job.location, 'Toronto, Ontario, Canada / Markham, Canada');
   assert.equal(job.requisitionId, 'R_123'); assert.equal(job.salary, 'CAD 25–30 / hour');
   assert.equal(job.workMode, 'hybrid'); assert.equal(job.postedAt, post.datePosted);

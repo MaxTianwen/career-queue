@@ -20,7 +20,7 @@ export async function fetchGreenhouse(url, company, fetchImpl = fetch) {
     return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
   });
   const html = decode(source.content);
-  const jd = decode(html.replace(/<\/(p|h[1-6]|li|div)>/gi, '\n').replace(/<[^>]*>/g, '')).replace(/\n{3,}/g, '\n\n').trim();
+  const jd = decode(html.replace(/<li\b[^>]*>/gi, '\n• ').replace(/<br\s*\/?>|<\/(p|h[1-6]|li|div)>/gi, '\n').replace(/<[^>]*>/g, '')).replace(/\n{3,}/g, '\n\n').trim();
   const terms = [...source.title.matchAll(/\b(Summer|Fall|Winter|Spring)\s+(20\d{2})\b/gi)].map(m => `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2]}`);
   const metadata = source.first_published ? null : await postingMetadata(`https://job-boards.greenhouse.io/${board}/jobs/${postId}`, source.title, fetchImpl);
   return { company: company.trim(), title: source.title,

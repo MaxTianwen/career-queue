@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { selectResumeTrack } from './resume-track.mjs';
 import { buildProfile, matchJob } from './matching.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
+import { activeResumeBase, resumeRuntime, buildUploadedPlan } from './resume-bases.mjs';
 
 const run = promisify(execFile);
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -16,7 +17,8 @@ async function configuration(root) {
   const folder = resolve(root, 'private/resume-templates');
   const config = JSON.parse(await readFile(resolve(folder, 'templates.json'), 'utf8'));
   for (const track of ['cs', 'data']) {
-    const t = config.templates[track];
+    const t = config.templates?.[track];
+    if (!t) throw new Error('初始模板尚未配置，请在“我的简历”上传基准');
     if (basename(t.file) !== t.file || basename(t.baselinePdf) !== t.baselinePdf) throw new Error('模板文件配置无效');
     if (hash(await readFile(resolve(folder, t.file))) !== t.sha256 || hash(await readFile(resolve(folder, t.baselinePdf))) !== t.baselineSha256) throw new Error('模板已变化，需要重新核对原稿和排版');
   }
@@ -34,9 +36,10 @@ async function editingSource(root, key, version) {
   const provenance = JSON.parse(await readFile(resolve(folder, 'working/plan.json'), 'utf8'));
   const digest = hash(await readFile(docx));
   if (!validation.passed || validation.pages !== 1 || validation.docxSha256 !== digest || validation.pdfSha256 !== hash(await readFile(pdf))) throw new Error('该版本文件已变化或未通过检查，请重新生成');
-  const config = await configuration(root), template = config.templates[provenance.track];
-  if (!template) throw new Error('无法识别该版本的原始模板');
-  const slots = [
+  const config = provenance.editableSlots ? { python: await resumeRuntime(root) } : await configuration(root);
+  const template = config.templates?.[provenance.track];
+  if (!provenance.editableSlots && !template) throw new Error('无法识别该版本的原始模板');
+  const slots = provenance.editableSlots || [
     { paragraph: 3, label: '求职摘要' },
     ...template.summary.map((_, i) => ({ paragraph: 4 + i, label: `摘要要点 ${i + 1}` })),
     ...template.skills.map(s => ({ paragraph: s.paragraph, skip: 1, label: `技能 · ${s.label}` })),
@@ -72,18 +75,30 @@ export async function saveManualResume(root, { key, version, sourceHash, edits: 
   if (sourceHash !== source.digest) throw new Error('源版本已变化，请重新打开编辑器');
   const edits = manualEdits(source.fields, inputs);
   const plan = { track: source.provenance.track, template: source.docx, templateSha256: source.digest,
-    baselinePdf: source.pdf, fixedText: source.provenance.fixedText, edits, parentVersion: version, engine: '手动文字修改' };
+    baselinePdf: source.pdf, fixedText: source.provenance.fixedText, edits, parentVersion: version,
+    baseline: source.provenance.baseline, editableSlots: source.provenance.editableSlots, engine: '手动文字修改' };
   const review = `# 手动修改记录\n\n来源版本：${version}\n\n以下文字由用户手动输入，未调用模型或自动核验事实。保存只生成本机新版本，不修改原稿、旧版本、Notion 材料或申请状态。\n\n${edits.map(e => `- 原文：${e.original}\n  修改：${e.text}\n`).join('\n')}\n\n通过原格式、字体、字号和 PDF 一页检查；仍需本人核对事实和版式。`;
   return publishResume(root, key, plan, review, source.config.python);
 }
 
 export async function resumeStatus(root, knowledge) {
+  const tracks = {};
+  let legacy;
   try {
     const config = await configuration(root);
     if (hash(knowledge) !== config.knowledgeSha256) throw new Error('知识库已更新，需要复核简历事实映射后再生成');
-    return { ready: true, engine: '本地规则定制 v1', templates: Object.fromEntries(Object.entries(config.templates).map(([k, v]) => [k, v.file])),
-      note: '按 JD 调整事实表述与顺序；不调用模型。生成后检查原格式和一页限制，仍需人工审阅。' };
-  } catch (error) { return { ready: false, reason: error.code === 'ENOENT' ? '原始模板或文档运行环境尚未配置' : error.message }; }
+    legacy = config;
+  } catch (error) { legacy = { error: error.code === 'ENOENT' ? '原始模板或文档运行环境尚未配置' : error.message }; }
+  for (const track of ['cs', 'data']) {
+    try {
+      const base = await activeResumeBase(root, track);
+      tracks[track] = base ? { ready: base.ready, name: base.name, version: base.version, reason: base.reason }
+        : { ready: !legacy.error, name: legacy.templates?.[track]?.file || '未配置', reason: legacy.error || '最初固定模板，尚未上传新基准' };
+    } catch (e) { tracks[track] = { ready: false, name: '基准不可用', reason: e.message }; }
+  }
+  return { ready: Object.values(tracks).some(t => t.ready), tracks, templates: Object.fromEntries(Object.entries(tracks).map(([k, t]) => [k, t.name])),
+    note: '使用所选方向当前基准；上传稿按 JD 重排已有要点，不新增事实。保留原格式并检查一页，仍需审阅。',
+    reason: Object.values(tracks).map(t => t.reason).join('；') };
 }
 
 function relevance(tags, jd) {
@@ -133,6 +148,14 @@ export function buildResumePlan(job, knowledge, config, requested = 'auto') {
 export async function generateResume(root, job, knowledge, requested = 'auto') {
   if (!keyPattern.test(job.key || '')) throw new Error('职位标识无效');
   if (job.status && !['Queue', '待提交'].includes(job.status)) throw new Error('该申请状态不允许生成新材料');
+  if (!job.jd?.trim() || job.fullJd === false) throw new Error('需要完整 JD 才能定制简历');
+  if (deadlineExpired(extractDeadline(job).deadline)) throw new Error('申请已截止，不能生成申请材料');
+  const selection = selectResumeTrack(job, requested), base = await activeResumeBase(root, selection.track);
+  if (base) {
+    const plan = buildUploadedPlan(job, base, selection.track);
+    const review = `# 上传简历定制记录\n\n基准：${base.name}\n版本：${base.version}\n上传：${base.createdAt}\n\n${base.reason}\n\n${plan.edits.length ? plan.edits.map(e => `- 原文：${e.original}\n  调整：${e.text}`).join('\n') : '没有需要重排的要点，本次保留原文。'}\n\n不混入旧简历或知识库的事实；不代表 ATS 分数或录取保证。原文件和历史版本不变，仍需人工审阅。`;
+    return publishResume(root, job.key, plan, review, await resumeRuntime(root));
+  }
   const config = await configuration(root);
   const plan = buildResumePlan(job, knowledge, config, requested);
   const review = `# ${job.company} / ${job.title} — 修改说明\n\n方向：${plan.track.toUpperCase()}；模板：${basename(plan.template)}\n引擎：${plan.engine}（没有模型 API 调用）\n\n实际 PDF 1 页；原 DOCX 字体、字号、段落、页边距和非文字部件检查通过。原文件未修改。自动检查不替代人工事实与视觉审阅。\n\n## 修改与事实依据\n${plan.edits.map(e => `\n- 原文：${e.original}\n  新文：${e.text}\n  依据：${e.source}\n`).join('')}\n## JD 已识别证据\n${(plan.requirements.matched || []).map(x => `- ${x.name}：${x.evidence}`).join('\n') || '未识别，需人工阅读 JD'}\n\n## 未证实与资格待核实\n${(plan.requirements.gaps || []).map(x => `- ${x.name}：没有补进简历`).join('\n')}\n${(plan.requirements.checks || []).map(x => `- ${x}`).join('\n')}\n\n本版采用事先核对的事实表达与关键词规则，不作完整语义推理；保留原稿项目日期。未证实技能未新增，基础技能不升级。成果口径保留估算或采用非数字表述；CMS 后续迭代保留 Codex 辅助说明。此版本仍需人工审阅，不保证 ATS / AI 通过，不代表已投递。\n`;
@@ -161,7 +184,7 @@ async function publishResume(root, key, plan, review, python) {
   // are retained privately and never listed as completed resume downloads.
   for (const name of ['resume.docx', 'resume.pdf', 'validation.json']) await copyFile(resolve(working, name), resolve(folder, name), constants.COPYFILE_EXCL);
   await writeFile(resolve(folder, 'review.md'), review, { flag: 'wx' });
-  return { key: key, version, track: plan.track, validation, engine: plan.engine,
+  return { key: key, version, track: plan.track, validation, engine: plan.engine, baseline: plan.baseline || { name: basename(plan.template), version: 'initial-template' },
     files: ['resume.docx', 'resume.pdf', 'review.md', 'validation.json'].map(name => ({ name,
       url: `/api/file?mode=live&key=${key}&version=${version}&name=${name}` })) };
 }

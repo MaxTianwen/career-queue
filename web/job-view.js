@@ -15,6 +15,7 @@ function comparePublication(a, b) {
 }
 export function matchesFilters(job, filters = {}) {
   if (!matchesTerm(job, filters.term)) return false;
+  if (filters.track && (job.resumeClassification?.track || 'unknown') !== filters.track) return false;
   if (filters.workMode && (job.workMode || 'unknown') !== filters.workMode) return false;
   const range = durationRange(job);
   if (filters.duration === 'unknown' && range) return false;

@@ -12,10 +12,11 @@ import { fetchGreenhouse } from './greenhouse.mjs';
 import { discover, extractFacts } from './discovery.mjs';
 import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
-import { buildProfile, matchJob } from './matching.mjs';
+import { buildProfile, matchJob, highlightJob } from './matching.mjs';
 import { classifyResume } from './resume-track.mjs';
 import { resumeStatus, generateResume, editableResume, saveManualResume } from './resume.mjs';
 import { renderPdf } from './pdf-preview.mjs';
+import { resumeLibrary, uploadResumeBase, activateResumeBase, readResumeBase } from './resume-bases.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -64,7 +65,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         workMode: record.workMode && record.workMode !== 'unknown' ? record.workMode : extracted.workMode };
       const evaluation = evaluateJob(job);
       if (record.fullJd === false) evaluation.reasons.unshift(record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
-      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), match: matchJob(job, profile), resumeClassification: classifyResume(job) };
+      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), match: matchJob(job, profile), jdHighlights: highlightJob(job, profile), resumeClassification: classifyResume(job) };
     });
   }
   async function presentSearch() {
@@ -113,7 +114,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/style.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -124,6 +125,16 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         return send({ csrf, knowledgeReady, notionConfigured: Boolean(env.NOTION_TOKEN || storeOverride), root,
           resume: mode === 'demo' ? { ready: false, reason: '演示模式不使用私人简历' } : await resumeStatus(root, knowledgeText),
           notionUrl: /^[a-f0-9]{32}$/i.test(databaseId) ? `https://app.notion.com/p/${databaseId}` : 'https://www.notion.so', mode });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/api/resume-base')) {
+        if (mode !== 'live') throw fail('演示模式不使用私人简历');
+        if (url.pathname === '/api/resume-base') return send(await resumeLibrary(root));
+        if (url.pathname !== '/api/resume-base/file' || url.searchParams.get('name') !== 'preview.pdf') throw fail('基准文件参数无效');
+        const base = await readResumeBase(root, url.searchParams.get('version'));
+        if (url.searchParams.get('render') === '1') return send(await renderPdf(root, base.pdf, Number(url.searchParams.get('page') || 1)));
+        res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'self'");
+        res.writeHead(200, { 'Content-Type': types['.pdf'], 'Content-Disposition': 'inline; filename="baseline.pdf"' });
+        res.end(await readFile(base.pdf)); return;
       }
       if (req.method === 'GET' && url.pathname === '/api/file') {
         const key = url.searchParams.get('key'), version = url.searchParams.get('version'), name = url.searchParams.get('name');
@@ -166,6 +177,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (busy) throw fail('另一个操作正在进行，请稍后再试', 409);
       busy = true; ownsLock = true;
       const body = await jsonBody(req);
+      if (url.pathname === '/api/resume-base' || url.pathname === '/api/resume-base/activate') {
+        if (mode !== 'live') throw fail('演示模式不使用私人简历');
+        return send(url.pathname.endsWith('/activate') ? await activateResumeBase(root, body.version) : await uploadResumeBase(root, body));
+      }
       if (url.pathname === '/api/resume/edit') {
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
         return send(await saveManualResume(root, body));

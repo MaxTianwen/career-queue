@@ -23,6 +23,7 @@ const decode = value => String(value).replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot
   return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
 });
 const plain = value => decode(String(value).replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+  .replace(/<li\b[^>]*>/gi, '\n• ')
   .replace(/<br\s*\/?>|<\/(?:p|div|li|h[1-6])>/gi, '\n').replace(/<[^>]*>/g, '')).trim();
 
 export function parseWorkday(html, candidate) {

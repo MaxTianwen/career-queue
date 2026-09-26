@@ -65,3 +65,25 @@ export function matchJob(job, profile) {
     matched: evidence.filter(x => x.level > 0), gaps: evidence.filter(x => x.level === 0), checks,
     note: '按 JD 提及的技能与经历主题计算覆盖度；基础接触计半项，仅简历列出计待核实。未全面区分必需/加分/任选条件；不表示熟练度、专业年限或录取概率。' };
 }
+
+// Full-text annotations are independent of the score's comparison section.
+export function highlightJob(job, profile) {
+  if (job.fullJd === false || !job.jd || !profile.available) return [];
+  const candidates = [];
+  for (const [kind, rows] of [['skill', profile.technical], ['experience', profile.experience]]) {
+    for (const row of rows.filter(r => r.level > 0)) {
+      const pattern = new RegExp(row.pattern.source, row.pattern.flags.replace('g', '') + 'g');
+      for (const hit of job.jd.matchAll(pattern)) {
+        let end = hit.index + hit[0].length;
+        // Some experience patterns deliberately match stems (collaborat, dashboard).
+        while (/[a-z]/i.test(job.jd[end] || '') && /[a-z]$/i.test(hit[0])) end++;
+        candidates.push({ start: hit.index, end, name: row.name, kind, level: row.level, evidence: row.evidence || '' });
+      }
+    }
+  }
+  const ranges = [];
+  for (const hit of candidates.sort((a, b) => a.start - b.start || b.end - a.end || Number(b.kind === 'skill') - Number(a.kind === 'skill'))) {
+    if (!ranges.length || hit.start >= ranges.at(-1).end) ranges.push(hit);
+  }
+  return ranges;
+}

@@ -39,6 +39,35 @@ async function setup(t, storeOverride, discoverImpl) {
 const files = { resume: Buffer.from('%PDF-1.7\nSynthetic signature fixture, not a rendered resume.').toString('base64'),
   docx: Buffer.from('PK synthetic format fixture').toString('base64'), reviewNotes: Buffer.from('Synthetic review').toString('base64') };
 
+test('resume library APIs stay local, require CSRF for uploads and never expose arbitrary private files', async t => {
+  const { request, url } = await setup(t);
+  assert.deepEqual((await request('/api/resume-base', undefined, 'live')).data, { active: {}, versions: [] });
+  assert.equal((await request('/api/resume-base')).status, 400);
+  assert.equal((await request('/api/resume-base', { track: 'cs', name: 'file.txt', data: '' }, 'live')).status, 400);
+  assert.equal((await request('/api/resume-base/activate', { version: '../resume-templates' }, 'live')).status, 400);
+  assert.equal((await request('/api/resume-base/file?version=../resume-templates&name=preview.pdf', undefined, 'live')).status, 400);
+  const denied = await fetch(url + '/api/resume-base', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(denied.status, 403);
+});
+
+test('discovery and saved jobs expose the same direction and evidence without persisting display annotations', async t => {
+  const store = new DemoStore();
+  const original = (await store.list())[0];
+  const job = { ...original, title: 'Technology Intern', jd: 'Develop web applications. Build dashboards using Python.', fullJd: true };
+  await store.updateState(job);
+  const { root, request } = await setup(t, store, async () => ({ results: [job], finishedAt: new Date().toISOString() }));
+  await writeFile(resolve(root, 'career_knowledge_base.md'), '## 5. 技能与证据范围\n| 工作技术 | Python | Synthetic evidence |\n');
+  await request('/api/discovery', {}, 'live');
+  for (let n = 0; n < 30 && (await request('/api/discovery')).data.state !== 'done'; n++) await new Promise(r => setTimeout(r, 10));
+  const discovered = (await request('/api/discovery', undefined, 'live')).data.report.results[0];
+  const saved = (await request('/api/jobs', undefined, 'live')).data.jobs.find(j => j.key === job.key);
+  assert.equal(discovered.resumeClassification.track, 'mixed');
+  assert.deepEqual(discovered.jdHighlights, saved.jdHighlights);
+  assert.ok(saved.jdHighlights.some(r => job.jd.slice(r.start, r.end) === 'Python'));
+  assert.equal((await store.list()).find(j => j.key === job.key).jdHighlights, undefined);
+  assert.equal((await request('/api/jobs')).data.jobs[0].jdHighlights.length, 0);
+});
+
 test('workspace link uses local database configuration without a bundled private identifier', async t => {
   const { root, request } = await setup(t);
   for (const databaseId of ['', 'not-a-database-id', '11111111-2222-3333-4444-555555555555']) {

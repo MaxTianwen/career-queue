@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Career Queue · 求职工作台</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Career Queue · 求职工作台</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/workbench.css"><script type="module" src="/app.js"></script></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/"><span class="brand-mark">cq.</span><span>Career Queue<small>你的求职工作台</small></span></a>
   <div class="nav-label">求职工作台</div>
-  <nav aria-label="工作区"><button class="nav-item active" data-action="discover"><span>⌕</span>发现职位</button><button class="nav-item" data-action="queue"><span>▤</span>已保存 Queue <b id="queue-count">—</b></button><button class="nav-item" data-action="applications"><span>▱</span>申请记录 <b id="app-count">—</b></button></nav>
+  <nav aria-label="工作区"><button class="nav-item active" data-action="discover">发现职位</button><button class="nav-item" data-action="queue">已保存 <b id="queue-count">—</b></button><button class="nav-item" data-action="applications">申请记录 <b id="app-count">—</b></button><button class="nav-item" data-action="resumes">我的简历</button></nav>
   <button class="connection" data-action="settings"><span class="dot" id="connection-dot"></span><span id="connection-text">正在检查连接</span><span>↗</span></button>
 </aside>
 <main>
@@ -13,23 +13,26 @@
   <div class="content">
     <section id="mode-banner" class="notice" aria-live="polite"></section>
     <section class="page-heading"><div><span class="eyebrow">CAREER WORKSPACE</span><h1 id="page-title">发现机会，准备下一步。</h1><p id="page-subtitle">自动发现职位，在这里查看结果并选择下一步。</p></div><div class="heading-actions"><button data-action="search" class="button primary">⌕ 自动搜岗</button><button data-action="add" class="button secondary">＋ 添加职位</button></div></section>
-    <section class="filter-panel" aria-label="职位筛选"><div class="filter-heading"><h2>筛选职位</h2><span>按你的下一步计划，缩小范围</span></div><div class="view-controls">
+    <section class="filter-panel" aria-label="职位筛选"><div class="filter-heading"><h2>筛选职位</h2><span>条件可叠加</span></div><div class="view-controls">
       <label>入职时间<select id="term-filter"><option value="">全部入职季</option><option value="Winter 2027">Winter 2027</option><option value="Summer 2027">Summer 2027</option><option value="Fall 2027">Fall 2027</option><option value="Unknown">入职时间未知</option></select></label>
       <label>排序方式<select id="sort-order"><option value="match">Match Score 优先</option><option value="published">发布时间优先</option></select></label>
       <label>Duration / 时长<select id="duration-filter"><option value="">全部时长</option><option value="4">4 个月</option><option value="8">8 个月</option><option value="12">12 个月</option><option value="16">16 个月</option><option value="8plus">8 个月及以上</option><option value="unknown">时长待核实</option></select></label>
       <label>工作方式<select id="work-mode-filter"><option value="">全部方式</option><option value="onsite">On-site · 现场</option><option value="remote">Remote · 远程</option><option value="hybrid">Hybrid · 混合</option><option value="unknown">方式待核实</option></select></label>
       <label>工作地点<select id="location-filter"><option value="">全部地点</option><option value="toronto">Toronto 市内（含 North York / Scarborough）</option><option value="gta">GTA 全部（含 Toronto）</option><option value="outside">GTA 外</option><option value="unknown">地点待核实 / 仅全国远程</option></select></label>
       <label>城市关键词<input id="city-filter" type="search" placeholder="例如 Markham、Vaughan" aria-label="城市关键词"></label>
+      <label>岗位方向<select id="track-filter"><option value="">全部方向</option><option value="cs">CS · 软件开发</option><option value="data">Data · 数据分析</option><option value="mixed">CS / Data · 混合方向</option><option value="unknown">方向待判断</option></select></label>
       <button class="button secondary" data-action="reset-filters">重置筛选</button>
-      <p>条件可叠加 · 已截止岗位自动隐藏 · 日期未知排后 · 时长包含范围内可选月数 · GTA 包含 Toronto</p>
+      <p>时长包含范围内可选月数 · GTA 包含 Toronto</p>
     </div>
     </section>
     <div id="feedback" class="feedback" role="status" hidden></div>
+    <section id="resume-library" hidden aria-label="我的简历"><div id="resume-library-body"></div></section>
     <section id="discovery" class="list-card discovery">
-      <div class="list-toolbar"><div><h2>发现职位</h2><span>选择值得准备的机会</span></div><span class="badge ready">Winter / Summer / Fall 2027</span></div>
-      <div class="discovery-intro">自动读取公开实习索引，按加拿大 / 远程与相关岗位方向筛选，并读取支持的官方 JD。无需搜索密钥。</div>
-      <div id="search-progress" role="status" aria-live="polite"></div>
+      <div class="list-toolbar"><div><h2>发现职位</h2><span id="discovery-count" role="status" aria-live="polite">尚未搜索</span></div><span id="discovery-term" class="badge ready">全部入职季 · 2027</span></div>
+      <div class="discovery-intro">搜索公开实习岗位，查看职位详情后，选择保存到 Queue。</div>
       <div class="discovery-tools" id="search-tools" hidden><input id="search-filter" type="search" aria-label="筛选搜索结果" placeholder="公司、职位、地点或批次…"><select id="search-kind" aria-label="搜索结果类型"><option value="review">候选 · 不限发布日期</option><option value="ready">已读取完整 JD</option><option value="recent">最近 24 小时发布（含重新发布）</option><option value="rejected">不符合求职条件</option></select></div>
+      <div id="active-filters" class="active-filters" aria-label="当前筛选条件"></div>
+      <div id="search-progress" role="status" aria-live="polite"></div>
       <div id="search-results"><div class="search-empty"><h3>让职位自己汇集到这里</h3><p>点击“自动搜岗”，即可查看真实结果。不需要先连接 Notion。</p><button class="button primary" data-action="search">开始自动搜索</button></div></div>
       <div id="search-pagination" class="discovery-tools"></div>
       <footer class="table-footer"><span>来源：<a href="https://github.com/SimplifyJobs/Summer2027-Internships" target="_blank" rel="noopener noreferrer">Simplify / Pitt CSC</a> · 覆盖公开索引，非全网穷尽</span><span>24h 是可选筛选；仅日期 / 时间未知不计入</span></footer>

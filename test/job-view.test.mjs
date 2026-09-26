@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import { matchesTerm, matchesFilters, sortJobs } from '../web/job-view.js';
 import { publication, recentPublication, locationRegion, validPublicationDate, durationText } from '../web/job-facts.js';
 const job = (key, term, score, postedAt) => ({ key, company: 'Test', title: key, term, match: { score }, postedAt });
+test('direction combines with season and location; mixed and unknown remain distinct', () => {
+  const jobs = ['cs', 'data', 'mixed', 'unknown'].map(track => ({ term: 'Summer 2027', location: 'Toronto', resumeClassification: { track } }));
+  for (const track of ['cs', 'data', 'mixed', 'unknown']) {
+    assert.equal(jobs.filter(j => matchesFilters(j, { track, term: 'Summer 2027', location: 'gta' })).length, 1);
+    assert.equal(jobs.filter(j => matchesFilters(j, { track, term: 'Winter 2027' })).length, 0);
+  }
+  assert.equal(matchesFilters({}, { track: 'unknown' }), true);
+  assert.equal(matchesFilters({}, { track: 'data' }), false);
+  assert.equal(jobs.filter(j => matchesFilters(j, { track: '' })).length, 4);
+});
 test('term selection prioritizes official starts; an eight-month Winter job is not a Summer start', () => {
   assert.equal(matchesTerm({ term: 'Winter 2027', durationMonths: 8, indexEvidence: { terms: ['Summer 2027'] } }, 'Summer 2027'), false);
   assert.equal(matchesTerm({ term: 'Summer/Fall 2027' }, 'Summer 2027'), true);

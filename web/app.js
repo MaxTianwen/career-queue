@@ -1,13 +1,14 @@
 import { matchesFilters, sortJobs } from './job-view.js';
 import { publication, recentPublication, durationText } from './job-facts.js';
 import { jobHighlights, skillHighlights } from './job-summary.js';
+import { jobDescription } from './job-description.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeUrl = value => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? esc(u.href) : '#'; } catch { return '#'; } };
-let mode = 'live', view = ['discover', 'queue', 'applications'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'discover', jobs = [], csrf = '', status, selected, connected = false, listError = '', refreshId = 0;
+let mode = 'live', view = ['discover', 'queue', 'applications', 'resumes'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'discover', jobs = [], csrf = '', status, selected, connected = false, listError = '', refreshId = 0;
 let highlightedKey = '', loadingJobs = true;
 let searchState = { state: 'idle', report: null }, searchPage = 0, searchTimer, importedSource = null;
-const applyView = rows => sortJobs(rows.filter(j => matchesFilters(j, { term: $('#term-filter').value, duration: $('#duration-filter').value,
+const applyView = rows => sortJobs(rows.filter(j => matchesFilters(j, { term: $('#term-filter').value, track: $('#track-filter').value, duration: $('#duration-filter').value,
   workMode: $('#work-mode-filter').value, location: $('#location-filter').value, city: $('#city-filter').value })), $('#sort-order').value);
 const appStates = ['待提交', '已投递', '面试中', '已结束'];
 function feedback(message, error = false) { const node = $('#feedback'); node.hidden = false; node.className = `feedback${error ? ' error' : ''}`; node.textContent = message; }
@@ -32,25 +33,34 @@ function renderBanner() {
 }
 function render() {
   const isQueue = view === 'queue', isDiscover = view === 'discover';
+  document.body.dataset.view = view;
+  $('#resume-library').hidden = view !== 'resumes';
+  $('.filter-panel').hidden = view === 'resumes';
+  $('.heading-actions').hidden = view === 'resumes';
   $('#discovery').hidden = !isDiscover;
-  $('#workspace-list').hidden = isDiscover;
+  $('#workspace-list').hidden = isDiscover || view === 'resumes';
   $('#breadcrumb').textContent = isDiscover ? '发现职位' : isQueue ? '已保存 Queue' : '申请记录';
   $('#page-title').textContent = isDiscover ? '找到值得投入的下一站。' : isQueue ? '你选中的机会，都在这里。' : '让每一次申请都有进展。';
   $('#page-subtitle').textContent = isDiscover ? '发现职位 → 保存到 Queue → 定制简历 → 跟进申请' : isQueue ? '从发现页保存的职位。选择一份，查看详情、生成简历并准备申请。' : '集中查看待提交材料、真实投递日期和后续进展。';
+  if (view === 'resumes') {
+    $('#page-title').textContent = '好机会，从最新的你开始。';
+    $('#page-subtitle').textContent = '分别维护 CS 与 Data 简历。上传后持续使用，重启或下次打开也会保留。';
+    $('#breadcrumb').textContent = '我的简历';
+  }
   $('#list-title').textContent = isQueue ? '待处理职位' : '申请记录';
   $('#list-caption').textContent = mode === 'demo' ? '演示记录 · 仅本机' : '同步自 Notion · Career Queue';
   document.querySelectorAll('.nav-item').forEach(n => { n.classList.toggle('active', n.dataset.action === view); n.setAttribute('aria-current', n.dataset.action === view ? 'page' : 'false'); });
   $('#queue-count').textContent = connected ? jobs.filter(j => j.status === 'Queue').length : '—';
   $('#app-count').textContent = connected ? jobs.filter(j => appStates.includes(j.status)).length : '—';
   const query = $('#filter').value.trim().toLowerCase();
-  const hasFilters = ['term-filter','duration-filter','work-mode-filter','location-filter','city-filter','filter'].some(id => $(`#${id}`).value.trim());
+  const hasFilters = ['term-filter','track-filter','duration-filter','work-mode-filter','location-filter','city-filter','filter'].some(id => $(`#${id}`).value.trim());
   const rows = applyView(jobs.filter(j => (isQueue ? j.status === 'Queue' : appStates.includes(j.status)) && `${j.company} ${j.title} ${j.location} ${j.term} ${(j.indexEvidence?.terms ?? []).join(' ')}`.toLowerCase().includes(query)));
   $('#list-footer').textContent = connected ? `${rows.length} 个${isQueue ? '待处理职位' : '申请记录'}${mode === 'demo' ? ' · 演示数据' : ''}` : '等待连接正式记录';
   if (loadingJobs) { $('#job-list').innerHTML = '<div class="empty"><h3>正在读取已保存职位…</h3><p>正在连接工作区，请稍候。</p></div>'; return; }
   if (!connected || !rows.length) {
     $('#job-list').innerHTML = `<div class="empty"><div class="empty-icon">${connected ? '▤' : '↗'}</div><h3>${!connected ? '连接你的求职工作区' : hasFilters ? '当前筛选下没有职位' : isQueue ? '为下一次机会留个位置' : '第一份申请，从 Queue 开始'}</h3><p>${!connected ? esc(listError) : hasFilters ? '已保存的职位可能被筛选条件隐藏。清除条件即可查看全部。' : isQueue ? '在“发现职位”中点击“保存到 Queue”，职位就会出现在这里。' : '材料准备、检查并上传成功后，职位会出现在这里，状态为“待提交”。'}</p>${!connected ? '<button class="button primary" data-action="mode">体验演示工作区</button> <button class="button secondary" data-action="settings">连接 Notion</button>' : hasFilters ? '<button class="button secondary" data-action="reset-filters">清除筛选</button>' : isQueue ? '<button class="button primary" data-action="discover">去发现职位 →</button>' : ''}</div>`; return;
   }
-  $('#job-list').innerHTML = `<table><thead><tr><th>公司</th><th>职位 / 开始批次</th><th>Match Score</th>${isQueue ? '<th>地点</th><th>薪资</th><th>备注</th>' : '<th>申请日期</th><th>状态</th><th>下一步</th>'}<th></th></tr></thead><tbody>${rows.map(j => `<tr data-job-key="${j.key}" class="${j.key === highlightedKey ? 'saved-highlight' : ''}"><td><div class="company"><span class="company-icon">${esc(j.company.replace('示例公司 · ', '').slice(0, 1))}</span><span>${esc(j.company)}</span></div></td><td><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button><span class="job-sub">${esc(j.term)} · ${esc(durationText(j))} · ${esc(modeText(j))}</span><span class="job-sub">${esc(publicationText(j))}</span></td><td>${scoreBadge(j)}</td>${isQueue ? `<td>${esc(j.location)}</td><td>${esc(j.salary)}</td><td>${j.notes ? esc(j.notes.slice(0, 40)) : j.decision === 'REVIEW' ? '<span class="badge">有信息待核实</span>' : '—'}</td>` : `<td>${esc(j.applicationDate || '尚未投递')}</td><td><span class="badge ${j.status === '待提交' ? 'ready' : 'done'}">${esc(j.status)}</span></td><td>${esc(j.nextStep)}</td>`}<td><button class="button secondary compact" data-action="detail" data-key="${j.key}">查看 →</button></td></tr>`).join('')}</tbody></table>`;
+  $('#job-list').innerHTML = `<table><thead><tr><th>公司</th><th>职位 / 开始批次</th><th>Match Score</th>${isQueue ? '<th>地点</th><th>薪资</th><th>备注</th>' : '<th>申请日期</th><th>状态</th><th>下一步</th>'}<th></th></tr></thead><tbody>${rows.map(j => `<tr data-job-key="${j.key}" class="${j.key === highlightedKey ? 'saved-highlight' : ''}"><td><div class="company"><span class="company-icon">${esc(j.company.replace('示例公司 · ', '').slice(0, 1))}</span><span>${esc(j.company)}</span></div></td><td><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button>${directionBadge(j)}<span class="job-sub">${esc(j.term)} · ${esc(durationText(j))} · ${esc(modeText(j))}</span><span class="job-sub">${esc(publicationText(j))}</span></td><td>${scoreBadge(j)}</td>${isQueue ? `<td>${esc(j.location)}</td><td>${esc(j.salary)}</td><td>${j.notes ? esc(j.notes.slice(0, 40)) : j.decision === 'REVIEW' ? '<span class="badge">有信息待核实</span>' : '—'}</td>` : `<td>${esc(j.applicationDate || '尚未投递')}</td><td><span class="badge ${j.status === '待提交' ? 'ready' : 'done'}">${esc(j.status)}</span></td><td>${esc(j.nextStep)}</td>`}<td><button class="button secondary compact" data-action="detail" data-key="${j.key}">查看 →</button></td></tr>`).join('')}</tbody></table>`;
 }
 async function refresh() {
   const id = ++refreshId;
@@ -60,11 +70,16 @@ async function refresh() {
   catch (error) { if (id !== refreshId) return; jobs = []; connected = false; listError = error.message; }
   loadingJobs = false; renderBanner(); render();
   renderSearch();
+  if (view === 'resumes') await loadResumeLibrary();
 }
 const searchDate = value => value ? /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Date(value).toLocaleString('zh-CN', { timeZone: 'America/Toronto' }) : '未提供';
 const publicationText = job => { const p = publication(job); return p.at ? `${p.label}：${searchDate(p.at)}${p.dateOnly ? '（未提供具体时间）' : '（多伦多时间）'}` : '发布日期：官方未提供'; };
 const modeText = job => ({ onsite: 'On-site · 现场', remote: 'Remote · 远程', hybrid: 'Hybrid · 混合' })[job.workMode] || '方式待核实';
 const deadlineDate = value => !value ? '未披露' : /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}（多伦多当日结束）` : searchDate(value);
+function directionBadge(job) {
+  const classification = job.resumeClassification;
+  return `<span class="direction-badge" title="${esc(classification?.basis || '缺少方向依据')}" aria-label="岗位方向">${esc(classification?.label || '方向待判断')}${job.fullJd === false ? ' · 标题初判' : ''}</span>`;
+}
 function scoreBadge(job) {
   return Number.isFinite(job.match?.score) ? `<span class="match-score">${job.match.score}<small> / 100</small></span>` : '<span class="score-pending">暂不评分</span>';
 }
@@ -73,7 +88,7 @@ function scoreDetails(job) {
 }
 function resumeControls(job, source) {
   if ((source === 'discovery' && searchState.state === 'running') || mode === 'demo' || job.identityConflict || job.expired || job.fullJd === false || (source === 'discovery' && job.decision === 'REJECT') || (job.status && !['Queue', '待提交'].includes(job.status))) return '';
-  return `<section class="resume-controls"><h3>定制一页简历</h3><p>${esc(status.resume?.ready ? status.resume.note : status.resume?.reason || '模板尚未就绪')}</p><label>生成使用的原始简历<select id="generate-track"><option value="auto">自动：${esc(job.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><div class="form-actions"><button class="button primary" data-action="generate-resume" data-key="${job.key}" data-source="${source}" ${status.resume?.ready ? '' : 'disabled'}>生成定制简历</button><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button></div><p>原稿只读；新版本保存到本项目。通过原格式与一页检查后提供 DOCX / PDF，申请状态保持不变。</p><div id="generate-result" role="status"></div></section>`;
+  return `<section class="resume-controls"><h3>定制一页简历</h3><p>${esc(status.resume?.ready ? status.resume.note : status.resume?.reason || '模板尚未就绪')}</p><div class="baseline-summary">${['cs', 'data'].map(track => { const t = status.resume?.tracks?.[track]; return `<p><b>${track.toUpperCase()} 基准</b> · ${esc(t?.name || '未配置')}<small>${esc(t?.version || '最初固定模板')}${t?.ready === false ? ` · ${esc(t.reason)}` : ''}</small></p>`; }).join('')}<button class="text-button" data-action="resumes">管理 / 上传简历 →</button></div><label>生成使用的原始简历<select id="generate-track"><option value="auto">自动：${esc(job.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><div class="form-actions"><button class="button primary" data-action="generate-resume" data-key="${job.key}" data-source="${source}" ${status.resume?.ready ? '' : 'disabled'}>生成定制简历</button><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button></div><p>原稿只读；新版本保存到本项目。通过原格式与一页检查后提供 DOCX / PDF，申请状态保持不变。</p><div id="generate-result" role="status"></div></section>`;
 }
 function fileLinks(files) {
   return files.map(f => `<div class="material-file"><div><strong>${esc(f.name)}</strong><small>${esc(f.version || (f.modified ? new Date(f.modified).toLocaleString('zh-CN') : '本次生成'))}</small></div><div class="file-actions">${f.name.endsWith('.pdf') ? `<button class="button secondary compact" data-action="preview-file" data-url="${esc(f.url)}" data-name="${esc(f.name)}" data-version="${esc(f.version || '')}">预览 PDF</button>` : ''}<a class="button secondary compact" href="${esc(f.url)}">下载</a></div></div>`).join('');
@@ -82,7 +97,7 @@ let resumeEdit = null;
 let previewSource = null, previewPage = 1, previewPages = 1, previewRequest = 0;
 async function previewFile(file) {
   const url = new URL(file.url, location.origin);
-  if (url.origin !== location.origin || url.pathname !== '/api/file') throw new Error('仅预览本项目的 PDF');
+  if (url.origin !== location.origin || !['/api/file', '/api/resume-base/file'].includes(url.pathname)) throw new Error('仅预览本项目的 PDF');
   previewSource = file; previewPage = 1; previewPages = 1;
   const editable = mode === 'live' && url.searchParams.get('name') === 'resume.pdf' && /^resume-\d+-[a-f0-9]{8}$/.test(url.searchParams.get('version') || '');
   url.searchParams.set('preview', '1');
@@ -116,6 +131,17 @@ async function openResumeEditor() {
   editor.showModal();
   editor.scrollTop = 0;
 }
+async function loadResumeLibrary() {
+  const box = $('#resume-library-body');
+  if (mode !== 'live') { box.innerHTML = '<p>演示模式不使用私人简历，请返回真实工作区。</p>'; return; }
+  const library = await api('/api/resume-base');
+  box.innerHTML = `<div class="resume-library-grid">${['cs', 'data'].map(track => {
+    const current = library.versions.find(v => v.version === library.active[track]);
+    const fallback = status.resume?.tracks?.[track];
+    const history = library.versions.filter(v => v.track === track && v.version !== current?.version);
+    return `<article class="resume-base-card"><div class="base-card-heading"><span class="base-track">${track === 'cs' ? '01 / CS' : '02 / DATA'}</span><span class="badge ${current?.ready || fallback?.ready ? 'ready' : ''}">${current ? current.ready ? '已启用' : '定制暂停' : library.active[track] ? '基准不可用' : fallback?.ready ? '初始模板' : '待上传'}</span></div><h2>${track === 'cs' ? '软件与开发' : '数据与分析'}</h2><div class="base-current"><span class="eyebrow">当前基准</span><h3>${esc(current?.name || fallback?.name || '尚未上传')}</h3><p>${current ? `${esc(searchDate(current.createdAt))} · ${current.format.toUpperCase()} · ${current.pages} 页` : fallback?.ready ? '未上传新文件时，继续使用原有固定模板。' : '上传一页 Word 简历，开始使用此方向。'}</p><p class="base-note">${esc(current?.reason || fallback?.reason || '')}</p>${current ? `<button class="button secondary compact" data-action="preview-file" data-url="${esc(current.preview)}" data-name="${esc(current.name)}" data-version="${current.version}">预览当前基准 ↗</button>` : ''}</div><form class="base-upload" data-resume-track="${track}"><label class="upload-label" for="base-file-${track}"><b>上传新版${track.toUpperCase()} 简历</b><span>Word (.docx) / PDF · 最大 10MB</span></label><input id="base-file-${track}" name="resumeFile" type="file" accept=".docx,.pdf" required><p>上传成功即设为当前基准。PDF 仅保存预览，该方向需补同版 Word 才能定制。</p><button class="button primary" type="submit">上传并设为基准</button><div class="upload-status" role="status"></div></form>${history.length ? `<details class="base-history"><summary>历史基准 · ${history.length} 个版本</summary>${history.map(v => `<div><strong>${esc(v.name)}</strong><small>${esc(searchDate(v.createdAt))} · ${v.format.toUpperCase()}</small><div class="form-actions"><button class="text-button" data-action="preview-file" data-url="${esc(v.preview)}" data-name="${esc(v.name)}" data-version="${v.version}">预览</button><button class="text-button" data-action="activate-base" data-version="${v.version}">重新启用${v.format === 'pdf' ? '（暂停定制）' : ''}</button></div></div>`).join('')}</details>` : ''}</article>`;
+  }).join('')}</div><div class="resume-library-note"><b>原版式，原字号，原事实。</b><p>文件仅保存在本项目 private 目录，不发送到模型或 Notion。Word 上传时检查一页；生成后再次检查。复杂格式无法安全编辑时会明确暂停，不回退旧稿。Match Score 目前仍依据已核实知识库，上传不会自动改变评分。</p></div>`;
+}
 async function saveResumeEditor(form) {
   const editor = $('#resume-editor');
   editor.dataset.saving = 'true';
@@ -133,7 +159,7 @@ async function saveResumeEditor(form) {
   } finally { delete editor.dataset.saving; }
 }
 function clearViewFilters() {
-  for (const id of ['term-filter', 'duration-filter', 'work-mode-filter', 'location-filter', 'city-filter', 'filter']) $(`#${id}`).value = '';
+  for (const id of ['term-filter', 'track-filter', 'duration-filter', 'work-mode-filter', 'location-filter', 'city-filter', 'filter']) $(`#${id}`).value = '';
 }
 async function revealSaved(key, newlySaved = false) {
   if (!key) throw new Error('保存结果没有职位标识，请刷新 Queue 核实');
@@ -148,7 +174,7 @@ async function revealSaved(key, newlySaved = false) {
     feedback(`此职位已有记录，当前${job.expired ? '申请已截止' : '已归档'}，未重新加入 Queue。`);
     await detail(key); return;
   }
-  feedback(`${newlySaved ? '已保存' : '已定位已有记录'}：${job.title}。位于${view === 'queue' ? '左侧「已保存 Queue」' : '左侧「申请记录」'}${mode === 'live' ? '，同步到 Notion Career Queue' : '（演示）'}。已清除筛选，方便找到该职位。`);
+  feedback(`${newlySaved ? '已保存' : '已定位已有记录'}：${job.title}。位于${view === 'queue' ? '顶部「已保存」' : '顶部「申请记录」'}${mode === 'live' ? '，同步到 Notion Career Queue' : '（演示）'}。已清除筛选，方便找到该职位。`);
   const row = document.querySelector(`[data-job-key="${key}"]`);
   row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   row?.querySelector('.job-title')?.focus({ preventScroll: true });
@@ -184,20 +210,60 @@ function sourceReport(coverage = []) {
 function sourceLinks(job) {
   return `<p class="source-label">招聘系统：${esc(job.sourceName || '待核实')}${job.sourceLinks?.length > 1 ? ` · ${job.sourceLinks.length} 个来源链接` : ''}</p>${job.duplicateNote ? `<p class="duplicate-note">${esc(job.duplicateNote)}</p>` : ''}${job.sourceLinks?.length ? `<details class="origin-links"><summary>查看保留的职位来源链接</summary><ul>${job.sourceLinks.map(url => `<li><a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></li>`).join('')}</ul></details>` : ''}`;
 }
+const discoveryFilterControls = [
+  ['term-filter', '入职时间', ''], ['track-filter', '方向', ''], ['duration-filter', '时长', ''],
+  ['work-mode-filter', '方式', ''], ['location-filter', '地点', ''], ['city-filter', '城市', ''],
+  ['search-filter', '关键词', ''], ['search-kind', '结果类型', 'review'], ['sort-order', '排序', 'match']
+];
+function renderDiscoveryFilters() {
+  const term = $('#term-filter').value;
+  $('#discovery-term').textContent = term === 'Unknown' ? '入职时间待核实' : term || '全部入职季 · 2027';
+  const active = discoveryFilterControls.filter(([id, , defaultValue]) => $(`#${id}`).value.trim() !== defaultValue);
+  $('#active-filters').innerHTML = active.length ? `<div class="filter-chips">${active.map(([id, label]) => {
+    const control = $(`#${id}`), value = control.selectedOptions ? control.selectedOptions[0].textContent : control.value.trim();
+    const text = `${label}：${value}`;
+    return `<button class="filter-chip" data-action="clear-filter" data-filter="${id}" aria-label="${esc(`移除${text}`)}"><span>${esc(text)}</span><span aria-hidden="true">×</span></button>`;
+  }).join('')}</div><button class="clear-filters" data-action="reset-filters">一键清空筛选</button>` : '<span class="filters-empty">未设置额外筛选</span>';
+}
+function discoveryCard(j) {
+  const saved = jobs.some(s => s.key === j.key || s.url === j.url && s.term === j.term);
+  const skills = (j.match?.matched || []).filter(s => s.kind === 'skill');
+  const term = j.term === 'Unknown' ? '入职季待核实' : j.term;
+  return `<article class="discovery-card ${saved ? 'card-saved' : ''}">
+    <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0, 1))}</span><strong>${esc(j.company)}</strong><span class="card-state">${saved ? '已保存 ✓' : j.decision === 'REJECT' ? '不符合条件' : j.fullJd ? '完整 JD' : '待补全文'}</span></div>
+    <div class="card-title-row"><button class="job-title" data-action="search-detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score" title="知识库覆盖分，不代表录取概率">${scoreBadge(j)}<span>${j.match?.score == null ? '待核实' : `${j.match.evidenceCount} 项依据`}</span></div></div>
+    <div class="card-tags">${directionBadge(j)}<span>${esc(term)}</span></div>
+    <dl class="card-facts"><div><dt>地点</dt><dd>${esc(j.location || '待核实')}</dd></div><div><dt>时长 / 方式</dt><dd>${esc(durationText(j))} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(j.salary || '未披露')}</dd></div></dl>
+    <div class="card-skills"><span>匹配技能</span>${skills.length ? skills.slice(0, 4).map(s => `<span class="skill-chip" title="${esc(s.evidence)}">${esc(s.name)}${s.level < 1 ? ' · 基础' : ''}</span>`).join('') + (skills.length > 4 ? `<span>+${skills.length - 4}</span>` : '') : '<span class="skill-empty">暂无已核实匹配</span>'}</div>
+    <div class="card-dates"><span>${esc(publicationText(j))}</span>${j.deadline ? `<strong>截止 ${esc(deadlineDate(j.deadline))}</strong>` : ''}</div>
+    ${j.decision === 'REJECT' || j.fetchError ? `<p class="card-alert">${esc(j.decision === 'REJECT' ? j.reasons[0] : '全文读取失败，查看详情核实')}</p>` : ''}
+    <div class="card-actions"><button class="button primary compact" data-action="search-detail" data-key="${j.key}">查看职位 <span aria-hidden="true">↗</span></button><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">官网 ↗</a><span class="card-source">${esc(j.sourceName || '来源待核实')}</span></div>
+  </article>`;
+}
 function renderSearch() {
+  renderDiscoveryFilters();
   const report = searchState.report, running = searchState.state === 'running';
   document.querySelectorAll('[data-action="search"]').forEach(b => { b.disabled = running; });
   $('#search-tools').hidden = !report;
+  $('.discovery-intro').hidden = Boolean(report);
+  $('#discovery-count').textContent = report ? '正在筛选…' : running ? '正在搜索…' : '尚未搜索';
   if (!report && searchState.state === 'idle') return;
   const results = report?.results ?? [];
   const recent = j => j.decision !== 'REJECT' && recentPublication(j);
   const accepted = results.filter(j => j.decision !== 'REJECT');
   $('#search-progress').innerHTML = `<div class="search-status${searchState.error ? ' search-error' : ''}"><strong>${esc(searchState.phase || '搜索完成')}</strong>${searchState.error ? `<p>${esc(searchState.error)}。下方为本次已取得的部分结果，可重试搜索。</p>` : ''}${report ? `<p>扫描 ${report.total} 条索引 · ${report.candidates} 条方向 / 地域候选 · ${results.filter(j => j.fullJd).length} 条完整 JD · ${results.filter(recent).length} 条最近 24 小时发布 / 重新发布 · ${results.length - accepted.length} 条不符合求职条件${report.expiredCount ? ` · ${report.expiredCount} 条已截止并剔除` : ''}</p><small>${report.finishedAt ? `完成于 ${esc(searchDate(report.finishedAt))}（多伦多时间）· 5 分钟内复用结果；重新搜索会更新` : '正在读取官方来源，结果会陆续显示'}${report.duplicates ? ` · 合并 ${report.duplicates} 条重复` : ''}</small>${report.errors?.length ? `<p>${esc(report.errors.join('；'))}</p>` : ''}${sourceReport(report.coverage)}` : '<p>正在连接来源，无需打开搜索网页。</p>'}</div>`;
+  if (!running && report) {
+    const expanded = $('#search-progress').dataset.expanded === 'true' || Boolean(searchState.error || report.errors?.length);
+    const content = $('#search-progress').innerHTML;
+    $('#search-progress').innerHTML = `<details class="search-log" ${expanded ? 'open' : ''}><summary>搜索记录与来源覆盖 <span>全部来源结果 · ${esc(searchDate(report.finishedAt))}</span></summary>${content}</details>`;
+    $('#search-progress details').addEventListener('toggle', event => { $('#search-progress').dataset.expanded = String(event.target.open); });
+  }
   if (!report) { $('#search-results').innerHTML = ''; return; }
   const query = $('#search-filter').value.trim().toLowerCase(), kind = $('#search-kind').value;
   const filtered = applyView(results.filter(j => (kind === 'rejected' ? j.decision === 'REJECT' : kind === 'ready' ? j.fullJd && j.decision !== 'REJECT' : kind === 'recent' ? recent(j) : j.decision !== 'REJECT') && `${j.company} ${j.title} ${j.location} ${j.term} ${(j.indexEvidence?.terms ?? []).join(' ')}`.toLowerCase().includes(query)));
   const pages = Math.max(1, Math.ceil(filtered.length / 12)); searchPage = Math.min(searchPage, pages - 1);
-  $('#search-results').innerHTML = filtered.length ? `<div class="discovery-grid">${filtered.slice(searchPage * 12, searchPage * 12 + 12).map(j => `<article class="discovery-card"><div class="discovery-company"><span class="company-icon">${esc(j.company.slice(0, 1))}</span><strong>${esc(j.company)}</strong><span class="badge ${j.fullJd ? 'ready' : ''}">${jobs.some(saved => saved.key === j.key || saved.url === j.url && saved.term === j.term) ? '已保存' : j.decision === 'REJECT' ? '不符合条件' : j.fullJd ? '完整 JD' : '待补全文'}</span></div><button class="job-title" data-action="search-detail" data-key="${j.key}">${esc(j.title)}</button>${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}<p>入职季：${j.term === 'Unknown' ? `索引：${esc(j.indexEvidence.terms.join(' / '))}（待核实）` : esc(j.term)}</p><div class="match-line">${scoreBadge(j)}<span>${esc(j.match?.score == null ? j.match?.reason : `Match Score · ${j.match.evidenceCount} 项依据${j.match.evidenceCount < 4 ? ' · 依据有限' : ''}`)}</span></div><p class="publication-date">${esc(publicationText(j))}</p>${!publication(j).at && j.indexEvidence?.addedAt ? `<p>索引收录：${esc(searchDate(j.indexEvidence.addedAt))}（非发布日期）</p>` : ''}${j.deadline ? `<p>截止：${esc(deadlineDate(j.deadline))}</p>` : ''}<div class="search-reason">${esc(j.decision === 'REJECT' ? j.reasons[0] : j.fetchError ? `JD 读取失败：${j.fetchError}` : '请查看完整 JD 核实申请资格与截止时间')}</div><div class="card-actions"><button class="button secondary compact" data-action="search-detail" data-key="${j.key}">查看详情 →</button><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">官方岗位 ↗</a></div></article>`).join('')}</div>` : `<div class="search-empty"><h3>${running ? '正在读取…' : kind === 'recent' ? '暂未找到可核实最近 24 小时发布的岗位' : '此筛选下没有结果'}</h3><p>${kind === 'recent' ? '可切换到“候选 · 不限发布日期”；只有日期或未提供日期的岗位仍会保留。' : '可以调整关键词或查看其他结果类型。'}</p></div>`;
+  $('#discovery-count').textContent = `${filtered.length} 个结果${running ? ' · 搜索中' : ''}`;
+  $('#search-results').innerHTML = filtered.length ? `<div class="discovery-grid">${filtered.slice(searchPage * 12, searchPage * 12 + 12).map(discoveryCard).join('')}</div>` : `<div class="search-empty"><h3>${running ? '正在读取…' : kind === 'recent' ? '暂未找到可核实最近 24 小时发布的岗位' : '此筛选下没有结果'}</h3><p>${kind === 'recent' ? '可切换到“候选 · 不限发布日期”；只有日期或未提供日期的岗位仍会保留。' : '可以调整关键词或查看其他结果类型。'}</p></div>`;
   $('#search-pagination').innerHTML = `<span>${filtered.length} 条 · 第 ${searchPage + 1} / ${pages} 页</span><div><button class="button secondary compact" data-action="search-prev" ${searchPage === 0 ? 'disabled' : ''}>上一页</button> <button class="button secondary compact" data-action="search-next" ${searchPage + 1 >= pages ? 'disabled' : ''}>下一页</button></div>`;
 }
 async function pollSearch() {
@@ -210,7 +276,7 @@ function searchDetail(key) {
   const j = searchState.report?.results.find(x => x.key === key); if (!j) throw new Error('搜索结果已更新，请重新选择');
   const saved = jobs.find(x => x.key === key || x.url === j.url && x.term === j.term);
   delete $('#detail').dataset.dirty;
-  $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">自动发现 · ${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${j.fullJd ? '已读取官方完整 JD' : '公开索引记录 · 全文尚未取得'}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}<div class="meta"><span>入职季：${esc(j.term)}</span><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看官方岗位 ↗</a></div><div class="hint">${j.decision === 'REJECT' ? '不满足当前筛选条件' : '候选职位，仍有信息需核实'}\n${esc(j.reasons.join('\n'))}</div><div class="form-actions">${searchState.state === 'running' ? '<p>搜索完成并去重后即可保存或生成材料。</p>' : j.identityConflict || j.decision === 'REJECT' ? '' : saved ? `<button class="button secondary" data-action="show-saved" data-key="${saved.key}">查看已保存职位 · ${esc(saved.status)}</button>` : j.fullJd ? `<button class="button primary" data-action="${connected && mode === 'live' ? 'search-save' : 'search-connect'}" data-key="${j.key}">${connected && mode === 'live' ? '保存到 Queue' : '连接 Notion 后保存'}</button>` : `<button class="button primary" data-action="search-fill" data-key="${j.key}">补充 JD 与核实信息</button>`}</div>${scoreDetails(j)}${resumeControls(j, 'discovery')}${j.fullJd ? `<h3>完整职位描述</h3><pre class="jd">${esc(j.jd)}</pre>` : `<h3>全文状态</h3><p>${esc(j.fetchError || '该招聘系统暂不支持自动读取全文。基本信息已自动发现，可补充 JD 后入队。')}</p>`}<h3>来源与日期依据</h3><div class="hint">${esc(publicationText(j))}\n申请截止：${esc(deadlineDate(j.deadline))}\n${esc(j.deadlineEvidence || '')}\n索引收录时间：${esc(searchDate(j.indexEvidence.addedAt))}\n索引标注批次：${esc(j.indexEvidence.terms.join(' / '))}\n${esc(j.indexEvidence.note)}${j.sourceEvidence ? `\n官方读取时间：${esc(searchDate(j.sourceEvidence.retrievedAt))}\n${esc(j.sourceEvidence.note)}${j.sourceEvidence.publicationError ? `\n${esc(j.sourceEvidence.publicationError)}` : ''}` : ''}</div><p>此结果来自公开招聘信息；尚未生成材料或投递。</p></div>`;
+  $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">自动发现 · ${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${j.fullJd ? '已读取官方完整 JD' : '公开索引记录 · 全文尚未取得'}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}<div class="meta"><span>入职季：${esc(j.term)}</span><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看官方岗位 ↗</a></div><div class="hint">${j.decision === 'REJECT' ? '不满足当前筛选条件' : '候选职位，仍有信息需核实'}\n${esc(j.reasons.join('\n'))}</div><div class="form-actions">${searchState.state === 'running' ? '<p>搜索完成并去重后即可保存或生成材料。</p>' : j.identityConflict || j.decision === 'REJECT' ? '' : saved ? `<button class="button secondary" data-action="show-saved" data-key="${saved.key}">查看已保存职位 · ${esc(saved.status)}</button>` : j.fullJd ? `<button class="button primary" data-action="${connected && mode === 'live' ? 'search-save' : 'search-connect'}" data-key="${j.key}">${connected && mode === 'live' ? '保存到 Queue' : '连接 Notion 后保存'}</button>` : `<button class="button primary" data-action="search-fill" data-key="${j.key}">补充 JD 与核实信息</button>`}</div>${scoreDetails(j)}${resumeControls(j, 'discovery')}${j.fullJd ? `<h3>完整职位描述</h3>${jobDescription(j)}` : `<h3>全文状态</h3><p>${esc(j.fetchError || '该招聘系统暂不支持自动读取全文。基本信息已自动发现，可补充 JD 后入队。')}</p>`}<h3>来源与日期依据</h3><div class="hint">${esc(publicationText(j))}\n申请截止：${esc(deadlineDate(j.deadline))}\n${esc(j.deadlineEvidence || '')}\n索引收录时间：${esc(searchDate(j.indexEvidence.addedAt))}\n索引标注批次：${esc(j.indexEvidence.terms.join(' / '))}\n${esc(j.indexEvidence.note)}${j.sourceEvidence ? `\n官方读取时间：${esc(searchDate(j.sourceEvidence.retrievedAt))}\n${esc(j.sourceEvidence.note)}${j.sourceEvidence.publicationError ? `\n${esc(j.sourceEvidence.publicationError)}` : ''}` : ''}</div><p>此结果来自公开招聘信息；尚未生成材料或投递。</p></div>`;
   if (!$('#detail').open) $('#detail').showModal();
 }
 function showModal(title, subtitle, content) {
@@ -223,7 +289,7 @@ async function detail(key) {
   const j = selected;
   delete $('#detail').dataset.dirty;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${esc(j.term)} · ${esc(j.status)}${mode === 'demo' ? ' · 演示职位' : ''}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">
-    ${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>
+    ${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>
     <p>${esc(publicationText(j))} · ${esc(modeText(j))}</p>
     ${scoreDetails(j)}
     ${resumeControls(j, 'queue')}
@@ -231,7 +297,7 @@ async function detail(key) {
     ${j.reasons?.length ? `<div class="hint">${esc(j.reasons.join('\n'))}</div>` : ''}
     <div class="form-actions">${['Queue', '待提交'].includes(j.status) ? `<label>原始简历方向<select id="resume-track"><option value="auto">自动：${esc(j.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><button class="button primary" data-action="prepare">准备定制任务</button>` : ''}${j.status === 'Queue' ? '<button class="button danger" data-action="archive">不投 · 归档</button>' : ''}</div>
     ${['Queue', '待提交'].includes(j.status) ? '<p>“准备定制任务”另行导出上下文，供助手做进一步审阅或修改；自动定制请使用上方“生成定制简历”。</p>' : ''}
-    <div id="archive-question"></div><div id="prepare-result"></div><h3>完整职位描述</h3><pre class="jd">${esc(j.jd)}</pre>
+    <div id="archive-question"></div><div id="prepare-result"></div><h3>完整职位描述</h3>${jobDescription(j)}
     <h3>我的备注与下一步</h3><form id="notes-form"><div class="form-grid"><label class="wide">备注<textarea name="notes" maxlength="5000">${esc(j.notes)}</textarea></label><label class="wide">下一步<input name="nextStep" value="${esc(j.nextStep)}" maxlength="5000"></label></div><div class="form-actions"><button class="button secondary">保存备注</button></div></form>
     <hr class="section-line"><h3>材料与版本</h3><div id="files">${j.localFiles.length || j.attachments?.length ? `${fileLinks(j.localFiles)}${(j.attachments ?? []).filter(f => f.url).map(f => `<a class="file-link" href="${safeUrl(f.url)}" target="_blank" rel="noopener noreferrer">↗ Notion · ${esc(f.name)}</a>`).join('')}` : '<p>尚无材料。处理任务文件和上传的简历会按版本保存在这里。</p>'}</div>
     ${['Queue', '待提交'].includes(j.status) ? `<h3>上传已检查的材料</h3><form id="materials-form"><div class="form-grid"><label>简历 PDF<input name="resume" type="file" accept=".pdf" required></label><label>简历 DOCX<input name="docx" type="file" accept=".docx" required></label><label>修改说明 Markdown<input name="reviewNotes" type="file" accept=".md" required></label><label>Cover Letter PDF${j.coverLetterRequired ? '（必需）' : '（按需）'}<input name="coverLetter" type="file" accept=".pdf" ${j.coverLetterRequired ? 'required' : ''}></label><label class="wide check"><input name="checked" type="checkbox" required>我已检查材料的事实依据与排版，确认可用于本职位。</label></div><p>总大小不超过 20MB。${mode === 'demo' ? '演示模式只保存到本机演示目录。' : '上传至 Notion 成功后才进入“待提交”。'}每次上传保留一个新版本。</p><button class="button primary">保存材料，设为待提交</button></form>` : ''}
@@ -256,8 +322,19 @@ function formJob() {
     sourceEvidence: importedSource?.sourceEvidence || '用户通过 Dashboard 输入或核对；未知字段保留待核实。' };
 }
 async function handle(action, button) {
+  if (action === 'activate-base') {
+    await api('/api/resume-base/activate', { version: button.dataset.version });
+    status = await api('/api/status'); csrf = status.csrf;
+    await loadResumeLibrary(); feedback('已切换当前基准；已生成材料与历史版本保持不变。'); return;
+  }
+  if (action === 'clear-filter') {
+    const control = discoveryFilterControls.find(([id]) => id === button.dataset.filter);
+    if (!control) return;
+    $(`#${control[0]}`).value = control[2]; searchPage = 0; render(); renderSearch();
+    $(`#${control[0]}`).focus(); return;
+  }
   if (action === 'reset-filters') {
-    for (const id of ['term-filter', 'duration-filter', 'work-mode-filter', 'location-filter', 'city-filter', 'filter', 'search-filter']) $(`#${id}`).value = '';
+    for (const id of ['term-filter', 'track-filter', 'duration-filter', 'work-mode-filter', 'location-filter', 'city-filter', 'filter', 'search-filter']) $(`#${id}`).value = '';
     $('#sort-order').value = 'match'; $('#search-kind').value = 'review'; searchPage = 0; render(); renderSearch(); return;
   }
   if (action === 'resume-versions') {
@@ -272,7 +349,7 @@ async function handle(action, button) {
     try {
       const result = await api('/api/resume/generate', { key: button.dataset.key, source: button.dataset.source, resumeTrack: $('#generate-track').value });
       if (!box.isConnected) { feedback('所选岗位的定制版本已生成，可在该岗位详情查看已生成版本。'); return; }
-      box.innerHTML = `<div class="hint">${esc(result.track.toUpperCase())} 定制版本已生成 · 实际 PDF ${result.validation.pages} 页\n原格式、字体、字号与 PDF 文本检查通过；可直接预览 PDF 审阅。${button.dataset.source === 'discovery' ? '保存到 Queue 后可上传材料。' : '审阅后可在下方上传材料，设为待提交。'}申请状态未改变。</div>${fileLinks(result.files)}`;
+      box.innerHTML = `<div class="hint">${esc(result.track.toUpperCase())} 定制版本已生成 · 实际 PDF ${result.validation.pages} 页 · 基准：${esc(result.baseline?.name || '初始模板')}\n原格式、字体、字号与 PDF 文本检查通过；可直接预览 PDF 审阅。${button.dataset.source === 'discovery' ? '保存到 Queue 后可上传材料。' : '审阅后可在下方上传材料，设为待提交。'}申请状态未改变。</div>${fileLinks(result.files)}`;
       const pdf = result.files.find(f => f.name.endsWith('.pdf'));
       if (pdf && $('#detail').open) await previewFile(pdf);
     } catch (error) { if (box.isConnected) box.textContent = error.message; throw error; }
@@ -286,7 +363,7 @@ async function handle(action, button) {
   if (action === 'edit-resume') return openResumeEditor();
   if (action === 'preview-file') return previewFile({ url: button.dataset.url, name: button.dataset.name, version: button.dataset.version });
   if (action === 'show-saved') return revealSaved(button.dataset.key);
-  if (['discover', 'queue', 'applications'].includes(action)) { if (action === 'discover' && mode === 'demo') { mode = 'live'; await refresh(); } view = action; history.replaceState(null, '', `#${view}`); $('#filter').value = ''; render(); renderSearch(); return; }
+  if (['discover', 'queue', 'applications', 'resumes'].includes(action)) { if (['discover', 'resumes'].includes(action) && mode === 'demo') { mode = 'live'; await refresh(); } view = action; history.replaceState(null, '', `#${view}`); $('#filter').value = ''; $('#detail').close(); render(); renderSearch(); window.scrollTo(0, 0); if (view === 'resumes') await loadResumeLibrary(); return; }
   if (action === 'mode') { mode = mode === 'demo' ? 'live' : 'demo'; selected = null; $('#feedback').hidden = true; view = 'queue'; await refresh(); return; }
   if (action === 'refresh') { await refresh(); return; }
   if (action === 'detail') return detail(button.dataset.key);
@@ -354,7 +431,7 @@ document.addEventListener('input', event => { if (event.target.closest('#job-for
 $('#filter').addEventListener('input', render);
 $('#search-filter').addEventListener('input', () => { searchPage = 0; renderSearch(); });
 $('#search-kind').addEventListener('change', () => { searchPage = 0; renderSearch(); });
-for (const selector of ['#term-filter', '#sort-order', '#duration-filter', '#work-mode-filter', '#location-filter']) $(selector).addEventListener('change', () => { searchPage = 0; render(); renderSearch(); });
+for (const selector of ['#term-filter', '#track-filter', '#sort-order', '#duration-filter', '#work-mode-filter', '#location-filter']) $(selector).addEventListener('change', () => { searchPage = 0; render(); renderSearch(); });
 $('#city-filter').addEventListener('input', () => { searchPage = 0; render(); renderSearch(); });
 async function base64(file) {
   if (file.size > 20 * 1024 * 1024) throw new Error('单个文件超过 20MB');
@@ -364,6 +441,18 @@ document.addEventListener('submit', async event => {
   event.preventDefault(); const form = event.target, button = event.submitter;
   if (button) button.disabled = true;
   try {
+    if (form.classList.contains('base-upload')) {
+      const message = form.querySelector('.upload-status');
+      message.textContent = '正在保存并检查文档，Word 排版检查可能需要数十秒…';
+      try {
+        const file = form.elements.resumeFile.files[0];
+        if (!file || file.size > 10 * 1024 * 1024) throw new Error('请选择不超过 10MB 的 Word (.docx) 或 PDF');
+        const result = await api('/api/resume-base', { track: form.dataset.resumeTrack, name: file.name, data: await base64(file) });
+        status = await api('/api/status'); csrf = status.csrf;
+        await loadResumeLibrary(); feedback(`${result.name} 已设为 ${result.track.toUpperCase()} 基准。${result.ready ? '下次定制将使用此版本。' : result.reason}`);
+      } catch (error) { message.textContent = error.message; }
+      return;
+    }
     if (form.id === 'resume-edit-form') { await saveResumeEditor(form); return; }
     const values = Object.fromEntries(new FormData(form));
     if (form.id === 'job-form') {

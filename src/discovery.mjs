@@ -13,7 +13,7 @@ export const SOURCE = {
 };
 const geography = /\b(canada|toronto|north york|scarborough|markham|vaughan|waterloo|vancouver|montreal|montréal|ottawa|calgary|edmonton|remote)\b/i;
 const role = /\b(software|developer|programmer|data|analytics|analyst|machine learning|AI|ML|QA|quality assurance|test|SRE|DevOps|cloud|platform|IT|information (systems|technology)|cyber|security|firmware|embedded|full.stack|front.end|back.end)\b/i;
-const plain = s => String(s ?? '').replace(/<\/(p|li|h[1-6]|div)>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+const plain = s => String(s ?? '').replace(/<li\b[^>]*>/gi, '\n• ').replace(/<br\s*\/?>|<\/(p|li|h[1-6]|div)>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
 
 async function readJson(url, fetchImpl) {
   const r = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Accept: 'application/json', 'User-Agent': 'CareerQueue/1.0' } });

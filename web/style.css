@@ -17,3 +17,26 @@ dialog{border:1px solid #dce6eb;border-radius:16px;width:min(740px,calc(100% - 3
 .pdf-page{overflow:auto;background:#e5ebef;border-radius:10px;padding:20px;text-align:center;max-height:65dvh;min-height:150px}.pdf-page img{display:block;width:100%;max-width:860px;height:auto;margin:auto;box-shadow:0 3px 16px #16304520}.pdf-page.zoomed img{width:1224px;max-width:none}.preview-actions{position:sticky;top:0}.preview-dialog .dialog-head{position:static}
 
 .editor-dialog{width:min(900px,calc(100% - 40px));max-height:94dvh}.edit-field{margin:20px 0;font-size:16px}.edit-field textarea{font-size:16px;line-height:1.7}.edit-version{font-size:13px!important;overflow-wrap:anywhere}.editor-save{position:sticky;bottom:0;background:#fff;padding:16px 0;border-top:1px solid var(--line);display:flex;gap:16px;align-items:center;justify-content:space-between}.editor-save [role=status]{font-size:15px;max-width:65%;overflow-wrap:anywhere}.editor-save button{flex-shrink:0}@media(max-width:700px){.editor-save{flex-direction:column;align-items:stretch;bottom:0}.editor-save [role=status]{max-width:100%}}
+
+/* Readable JD layout; all markup is generated from escaped source text. */
+.view-controls label:nth-child(5){grid-column:auto}
+.direction-badge{display:inline-block;margin:8px 0;padding:4px 10px;border-radius:6px;background:#edf2fa;color:#36577e;font-size:14px;font-weight:650}
+.jd{white-space:normal;max-height:none;overflow-wrap:anywhere;font-size:16px;line-height:1.85;border:1px solid #e2e9ee;padding:22px}
+.dialog-content .jd p{font-size:16px;line-height:1.85;color:#344f60;margin:0 0 18px;white-space:pre-wrap}
+.jd h4{font-size:18px;color:#203f50;margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid #dce6eb}
+.jd h4:first-child{margin-top:0}.jd ul{padding-left:24px;margin:12px 0 22px}.jd li{margin:8px 0;white-space:pre-wrap}.jd>:last-child{margin-bottom:0}
+.jd mark,.jd-legend mark{border-radius:3px;padding:1px 3px;color:#194f46;background:#d4eee4;border-bottom:2px solid #579985}
+.jd mark:focus{outline:2px solid #167d71;outline-offset:2px}.jd mark.jd-basic,.jd-legend .jd-basic{background:#fff0ca;color:#735219;border-color:#c5973d}
+.jd mark.jd-experience,.jd-legend .jd-experience{background:#dfeafa;color:#2c527e;border-color:#7298c8}
+.jd-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:14px;margin:12px 0}.dialog-content .jd-note{font-size:14px;color:#607380;margin:10px 0 16px}
+@media(max-width:700px){.jd{padding:16px}}
+
+/* Keep active choices next to the results; source diagnostics stay available on demand. */
+.active-filters{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 24px 18px;padding-bottom:18px;border-bottom:1px solid #e8eef1}
+.filter-chips{display:flex;flex-wrap:wrap;gap:8px;min-width:0}.filter-chip{display:inline-flex;align-items:center;gap:9px;max-width:100%;min-height:34px;padding:6px 10px;border:1px solid #bcded7;border-radius:8px;background:#edf7f4;color:#245e56;font-size:14px;line-height:1.5;text-align:left}
+.filter-chip span:first-child{overflow-wrap:anywhere}.filter-chip span:last-child{font-size:18px;color:#487b72}.filter-chip:hover{background:#dceee8;border-color:#7cb7a9}
+.clear-filters{flex-shrink:0;border:0;border-radius:6px;background:transparent;padding:8px 2px;color:#08756e;font-size:14px;font-weight:600;min-height:34px}.clear-filters:hover{text-decoration:underline}.filters-empty{font-size:14px;color:var(--muted);padding:6px 0}
+#discovery .list-toolbar{padding-bottom:18px}#discovery-count{color:#526d7a;font-weight:500}#discovery-term{margin:0;font-size:14px;color:#276a60;background:#e9f4ef}
+.search-log{margin:0 24px 18px;font-size:14px;color:#607381}.search-log>summary{cursor:pointer;padding:4px 0;line-height:1.7}.search-log>summary span{margin-left:8px;color:#6d808b}.search-log .search-status{margin:12px 0 0}.filter-panel{box-shadow:0 2px 10px #17374e03}.filter-heading{padding-bottom:13px;border-bottom:1px solid #edf1f4}.filter-panel input:focus,.filter-panel select:focus,.discovery-tools input:focus,.discovery-tools select:focus{outline:2px solid #76b9ac;outline-offset:2px;background:white}
+#search-tools{padding-bottom:14px}#search-tools input{background:white}.discovery-card{background:#fff}.direction-badge{align-self:flex-start}
+@media(max-width:700px){.active-filters{margin-inline:18px;flex-wrap:wrap}.clear-filters{margin-left:auto}.search-log{margin-inline:18px}.search-log>summary span{display:block;margin-left:16px}.filter-chip{font-size:14px}}
