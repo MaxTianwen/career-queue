@@ -21,10 +21,14 @@ async function listenForTest(server) {
   }
 }
 
-async function setup(t, storeOverride, discoverImpl) {
+async function setup(t, storeOverride, discoverImpl, cachedReport) {
   const root = resolve('output/test-runs', randomUUID());
   await mkdir(root, { recursive: true });
   await writeFile(resolve(root, 'career_knowledge_base.md'), '# Synthetic knowledge\nNo real personal information.');
+  if (cachedReport) {
+    await mkdir(resolve(root, 'output/discovery'), { recursive: true });
+    await writeFile(resolve(root, 'output/discovery/latest.json'), JSON.stringify(cachedReport));
+  }
   const server = dashboardServer({ root, storeOverride, discoverImpl });
   const { url, status } = await listenForTest(server);
   t.after(() => new Promise(r => server.close(r)));
@@ -38,6 +42,97 @@ async function setup(t, storeOverride, discoverImpl) {
 }
 const files = { resume: Buffer.from('%PDF-1.7\nSynthetic signature fixture, not a rendered resume.').toString('base64'),
   docx: Buffer.from('PK synthetic format fixture').toString('base64'), reviewNotes: Buffer.from('Synthetic review').toString('base64') };
+
+test('school paste parses without Notion and links a missing-URL row only after preview confirmation', async t => {
+  const { request, url } = await setup(t);
+  assert.equal((await fetch(url + '/portal-import.js')).status, 200);
+  const job = (await request('/api/jobs')).data.jobs[0];
+  const text = ['App Status\tTerm\tID\tJob Title\tOrganization\tLocation\tApp Deadline',
+    `\t2027 - Summer\t900001\t${job.title}\t${job.company}\t${job.location}\tOct 31, 2026 11:59 PM`].join('\n');
+  const parsed = await request('/api/portal/parse', { text }, 'live');
+  assert.equal(parsed.status, 200); assert.equal(parsed.data.rows.length, 1);
+  const preview = (await request('/api/portal/preview', { rows: parsed.data.rows })).data;
+  assert.equal(preview.rows[0].category, 'possible');
+  assert.equal(preview.jobs.find(j => j.key === job.key).externalSubmitted, false);
+  const saved = await request('/api/portal/link', { token: preview.token, confirmed: true, selections: [{ index: 0, key: job.key }] });
+  assert.deepEqual(saved.data.saved, [job.key]);
+  const linked = (await request(`/api/jobs/${job.key}`)).data;
+  assert.equal(linked.portal.url, ''); assert.equal(linked.portal.deadline, '2026-10-31T23:59:00-04:00');
+  assert.equal(linked.status, 'Queue'); assert.equal(linked.portal.status, 'unknown');
+});
+
+test('portal preview does not write; selected batch links persist once and stale previews cannot overwrite changes', async t => {
+  const { request } = await setup(t);
+  const jobs = (await request('/api/jobs')).data.jobs, job = jobs[0];
+  const row = { id: 'S123', url: 'https://school.example/job/S123', company: job.company, title: job.title, externalUrl: job.url, term: job.term, location: job.location };
+  const preview = await request('/api/portal/preview', { rows: [row, { ...row, id: 'S124', company: 'Unrelated', title: 'Other Job', externalUrl: '' }] });
+  assert.equal(preview.data.rows[0].category, 'exact'); assert.equal(preview.data.rows[1].category, 'unmatched');
+  assert.equal((await request(`/api/jobs/${job.key}`)).data.portal, undefined);
+  const body = { token: preview.data.token, confirmed: true, selections: [{ index: 0, key: job.key }] };
+  assert.equal((await request('/api/portal/link', { ...body, confirmed: false })).status, 400);
+  const saved = await request('/api/portal/link', body);
+  assert.deepEqual(saved.data.saved, [job.key]); assert.equal(saved.data.errors.length, 0);
+  const linked = (await request(`/api/jobs/${job.key}`)).data;
+  assert.equal(linked.portal.id, 'S123'); assert.equal(linked.portal.requirement, 'unknown'); assert.equal(linked.status, 'Queue');
+  assert.equal((await request('/api/portal/link', body)).status, 400);
+  const repeat = (await request('/api/portal/preview', { rows: [row] })).data;
+  assert.equal(repeat.rows[0].category, 'linked');
+  await request('/api/portal/link', { token: repeat.token, confirmed: true, selections: [{ index: 0, key: job.key }] });
+  assert.deepEqual((await request(`/api/jobs/${job.key}`)).data.portalHistory, linked.portalHistory);
+  const stale = (await request('/api/portal/preview', { rows: [row] })).data;
+  const updated = await request(`/api/jobs/${job.key}/portal`, { action: 'requirement', requirement: 'required', confirmed: true, revision: linked.portalRevision });
+  assert.equal(updated.status, 200);
+  assert.equal((await request('/api/portal/link', { token: stale.token, confirmed: true, selections: [{ index: 0, key: job.key }] })).status, 400);
+  assert.equal((await request(`/api/jobs/${job.key}/portal`, { action: 'unlink', confirmed: true, revision: linked.portalRevision })).status, 409);
+});
+
+test('portal state endpoints preserve independent submission states, history and mode boundaries', async t => {
+  const { request } = await setup(t, new DemoStore());
+  const job = (await request('/api/jobs')).data.jobs[0];
+  const row = { id: 'S1', url: 'https://school.example/S1', company: job.company, title: job.title };
+  const token = (await request('/api/portal/preview', { rows: [row] })).data.token;
+  assert.equal((await request('/api/portal/link', { token, confirmed: true, selections: [{ index: 0, key: job.key }] }, 'live')).status, 400);
+  let current = (await request(`/api/jobs/${job.key}`)).data;
+  await request(`/api/jobs/${job.key}/portal`, { action: 'link', row, requirement: 'required', confirmed: true, revision: current.portalRevision });
+  current = (await request(`/api/jobs/${job.key}`)).data;
+  const result = await request(`/api/jobs/${job.key}/portal`, { action: 'submitted', confirmed: true, revision: current.portalRevision,
+    date: '2026-09-24', materialSource: 'other', materialNote: 'Synthetic school resume v1', receipt: 'SCHOOL-1' });
+  assert.equal(result.status, 200); assert.equal(result.data.status, 'Queue'); assert.equal(result.data.applicationDate, null);
+  assert.equal(result.data.portal.status, 'submitted');
+  const list = (await request('/api/portal')).data.jobs.find(j => j.key === job.key);
+  assert.equal(list.summary.category, 'submitted'); assert.equal(list.summary.externalSubmitted, false);
+  const details = (await request(`/api/jobs/${job.key}`)).data;
+  const unlink = await request(`/api/jobs/${job.key}/portal`, { action: 'unlink', confirmed: true, revision: details.portalRevision });
+  assert.equal(unlink.data.portal, null); assert.equal(unlink.data.portalHistory.at(-1).portal.receipt, 'SCHOOL-1');
+});
+
+test('portal batch write failures report partial results without recreating applications or marking submission', async t => {
+  const store = new DemoStore(); let writes = 0;
+  const update = store.updateState.bind(store);
+  store.updateState = async record => { if (++writes === 2) throw new Error('Simulated Notion write failure'); return update(record); };
+  const { request } = await setup(t, store);
+  const jobs = (await store.list()).slice(0, 2);
+  const rows = jobs.map((j, i) => ({ id: `S${i}`, url: `https://school.example/S${i}`, company: j.company, title: j.title, externalUrl: j.url }));
+  const preview = (await request('/api/portal/preview', { rows }, 'live')).data;
+  const result = await request('/api/portal/link', { token: preview.token, confirmed: true, selections: jobs.map((j, index) => ({ index, key: j.key })) }, 'live');
+  assert.deepEqual(result.data.saved, [jobs[0].key]); assert.equal(result.data.errors.length, 1); assert.equal(result.data.remaining, 1);
+  assert.equal((await store.list()).length, 3); assert.equal((await store.find(jobs[0].key)).status, 'Queue');
+  assert.equal((await store.find(jobs[1].key)).portal, undefined);
+});
+
+test('old discovery snapshots regroup automatically and saving a primary link reuses its saved alternative', async t => {
+  const store = new DemoStore(), original = (await store.list())[0];
+  const alternative = { ...original, key: 'aaaaaaaaaaaaaaaaaaaaaaaa', url: 'https://example.com/alternative', fullJd: true, jd: 'Longer official job description. Python and SQL.' };
+  const { request } = await setup(t, store, undefined, { results: [original, alternative], duplicates: 0, finishedAt: new Date().toISOString() });
+  const first = (await request('/api/discovery', undefined, 'live')).data.report;
+  assert.equal(first.results.length, 1); assert.equal(first.duplicates, 1);
+  assert.equal(first.results[0].groupedSources.length, 2);
+  const second = (await request('/api/discovery', undefined, 'live')).data.report;
+  assert.equal(second.duplicates, 1);
+  const saved = await request('/api/discovery/save', { key: first.results[0].key }, 'live');
+  assert.equal(saved.status, 200); assert.equal(saved.data.inserted.length, 0);
+  assert.deepEqual(saved.data.duplicates, [original.key]); assert.equal((await store.list()).length, 3);
+});
 
 test('resume library APIs stay local, require CSRF for uploads and never expose arbitrary private files', async t => {
   const { request, url } = await setup(t);
@@ -63,7 +158,8 @@ test('discovery and saved jobs expose the same direction and evidence without pe
   const saved = (await request('/api/jobs', undefined, 'live')).data.jobs.find(j => j.key === job.key);
   assert.equal(discovered.resumeClassification.track, 'mixed');
   assert.deepEqual(discovered.jdHighlights, saved.jdHighlights);
-  assert.ok(saved.jdHighlights.some(r => job.jd.slice(r.start, r.end) === 'Python'));
+  assert.equal(saved.jdHighlights.length, 0); // A KB alone no longer supplies resume evidence.
+  assert.equal(saved.match.score, null);
   assert.equal((await store.list()).find(j => j.key === job.key).jdHighlights, undefined);
   assert.equal((await request('/api/jobs')).data.jobs[0].jdHighlights.length, 0);
 });
@@ -320,7 +416,7 @@ test('expired cached discoveries and Queue records are hidden without deleting a
   for (let n = 0; n < 30 && (await request('/api/discovery')).data.state !== 'done'; n++) await new Promise(r => setTimeout(r, 10));
   const report = (await request('/api/discovery', undefined, 'live')).data.report;
   assert.equal(report.expiredCount, 1); assert.equal(report.results.length, 1);
-  assert.equal(report.results[0].match.score, 100);
+  assert.equal(report.results[0].match.score, null); // No resume fixture; never fall back to the KB.
   assert.doesNotMatch(JSON.stringify(report), /SECRET-CONTACT/);
   assert.equal((await request('/api/discovery/save', { key: expired.key }, 'live')).status, 400);
   assert.ok(!(await request('/api/jobs', undefined, 'live')).data.jobs.some(x => x.key === expired.key));

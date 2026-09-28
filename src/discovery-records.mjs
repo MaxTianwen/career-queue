@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { canonicalUrl } from './core.mjs';
+import { canonicalUrl, normalizeJob } from './core.mjs';
+import { deadlineExpired } from './deadlines.mjs';
 import { durationRange, publication } from '../web/job-facts.js';
 
 const normalized = value => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -27,7 +28,7 @@ export function sourceName(job) {
   return '其他招聘系统';
 }
 
-// Keep uncertain identities and conflicting official facts separate.
+// Resolve known identities first, then group matching company/title/term/location.
 export function mergeDiscoveryJobs(jobs) {
   const rows = [], identities = new Map();
   let duplicates = 0;
@@ -55,12 +56,27 @@ export function mergeDiscoveryJobs(jobs) {
   }
   const similar = new Map();
   for (const job of rows) {
-    const key = [job.company, job.title, job.term && job.term !== 'Unknown' ? job.term : [...(job.indexEvidence?.terms || [])].sort().join('|'), job.location].map(normalized).join('|');
+    const fields = [job.company, job.title, job.term && job.term !== 'Unknown' ? job.term : [...(job.indexEvidence?.terms || [])].sort().join('|'), job.location].map(normalized);
+    if (fields.some(value => !value || value === 'unknown')) continue;
+    const key = JSON.stringify(fields);
     const group = similar.get(key) || [];
     group.push(job); similar.set(key, group);
   }
   for (const group of similar.values()) if (group.length > 1) {
-    for (const job of group) job.duplicateNote = `发现 ${group.length} 条同公司、同标题、同批次和地点的记录；未确认相同，保留独立职位，请核对招聘编号。`;
+    // Select a whole posting; never combine conflicting salaries, deadlines or JD.
+    const preferred = [...group].sort((a, b) => Number(deadlineExpired(a.deadline)) - Number(deadlineExpired(b.deadline))
+      || Number(Boolean(b.fullJd)) - Number(Boolean(a.fullJd)) || (b.jd?.length || 0) - (a.jd?.length || 0)
+      || a.url.localeCompare(b.url))[0];
+    const sources = group.flatMap(job => job.groupedSources || [{ key: job.key, url: job.url, term: job.term,
+      requisitionId: job.requisitionId, salary: job.salary, durationMonths: job.durationMonths, workMode: job.workMode, deadline: job.deadline }]);
+    const groupedSources = [...new Map(sources.map(source => [JSON.stringify([source.url, source.requisitionId, source.term]), source])).values()];
+    const merged = { ...preferred, key: preferred.identityConflict ? normalizeJob(preferred).key : preferred.key,
+      sourceLinks: [...new Set(group.flatMap(job => job.sourceLinks))], groupedSources,
+      duplicateNote: `已按公司、标题、批次和地点合并 ${groupedSources.length} 条记录；当前显示一个来源的完整信息，其他入口与招聘编号已保留。` };
+    delete merged.identityConflict;
+    rows.splice(rows.indexOf(group[0]), 1, merged);
+    for (const extra of group.slice(1)) rows.splice(rows.indexOf(extra), 1);
+    duplicates += group.length - 1;
   }
   // The existing Queue key can coincide even when facts conflict. Keep each row
   // selectable, but require a human to resolve identity before a Queue write.

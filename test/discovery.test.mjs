@@ -16,7 +16,7 @@ test('discovery scopes the feed, deduplicates, reads official JD and never subst
       entry(4, { active: false }), entry(5, { locations: ['New York, NY'] }), entry(6, { title: 'Registered Nurse Intern' }), entry(7, { terms: ['Winter 2026'] }),
       entry(8, { url: 'https://127.0.0.1/private' })]);
     const id = Number(url.split('/').at(-1));
-    return reply({ id, title: 'Software Intern (Summer 2027)', content: '<p>Official full description.</p>', location: { name: 'Toronto' },
+    return reply({ id, title: `Software Intern (Summer 2027) Team ${id}`, content: '<p>Official full description.</p>', location: { name: 'Toronto' },
       first_published: id === 1 ? '2026-09-24T15:00:00Z' : id === 2 ? '2026-09-20T10:00:00Z' : null, updated_at: now.toISOString() });
   } });
   assert.equal(result.candidates, 4); assert.equal(result.duplicates, 1); assert.equal(result.skipped, 4);

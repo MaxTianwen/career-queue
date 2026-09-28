@@ -17,16 +17,18 @@ test('known application URL aliases merge without collapsing unrelated query ide
   assert.deepEqual(new Set(merged.results[0].sourceLinks), new Set([a.url, b.url]));
 });
 
-test('confirmed employer requisitions merge across URLs; titles alone and different terms or IDs do not', () => {
+test('same company/title/term/location groups different IDs and URLs; different terms remain separate', () => {
   const a = job({ requisitionId: 'REQ1', sourceEvidence: { requisitionIdField: 'requisition_id' } });
   const b = job({ ...a, url: 'https://job-boards.greenhouse.io/example/jobs/2' });
   assert.equal(mergeDiscoveryJobs([a, b]).duplicates, 1);
-  for (const extra of [{ requisitionId: 'REQ2' }, { term: 'Fall 2027' }, { sourceEvidence: {} }]) {
+  for (const extra of [{ term: 'Fall 2027' }, { location: 'Vancouver' }, { title: 'Software Intern' }, { company: 'Other' }]) {
     const result = mergeDiscoveryJobs([a, job({ ...b, ...extra })]);
     assert.equal(result.duplicates, 0); assert.equal(result.results.length, 2);
   }
   const similar = mergeDiscoveryJobs([job(), job({ url: b.url })]).results;
-  assert.ok(similar.every(row => row.duplicateNote));
+  assert.equal(similar.length, 1);
+  assert.equal(similar[0].groupedSources.length, 2);
+  assert.equal(mergeDiscoveryJobs([a, job({ ...b, requisitionId: 'REQ2' })]).results.length, 1);
 });
 
 test('conflicting location or index terms stay separately selectable and blocked from silent Queue deduplication', () => {
@@ -36,10 +38,30 @@ test('conflicting location or index terms stay separately selectable and blocked
   assert.equal(new Set(conflict.results.map(row => row.key)).size, 2);
   assert.ok(conflict.results.every(row => row.identityConflict && row.duplicateNote));
   const contradictoryIds = mergeDiscoveryJobs([a, job({ ...a, requisitionId: 'REQ2' })]);
-  assert.equal(contradictoryIds.results.length, 2);
-  assert.ok(contradictoryIds.results.every(row => row.identityConflict));
+  assert.equal(contradictoryIds.results.length, 1);
+  assert.equal(contradictoryIds.results[0].identityConflict, undefined);
+  assert.deepEqual(contradictoryIds.results[0].groupedSources.map(s => s.requisitionId), ['REQ1', 'REQ2']);
   const terms = mergeDiscoveryJobs(['Summer 2027', 'Winter 2027'].map(term => job({ term: 'Unknown', indexEvidence: { terms: [term] } })));
   assert.equal(terms.duplicates, 0); assert.equal(new Set(terms.results.map(row => row.key)).size, 2);
+});
+
+test('grouping prefers a live complete posting, preserves separate facts and is idempotent', () => {
+  const old = job({ url: 'https://example.com/old', deadline: '2000-01-01', salary: 'CAD 90 / hour', requisitionId: 'OLD' });
+  const current = job({ url: 'https://example.com/current', deadline: '2099-01-01', salary: 'CAD 25 / hour', requisitionId: 'NEW', jd: 'Current full JD' });
+  const partial = job({ url: 'https://example.com/partial', fullJd: false });
+  const result = mergeDiscoveryJobs([old, partial, current]);
+  assert.equal(result.duplicates, 2); assert.equal(result.results.length, 1);
+  const merged = result.results[0];
+  assert.equal(merged.url, current.url); assert.equal(merged.jd, current.jd);
+  assert.equal(merged.salary, current.salary); assert.equal(merged.deadline, current.deadline);
+  assert.equal(merged.sourceLinks.length, 3); assert.equal(merged.groupedSources.length, 3);
+  assert.ok(merged.groupedSources.some(s => s.salary === old.salary));
+  assert.deepEqual(mergeDiscoveryJobs(result.results), { results: result.results, duplicates: 0 });
+  assert.equal(old.groupedSources, undefined);
+  const unknown = mergeDiscoveryJobs([job({ term: 'Unknown' }), job({ term: 'Unknown', url: current.url })]);
+  assert.equal(unknown.results.length, 2);
+  const fromIndex = mergeDiscoveryJobs([job({ term: 'Unknown', indexEvidence: { terms: ['Summer 2027'] } }), job({ term: 'Unknown', indexEvidence: { terms: ['Summer 2027'] }, url: current.url })]);
+  assert.equal(fromIndex.results.length, 1);
 });
 
 test('coverage separates failed/unsupported reads and does not infer publication from index timestamps', () => {
@@ -63,5 +85,5 @@ test('summary preserves duration ranges, unknown facts, basic skill level and es
     { kind: 'experience', name: 'Reporting experience' }
   ], gaps: [{ kind: 'skill', name: '<script>' }] } });
   assert.match(skills, /Power BI · 基础/); assert.doesNotMatch(skills, /Reporting experience|<script>|title="" onmouseover/);
-  assert.match(skills, /知识库未证实/);
+  assert.match(skills, /当前简历未提及/);
 });

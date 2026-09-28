@@ -10,8 +10,15 @@ export async function ingest(store, inputs, now = new Date()) {
   for (const input of inputs) {
     try {
       const job = normalizeJob(input);
-      const existing = await store.findJob(job);
-      if (existing) { await store.touch(existing, now); result.duplicates.push(existing.key); continue; }
+      const existing = new Map();
+      for (const candidate of [job, ...(job.groupedSources || [])]) {
+        const found = await store.findJob(candidate);
+        if (found) existing.set(found.key, found);
+      }
+      if (existing.size) {
+        for (const record of existing.values()) { await store.touch(record, now); result.duplicates.push(record.key); }
+        continue;
+      }
       const record = newRecord(job, now);
       if (record.decision === 'REJECT') { result.rejected.push({ title: job.title, reasons: record.reasons }); continue; }
       result.inserted.push(await store.create(record));
@@ -54,14 +61,14 @@ async function validateFile(path, extensions) {
   return path;
 }
 
-export async function complete(store, key, paths, checked) {
+export async function complete(store, key, paths, checked, materialVersion = null) {
   const record = await getRecord(store, key);
   if (!checked) throw new Error('需要先检查事实依据和版面，再使用 --checked');
   const next = markReady(record, paths);
   // Validate every local file before uploading anything or changing state.
   await validateFile(paths.resume, ['.pdf']);
-  await validateFile(paths.docx, ['.docx']);
-  await validateFile(paths.reviewNotes, ['.md']);
+  if (paths.docx) await validateFile(paths.docx, ['.docx']);
+  if (paths.reviewNotes) await validateFile(paths.reviewNotes, ['.md']);
   if (paths.coverLetter) await validateFile(paths.coverLetter, ['.pdf', '.docx']);
   try {
     const files = [];
@@ -69,13 +76,13 @@ export async function complete(store, key, paths, checked) {
     // Recheck state after uploads so a completed application is not reset.
     const fresh = await getRecord(store, key);
     const ready = markReady(fresh, next.materials);
-    return await store.updateState(ready, files);
+    return await store.updateState({ ...ready, materialVersion }, files);
   } catch (error) {
     await store.recordFailure(record, `材料保存失败：${error.message}`).catch(() => {});
     throw error;
   }
 }
 
-export async function submit(store, key, date, confirmed, now = new Date()) {
-  return store.updateState(markSubmitted(await getRecord(store, key), date, confirmed, now));
+export async function submit(store, key, date, confirmed, now = new Date(), receipt = '') {
+  return store.updateState(markSubmitted(await getRecord(store, key), date, confirmed, now, receipt));
 }

@@ -10,13 +10,15 @@ import { normalizeJob, newRecord, comparePreference, TARGET_TERMS, evaluateJob }
 import { getRecord, ingest, prepare, complete, submit } from './pipeline.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import { discover, extractFacts } from './discovery.mjs';
-import { discoveryCoverage, sourceName } from './discovery-records.mjs';
+import { discoveryCoverage, sourceName, mergeDiscoveryJobs } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
-import { buildProfile, matchJob, highlightJob } from './matching.mjs';
+import { currentResumeProfiles, matchCurrentResumes } from './resume-profile.mjs';
 import { classifyResume } from './resume-track.mjs';
-import { resumeStatus, generateResume, editableResume, saveManualResume } from './resume.mjs';
+import { resumeStatus, generateResume, editableResume, saveManualResume, latestResume, validatedResume } from './resume.mjs';
 import { renderPdf } from './pdf-preview.mjs';
 import { resumeLibrary, uploadResumeBase, activateResumeBase, readResumeBase } from './resume-bases.mjs';
+import { previewPortal, linkPortal, updatePortal, portalRevision, portalSummary } from './portal.mjs';
+import { parsePortalPaste } from './portal-paste.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -40,11 +42,17 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
   const csrf = randomBytes(32).toString('hex');
   const demo = new DemoStore();
   let busy = false;
+  const portalPreviews = new Map();
   let search = { state: 'idle', phase: '', report: null, error: null };
   const searchFile = resolve(root, 'output', 'discovery', 'latest.json');
   const loadedSearch = readFile(searchFile, 'utf8').then(data => {
     const report = JSON.parse(data);
-    if (report.finishedAt && Array.isArray(report.results)) search = { state: 'done', phase: '上次搜索结果', report, error: null };
+    if (report.finishedAt && Array.isArray(report.results)) {
+      const merged = mergeDiscoveryJobs(report.results);
+      report.results = merged.results;
+      report.duplicates = (report.duplicates || 0) + merged.duplicates;
+      search = { state: 'done', phase: '上次搜索结果', report, error: null };
+    }
   }).catch(() => {});
   async function config() {
     let local = {};
@@ -56,8 +64,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     return { env, knowledge, knowledgeReady: Boolean(knowledgeText.trim()), knowledgeText };
   }
   async function presentJobs(records, mode = 'live') {
-    const { knowledgeText } = await config();
-    const profile = buildProfile(mode === 'demo' ? '' : knowledgeText);
+    const profiles = mode === 'demo' ? Object.fromEntries(['cs', 'data'].map(track => [track, { available: false, source: { track }, reason: '演示模式不读取私人简历' }])) : await currentResumeProfiles(root);
     return records.map(record => {
       const extracted = record.indexEvidence ? extractFacts(record) : record;
       const job = { ...record, ...extractDeadline(record), durationMonths: record.durationMonths ?? extracted.durationMonths,
@@ -65,7 +72,9 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         workMode: record.workMode && record.workMode !== 'unknown' ? record.workMode : extracted.workMode };
       const evaluation = evaluateJob(job);
       if (record.fullJd === false) evaluation.reasons.unshift(record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
-      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), match: matchJob(job, profile), jdHighlights: highlightJob(job, profile), resumeClassification: classifyResume(job) };
+      const resumeClassification = classifyResume(job);
+      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), ...matchCurrentResumes(job, resumeClassification, profiles), resumeClassification,
+        portalRevision: portalRevision(record), portalSummary: portalSummary(record) };
     });
   }
   async function presentSearch() {
@@ -99,6 +108,11 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     }
     return files.sort((a, b) => b.modified.localeCompare(a.modified));
   }
+  async function generatedMaterial(mode, key) {
+    if (mode !== 'live') return null;
+    try { return await latestResume(root, key); }
+    catch (e) { return { error: e.message }; }
+  }
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -114,7 +128,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -157,11 +171,16 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         const records = await presentJobs(await store.list(), mode);
         return send({ jobs: records.filter(x => x.status !== '已归档' && !(x.status === 'Queue' && x.expired)).sort(comparePreference) });
       }
+      if (req.method === 'GET' && url.pathname === '/api/portal') {
+        const records = await (await storeFor(mode)).list();
+        return send({ jobs: records.map(j => ({ key: j.key, company: j.company, title: j.title, location: j.location, term: j.term,
+          status: j.status, applicationDate: j.applicationDate, portal: j.portal || null, summary: portalSummary(j) })) });
+      }
       if (req.method === 'GET' && url.pathname === '/api/discovery') { await loadedSearch; return send(await presentSearch()); }
       if (req.method === 'GET' && url.pathname === '/api/resume/files') {
         const key = url.searchParams.get('key');
         if (mode !== 'live' || !keyPattern.test(key || '')) throw fail('简历版本参数无效');
-        return send({ files: (await materials('live', key)).filter(f => f.version.startsWith('resume-')) });
+        return send({ files: (await materials('live', key)).filter(f => f.version.startsWith('resume-')), generatedMaterial: await generatedMaterial(mode, key) });
       }
       if (req.method === 'GET' && url.pathname === '/api/resume/edit') {
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
@@ -170,13 +189,50 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const match = url.pathname.match(/^\/api\/jobs\/([a-f0-9]{24})(?:\/(\w+))?$/);
       if (req.method === 'GET' && match && !match[2]) {
         const record = await getRecord(await storeFor(mode), match[1]);
-        return send({ ...(await presentJobs([record], mode))[0], localFiles: await materials(mode, record.key) });
+        return send({ ...(await presentJobs([record], mode))[0], localFiles: await materials(mode, record.key), generatedMaterial: await generatedMaterial(mode, record.key) });
       }
       if (req.method !== 'POST') throw fail('未找到', 404);
       if (req.headers['x-csrf-token'] !== csrf) throw fail('页面已过期，请刷新重试', 403);
       if (busy) throw fail('另一个操作正在进行，请稍后再试', 409);
       busy = true; ownsLock = true;
       const body = await jsonBody(req);
+      if (url.pathname === '/api/portal/parse') return send(parsePortalPaste(body.text));
+      if (url.pathname === '/api/portal/preview') {
+        const records = await (await storeFor(mode)).list();
+        const rows = previewPortal(body.rows, records), token = randomUUID();
+        for (const [key, entry] of portalPreviews) if (Date.now() - entry.at > 600000) portalPreviews.delete(key);
+        if (portalPreviews.size >= 5) portalPreviews.delete(portalPreviews.keys().next().value);
+        portalPreviews.set(token, { mode, at: Date.now(), rows, revisions: new Map(records.map(j => [j.key, portalRevision(j)])) });
+        return send({ token, rows, jobs: records.map(j => ({ key: j.key, title: j.title, company: j.company, term: j.term, status: j.status, externalSubmitted: portalSummary(j).externalSubmitted, linkedId: j.portal?.id || null })) });
+      }
+      if (url.pathname === '/api/portal/link') {
+        const preview = portalPreviews.get(body.token);
+        if (!preview || preview.mode !== mode || Date.now() - preview.at > 600000) throw fail('预览已过期，请重新匹配');
+        if (body.confirmed !== true || !Array.isArray(body.selections) || !body.selections.length || body.selections.length > 100) throw fail('请勾选并核对需要保存的关联');
+        const store = await storeFor(mode), records = await store.list();
+        const keys = new Set(), ids = new Set();
+        const plan = body.selections.map(selection => {
+          const item = preview.rows[selection.index], record = records.find(j => j.key === selection.key);
+          if (!Number.isInteger(selection.index) || !item?.row || !record) throw fail('选择的学校岗位或申请不存在，请重新预览');
+          if (keys.has(record.key) || ids.has(item.row.id)) throw fail('同一申请或学校职位本次只能关联一次');
+          keys.add(record.key); ids.add(item.row.id);
+          if (preview.revisions.get(record.key) !== portalRevision(record)) throw fail('申请记录已变化，请重新预览');
+          return { record, next: linkPortal(record, item.row, records, { confirmed: true }) };
+        });
+        portalPreviews.delete(body.token);
+        const saved = [], errors = [];
+        for (const { record, next } of plan) {
+          try {
+            const fresh = await store.list();
+            const current = fresh.find(j => j.key === record.key);
+            if (!current || portalRevision(current) !== portalRevision(record)) throw fail('申请记录已变化，请重新预览');
+            linkPortal(current, next.portal, fresh, { confirmed: true });
+            if (portalRevision(next) !== portalRevision(record)) await store.updateState({ ...current, portal: next.portal, portalHistory: next.portalHistory });
+            saved.push(record.key);
+          } catch (e) { errors.push({ key: record.key, error: e.message }); break; }
+        }
+        return send({ saved, errors, remaining: plan.length - saved.length, message: errors.length ? '部分关联未完成；已保存结果保留，请重新预览后继续' : '关联已保存，学校提交要求请在详情确认' });
+      }
       if (url.pathname === '/api/resume-base' || url.pathname === '/api/resume-base/activate') {
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
         return send(url.pathname.endsWith('/activate') ? await activateResumeBase(root, body.version) : await uploadResumeBase(root, body));
@@ -238,6 +294,12 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (!match || !match[2]) throw fail('未找到', 404);
       const store = await storeFor(mode), key = match[1], action = match[2];
       const record = await getRecord(store, key);
+      if (action === 'portal') {
+        if (body.revision !== portalRevision(record)) throw fail('申请记录已变化，请重新打开详情后操作', 409);
+        const next = body.action === 'link' ? linkPortal(record, body.row, await store.list(), body) : updatePortal(record, body);
+        if (portalRevision(next) === portalRevision(record)) return send(record);
+        return send(await store.updateState(next));
+      }
       if (action === 'notes') return send(await store.updateNotes(record, text(body.notes), text(body.nextStep)));
       if (action === 'archive') {
         if (record.status !== 'Queue' || body.confirmed !== true) throw fail('仅可确认归档 Queue 中的职位');
@@ -258,14 +320,21 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         if (body.checked !== true) throw fail('请先确认已检查材料的事实与排版');
         if (!['Queue', '待提交'].includes(record.status)) throw fail('该状态不允许替换材料');
         const specs = { resume: '.pdf', docx: '.docx', reviewNotes: '.md', coverLetter: '.pdf' };
-        if (!body.files?.resume || !body.files.docx || !body.files.reviewNotes || (record.coverLetterRequired === true && !body.files.coverLetter)) throw fail('请提供 PDF、DOCX、修改说明，以及岗位要求的 Cover Letter');
+        let generated;
+        if (body.generatedVersion) {
+          if (mode !== 'live' || body.files?.resume) throw fail('请选择生成版本或本机上传，不要同时提供两份简历');
+          generated = await validatedResume(root, key, body.generatedVersion);
+          if (body.resumeHash !== generated.validation.pdfSha256) throw fail('材料已变化，请重新预览并确认');
+        }
+        if ((!generated && !body.files?.resume) || (record.coverLetterRequired === true && !body.files?.coverLetter)) throw fail('请提供简历 PDF，以及岗位要求的 Cover Letter');
         const buffers = {}; let total = 0;
         for (const [field, ext] of Object.entries(specs)) {
-          if (!body.files[field]) continue;
+          if (!body.files?.[field]) continue;
           const data = Buffer.from(text(body.files[field], 28 * 1024 * 1024), 'base64');
           if (!data.length || (ext === '.pdf' && data.subarray(0, 5).toString() !== '%PDF-') || (ext === '.docx' && data.subarray(0, 2).toString() !== 'PK')) throw fail('材料格式无效');
           buffers[field] = data; total += data.length;
         }
+        if (generated) { buffers.resume = await readFile(generated.pdf); total += buffers.resume.length; }
         if (total > 20 * 1024 * 1024) throw fail('材料总大小不得超过 20MB');
         const folder = resolve(outputFor(mode), key, `materials-${Date.now()}-${randomUUID().slice(0, 8)}`);
         await mkdir(folder, { recursive: true });
@@ -277,9 +346,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
           paths[field] = resolve(folder, `${stem}-${key.slice(0, 6)}-${version}-${labels[field]}${specs[field]}`);
           await writeFile(paths[field], data, { flag: 'wx' });
         }
-        return send(await complete(store, key, paths, true));
+        return send(await complete(store, key, paths, true, generated ? { version: generated.version, sha256: generated.validation.pdfSha256,
+          baseline: generated.provenance.baseline || null, reviewedAt: new Date().toISOString() } : null));
       }
-      if (action === 'submitted') return send(await submit(store, key, body.date, body.confirmed === true));
+      if (action === 'submitted') return send(await submit(store, key, body.date, body.confirmed === true, new Date(), body.receipt ?? ''));
       if (action === 'progress') {
         if (!['已投递', '面试中', '已结束'].includes(record.status) || !['面试中', '已结束'].includes(body.status)) throw fail('只有投递后的申请可更新进展');
         return send(await store.updateState({ ...record, status: body.status, nextStep: text(body.nextStep) }));

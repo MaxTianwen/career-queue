@@ -51,7 +51,7 @@ test('URL tracking deduplicates; distinct terms and job query IDs remain separat
 test('application transitions require all materials and explicit submission confirmation', () => {
   const record = newRecord(normalizeJob(base), now);
   assert.throws(() => markReady(record, {}));
-  const materials = { resume: 'resume.pdf', reviewNotes: 'review.md' };
+  const materials = { resume: 'resume.pdf' };
   assert.throws(() => markReady({ ...record, coverLetterRequired: true }, materials));
   const ready = markReady(record, materials);
   assert.equal(ready.status, '待提交');

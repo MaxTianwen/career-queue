@@ -48,7 +48,7 @@ export function jobDescription(job) {
     for (const r of ranges.filter(r => r.start >= cursor && r.end <= end).sort((a, b) => a.start - b.start)) {
       if (r.start < cursor) continue;
       const kind = r.level < 1 ? 'basic' : r.kind === 'experience' ? 'experience' : 'skill';
-      const label = kind === 'basic' ? '基础接触' : kind === 'experience' ? '相关经历' : '已证实技能';
+      const label = kind === 'basic' ? '基础接触' : kind === 'experience' ? '相关经历' : '简历提及的技能';
       html += esc(text.slice(cursor, r.start)) + `<mark class="jd-${kind}" tabindex="0" title="${esc(`${label}：${r.name}；${r.evidence || ''}`)}">${esc(text.slice(r.start, r.end))}</mark>`;
       cursor = r.end;
     }
@@ -61,5 +61,5 @@ export function jobDescription(job) {
     html += `<${block.type}>${inline(block)}</${block.type}>`;
   }
   if (list) html += '</ul>';
-  return `<div class="jd-legend"><span><mark class="jd-skill">已证实技能</mark></span><span><mark class="jd-basic">基础接触</mark></span><span><mark class="jd-experience">相关经历</mark></span></div><p class="jd-note">按标题、换行和句子整理阅读排版，正文措辞不改写。悬停或聚焦高亮可查看知识库依据；高亮不代表满足全部岗位要求。${ranges.length ? '' : ' 当前没有可标注的经历证据。'}</p><article class="jd" aria-label="职位描述正文">${html}</article>`;
+  return `<div class="jd-legend"><span><mark class="jd-skill">简历提及的技能</mark></span><span><mark class="jd-basic">基础接触</mark></span><span><mark class="jd-experience">相关经历</mark></span></div><p class="jd-note">按标题、换行和句子整理阅读排版，正文措辞不改写。悬停或聚焦高亮可查看当前评分简历的原文；高亮不代表满足全部岗位要求。${ranges.length ? '' : ' 当前没有可标注的经历证据。'}</p><article class="jd" aria-label="职位描述正文">${html}</article>`;
 }

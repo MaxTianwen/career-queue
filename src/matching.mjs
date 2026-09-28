@@ -46,9 +46,28 @@ export function buildProfile(knowledge = '') {
     level: supported.some(r => group.test(r.group)) ? 1 : 0, evidence: supported.filter(r => group.test(r.group)).map(r => r.evidence).join('；') })) };
 }
 
+export function buildResumeProfile(text = '', source = {}) {
+  const lines = text.split(/\n|[;；]/).map(s => s.trim()).filter(Boolean);
+  const evidenceFor = pattern => lines.find(line => {
+    const hit = line.match(pattern);
+    if (!hit) return false;
+    const before = line.slice(Math.max(0, hit.index - 65), hit.index);
+    return !/(?:\bno\b|\bwithout\b|\bnot\b|未掌握|无经验)[^,.;:]{0,60}$/i.test(before);
+  });
+  return { available: text.replace(/\s/g, '').length >= 40, source, fromResume: true,
+    reason: '当前简历没有足够可提取文字，暂不评分；请上传文字版 PDF 或 Word。',
+    technical: skills.map(([name, pattern]) => {
+      const evidence = evidenceFor(pattern), hit = evidence?.match(pattern);
+      const after = evidence?.slice((hit?.index || 0) + (hit?.[0]?.length || 0));
+      const basic = evidence && (/^\s*\(?(?:basic|beginner|introductory|基础|入门)\b/i.test(after) || /^\s*(?:basic|beginner|基础|入门)\s*[:：]/i.test(evidence));
+      return { name, pattern, level: evidence ? basic ? 0.5 : 1 : 0, evidence: evidence?.slice(0, 450), unverified: false };
+    }),
+    experience: experiences.map(([name, pattern]) => { const evidence = evidenceFor(pattern); return { name, pattern, level: evidence ? 1 : 0, evidence: evidence?.slice(0, 450) }; }) };
+}
+
 export function matchJob(job, profile) {
   if (!job.jd?.trim() || job.fullJd === false) return { score: null, reason: '待补完整 JD，暂不评分' };
-  if (!profile.available) return { score: null, reason: '知识库技能证据不可用，暂不评分' };
+  if (!profile.available) return { score: null, reason: profile.reason || '知识库技能证据不可用，暂不评分' };
   const qualifications = job.jd.match(/^(?:[\s#*-]*)(?:qualifications|requirements|what you (?:bring|need)|who you are|about you|let['’]s talk about you)[!:\s]*$([\s\S]*)/im)?.[1];
   const comparedText = qualifications ? qualifications.split(/\n(?:what we offer|benefits|compensation|equity, diversity|equal opportunity)/i)[0] : job.jd;
   const technical = profile.technical.filter(x => x.pattern.test(comparedText));
@@ -63,7 +82,8 @@ export function matchJob(job, profile) {
   return { score, version: '本地规则 v1', evidenceCount: evidence.length, comparedSection: qualifications ? 'JD 资格要求段落' : 'JD 全文（未识别独立资格段落）',
     components: parts.map(p => ({ name: p.name, weight: Math.round(p.weight / weight * 100), matched: p.rows.reduce((n, r) => n + r.level, 0), total: p.rows.length })),
     matched: evidence.filter(x => x.level > 0), gaps: evidence.filter(x => x.level === 0), checks,
-    note: '按 JD 提及的技能与经历主题计算覆盖度；基础接触计半项，仅简历列出计待核实。未全面区分必需/加分/任选条件；不表示熟练度、专业年限或录取概率。' };
+    note: profile.fromResume ? '按当前简历中提及的技能与经历主题计算 JD 覆盖度；明确基础接触计半项。引用简历原文，不代表事实核验、熟练度或 ATS / 录取概率；未全面区分必需、加分和任选条件。'
+      : '按 JD 提及的技能与经历主题计算覆盖度；基础接触计半项，仅简历列出计待核实。未全面区分必需/加分/任选条件；不表示熟练度、专业年限或录取概率。' };
 }
 
 // Full-text annotations are independent of the score's comparison section.

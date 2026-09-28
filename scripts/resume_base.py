@@ -87,6 +87,17 @@ def inspect_pdf(path):
         return {'pages': len(pdf.pages), 'readable': len(re.sub(r'\s', '', ''.join(p.extract_text() or '' for p in pdf.pages))) >= 300}
 
 
+def resume_text(path):
+    with pdfplumber.open(path) as pdf:
+        if not pdf.pages or len(pdf.pages) > 20:
+            raise ValueError('PDF 须为 1–20 页')
+        text = '\n'.join(p.extract_text() or '' for p in pdf.pages)
+        if len(text) > 100000:
+            raise ValueError('简历文字超过读取限制')
+        return {'text': text}
+
+
 if __name__ == '__main__':
     action, path = sys.argv[1:]
-    print(json.dumps(inspect_docx(Path(path)) if action == 'docx' else inspect_pdf(Path(path)), ensure_ascii=True))
+    result = inspect_docx(Path(path)) if action == 'docx' else resume_text(Path(path)) if action == 'text' else inspect_pdf(Path(path))
+    print(json.dumps(result, ensure_ascii=True))

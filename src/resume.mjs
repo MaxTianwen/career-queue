@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, copyFile, realpath } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, copyFile, realpath, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { resolve, basename, relative } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -25,7 +25,7 @@ async function configuration(root) {
   return { ...config, folder };
 }
 
-async function editingSource(root, key, version) {
+export async function validatedResume(root, key, version) {
   if (!keyPattern.test(key || '') || !/^resume-\d+-[a-f0-9]{8}$/.test(version || '')) throw new Error('请选择已生成的简历版本');
   const base = await realpath(resolve(root, 'output'));
   const folder = await realpath(resolve(base, key, version));
@@ -36,6 +36,29 @@ async function editingSource(root, key, version) {
   const provenance = JSON.parse(await readFile(resolve(folder, 'working/plan.json'), 'utf8'));
   const digest = hash(await readFile(docx));
   if (!validation.passed || validation.pages !== 1 || validation.docxSha256 !== digest || validation.pdfSha256 !== hash(await readFile(pdf))) throw new Error('该版本文件已变化或未通过检查，请重新生成');
+  return { docx, pdf, digest, validation, provenance, version };
+}
+
+export async function latestResume(root, key) {
+  if (!keyPattern.test(key || '')) throw new Error('职位标识无效');
+  let entries;
+  try { entries = await readdir(resolve(root, 'output', key), { withFileTypes: true }); }
+  catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  const versions = entries.filter(e => e.isDirectory() && !e.isSymbolicLink() && /^resume-\d+-[a-f0-9]{8}$/.test(e.name))
+    .sort((a, b) => Number(b.name.split('-')[1]) - Number(a.name.split('-')[1]));
+  for (const { name } of versions) {
+    try { await readFile(resolve(root, 'output', key, name, 'validation.json')); }
+    catch (e) { if (e.code === 'ENOENT') continue; throw e; }
+    const checked = await validatedResume(root, key, name);
+    return { version: name, sha256: checked.validation.pdfSha256, track: checked.provenance.track,
+      baseline: checked.provenance.baseline || { name: basename(checked.provenance.template), version: 'initial-template' },
+      url: `/api/file?mode=live&key=${key}&version=${name}&name=resume.pdf` };
+  }
+  return null;
+}
+
+async function editingSource(root, key, version) {
+  const { provenance, docx, pdf, digest } = await validatedResume(root, key, version);
   const config = provenance.editableSlots ? { python: await resumeRuntime(root) } : await configuration(root);
   const template = config.templates?.[provenance.track];
   if (!provenance.editableSlots && !template) throw new Error('无法识别该版本的原始模板');

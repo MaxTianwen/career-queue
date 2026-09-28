@@ -99,17 +99,28 @@ export function newRecord(job, now = new Date()) {
 
 export function markReady(record, materials) {
   if (!['Queue', '待提交'].includes(record.status)) throw new Error('已投递记录不能退回待提交');
-  if (!materials?.resume || !materials?.reviewNotes) throw new Error('缺少简历或修改说明，保留 Queue');
+  if (!materials?.resume) throw new Error('缺少简历 PDF，保留 Queue');
   if (record.coverLetterRequired === true && !materials.coverLetter) throw new Error('岗位要求 Cover Letter，材料尚未齐全');
   return { ...record, materials, status: '待提交', applicationDate: null, nextStep: '检查材料并手动提交申请' };
 }
 
-export function markSubmitted(record, date, confirmed, now = new Date()) {
-  if (!confirmed) throw new Error('只有用户明确确认已实际投递后才能更新');
-  if (record.status !== '待提交') throw new Error('只有待提交记录可以确认投递');
+export function validateApplicationDate(date, now = new Date()) {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '') || Number.isNaN(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date > today) {
     throw new Error('请填写真实投递日期 YYYY-MM-DD，不能是未来日期');
   }
-  return { ...record, status: '已投递', applicationDate: date, nextStep: '等待回复' };
+  return date;
+}
+
+export function submissionMaterials(record) {
+  return structuredClone({ files: record.materials || null, version: record.materialVersion || null });
+}
+
+export function markSubmitted(record, date, confirmed, now = new Date(), receipt = '') {
+  if (!confirmed) throw new Error('只有用户明确确认已实际投递后才能更新');
+  if (record.status !== '待提交') throw new Error('只有待提交记录可以确认投递');
+  validateApplicationDate(date, now);
+  if (typeof receipt !== 'string' || receipt.length > 1000) throw new Error('回执说明不得超过 1000 字');
+  return { ...record, status: '已投递', applicationDate: date, nextStep: '等待回复',
+    externalSubmission: { date, confirmedAt: now.toISOString(), receipt: receipt.trim(), materials: submissionMaterials(record) } };
 }

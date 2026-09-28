@@ -1,12 +1,12 @@
-# Career Queue v1.1.1
+# Career Queue v1.1.3
 
 [中文](README.md) | **English**
 
 A personal workspace for finding Canadian co-op and internship opportunities. Manually run job discovery, filter Winter / Summer / Fall 2027 roles, save selected jobs to Notion, and prepare, preview, and edit one-page resumes for individual positions.
 
-**Discover jobs → Save to Queue → Generate and review materials → Upload and mark ready to submit → Personally confirm submission.**
+**Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Version: `1.1.1`. Baseline date: September 25, 2026. See [CHANGELOG](CHANGELOG.md) for features and verification limits, and [PROJECT_SPEC](PROJECT_SPEC.md) for the current specification. Version 1.1.1 includes resume baseline uploads, the redesigned workbench, direction filters and readable job descriptions. Version 1.1.2 will add generated-material reuse and scoring against current resumes; school-portal linking remains deferred. These supporting documents are currently in Chinese.
+Current version: `v1.1.3`, published to the existing private repository on `main` with a matching tag. It includes the previously local v1.1.2 material reuse, current-resume scoring and list improvements; v1.1.2 has no separate release tag. School-list pasting, editable previews, batch matching and independent submission records are implemented. A real submission through the school account still needs user acceptance. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md) for features and verification limits; these supporting documents are in Chinese.
 
 ## Start and verify
 
@@ -18,7 +18,7 @@ npm start
 
 Open http://127.0.0.1:4317 . The server listens on localhost only. Keep the terminal running; if it is closed, run the same command again.
 
-Without private configuration, you can still open the dashboard, try the clearly labeled demo workspace, or manually trigger public job discovery. The live Queue requires Notion; matching scores require a private knowledge base; resume generation, editing, and PDF preview require the local document environment. The shareable source code excludes these private resources and is not a general-purpose resume editor that works out of the box.
+Without private configuration, you can still open the dashboard, try the clearly labeled demo workspace, or manually trigger public job discovery. The live Queue requires Notion; matching scores require the current resume and local Python text extraction environment; resume generation, editing, and PDF preview require the local document environment. The shareable source code excludes these private resources and is not a general-purpose resume editor that works out of the box.
 
 ```powershell
 npm test
@@ -26,22 +26,31 @@ node src/cli.mjs check
 node src/cli.mjs preview --input examples/jobs.example.json
 ```
 
-Examples contain synthetic data; do not import them into your live Notion database. All 98 v1.1.1 regression tests passed, including Workday retrieval, failure handling, dates, deduplication, and cache upgrades. Tests did not write to the live Notion database. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
+Examples contain synthetic data; do not import them into your live Notion database. All 123 current tests passed, including school matching and independent states, Workday retrieval, failure handling, dates, deduplication, and cache upgrades. The supplied 23-row school sample was parsed successfully. Tests did not write to live Notion or submit a real school application. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
 
 ## Current features
 
-| Area | v1.1.1 capabilities |
+### v1.1.3 school lists and independent submissions
+
+- The School Tasks tab filters employer-submitted / school-pending, unlinked, unconfirmed requirements, school-submitted and school-expired records. School data stays in the existing Notion application Payload; no additional database or schema setup is required.
+- Link a school job ID and URL in saved-job details, confirm whether school submission is required, and retain separate deadlines. Opening a link does not mark submission. Explicit confirmation records the actual date, confirmation time, optional receipt, and the submitted material snapshot or a user-provided description. Employer submission records its own snapshot; missing historical confirmation times remain unknown.
+- Source information can be updated before school submission. Incorrect links can be detached and replaced while preserving history. Submitted school snapshots cannot be overwritten. There is no automatic school login, form filling or submission.
+- Under School Tasks, paste the list including headers (browser tab-separated text or Markdown), review and edit extracted fields, match existing applications, and explicitly select links to save. Batches support 1–100 rows with repeat-import and partial-failure protection. Unmatched rows are not automatically added to Queue; pasted lists are not a second application database.
+- School IDs remain separate from employer requisition IDs. The parser extracts clear trailing JR / numeric codes, reports incomplete copies and duplicate employer IDs, and preserves deadline text and minute precision. Times without a zone use Toronto.
+- Missing URLs do not block matching; use the school ID to find the job and add its link later. App Status is source evidence only, not submission confirmation. Missing optional fields on reimport do not erase existing links or enrichment.
+
+| Area | v1.1.2 capabilities |
 |---|---|
 | Job discovery | Public index discovery, official job descriptions from supported sources, progress and error reporting, and local search snapshots. |
 | Job overview | Discovery cards, discovery details, and Queue details highlight duration, location, pay, work arrangement, and evidence-backed skills; missing facts remain unknown. |
-| Sources and duplicates | Per-source JD and field coverage, retained source links, conservative merges, and suspected-duplicate warnings. Conflicting identities require verification and manual entry. |
+| Sources and duplicates | Per-source JD and field coverage, retained source links, identity deduplication and automatic grouping by company, title, term, and location. Alternative links and requisition IDs are retained; different terms or locations remain separate. |
 | Filtering and sorting | Start term, duration, work arrangement, Toronto / GTA / outside GTA, and city keywords; sorting by score or official publication date. |
 | Saved Queue | Explicitly save selected jobs to Notion, detect duplicates, add notes, and archive; locate and highlight a record after saving. |
 | Applications | Mark ready to submit after materials are uploaded; mark submitted only after personal confirmation and a submission date; record progress and next steps. |
 | CS / Data resumes | Local rule-based tailoring for selected jobs with full descriptions, producing new DOCX / PDF versions while preserving the original formatting. |
 | Preview and editing | Locally render the actual PDF, zoom and navigate pages, edit body text online, save a new version, and recheck the one-page limit. |
 
-Click outside a details or preview dialog, or press Esc, to close it. Unsaved edits prompt for confirmation. Generating a resume or saving manual edits does not upload files to Notion or change the application status. After reviewing the materials, explicitly select the relevant files in the upload form.
+Click outside a details or preview dialog, or press Esc, to close it. Unsaved edits prompt for confirmation. Generating a resume or saving manual edits does not upload files to Notion or change the application status. The latest validated PDF is automatically associated with the same job. Preview it, check the review confirmation, and save it to Notion without downloading and uploading it again. Online edits associate the new version and reset the review checkbox.
 
 ## Search and scoring limits
 
@@ -50,8 +59,8 @@ Click outside a details or preview dialog, or press Esc, to close it. Unsaved ed
 - Workday reads JobPosting data from supported public job pages without an account or paid API. Redirects, login shells, missing data, and conflicting identities remain explicit failures. This does not search every Workday employer.
 - The 24-hour view is an optional filter, not a job's validity period. First publication, official dates, and latest republication are labeled separately. Index inclusion dates never substitute for unknown publication dates.
 - Jobs with recognized deadlines that have passed are hidden from discovery and the pending Queue; application history is retained. Unknown deadlines remain unverified, so the app cannot identify every closed posting.
-- Match Score measures local keyword evidence coverage: skills contribute 70% and experience themes 30%, with weights normalized when one component has no recognized items. Details show supporting evidence and gaps. It is not an ATS score, a complete eligibility assessment, or a probability of receiving an offer.
-- Unreleased local improvements: filter CS / Data / mixed / unknown directions using titles and explicit JD duties. Descriptions have readable sections and lists, with green highlights for supported skills, amber for basic exposure and blue for related experience. Hover or focus a highlight to view evidence. Plain-text sources receive reading layout rather than a reconstruction of the employer's original design; the source JD is not rewritten.
+- Match Score reads the active CS / Data resume and displays its filename and version. Before any upload, it uses the initial fixed resume baseline. Unreadable or scanned files without usable text remain unscored; the historical knowledge base is never a fallback. Mixed or unknown roles score both resumes separately, using the higher whole-resume score for ordering without combining skills. It measures local keyword evidence coverage: skills contribute 70% and experience themes 30%, with weights normalized when one component has no recognized items. Details show supporting evidence and gaps. It is not an ATS score, a complete eligibility assessment, or a probability of receiving an offer.
+- Direction filters: CS / Data / mixed / unknown directions using titles and explicit JD duties. Descriptions have readable sections and lists, with green highlights for skills mentioned in the current resume, amber for basic exposure and blue for related experience. Hover or focus a highlight to view evidence. Plain-text sources receive reading layout rather than a reconstruction of the employer's original design; the source JD is not rewritten.
 - Default location rules: GTA on-site / hybrid placements may last 4–16 months; those outside the GTA must last at least 8 months. Remote roles are exempt from the out-of-area minimum, but permission to work from Canada still needs verification.
 - Explicitly unpaid roles are excluded. Undisclosed pay does not mean unpaid. Minimum-wage amounts are not hardcoded; cases without reliable comparison data remain unverified.
 
@@ -60,8 +69,8 @@ Click outside a details or preview dialog, or press Esc, to close it. Unsaved ed
 Version 1.1.1: **我的简历 (My resumes)** accepts separate CS / Data Word (`.docx`) or PDF baselines, up to 10 MB each. A successful upload becomes the active baseline for that track and persists in `private/resume-bases/` across restarts. Previous versions can be previewed and explicitly reactivated; originals are never overwritten.
 
 - Word files must initially contain readable text and fit one page. Uploaded-template tailoring conservatively reorders existing, identically styled adjacent bullets within the same experience based on the JD. Other content is preserved; it does not insert old knowledge-base facts or perform model-based rewriting. If no reordering is needed, the original text remains.
-- An active PDF is saved for preview but blocks tailoring for that track until the matching Word file is uploaded. Unsupported complex Word layouts also block tailoring. Neither case silently falls back to an older resume; failed uploads leave the current baseline intact.
-- Generated versions record their baseline and retain their own editable body fields even after later uploads. Match Score still uses the verified knowledge base and is not recalculated from uploads.
+- An active PDF supports preview and scoring but blocks tailoring for that track until the matching Word file is uploaded. Unsupported complex Word layouts also block tailoring. Neither case silently falls back to an older resume; failed uploads leave the current baseline intact.
+- Generated versions record their baseline and retain their own editable body fields even after later uploads. Uploading or switching a baseline recalculates scores and JD highlights. Scoring uses the active baseline, not a job-specific tailored version.
 - The workbench now has top navigation, desktop side filters and a two-column opportunity grid, with a single column on mobile. Detailed evidence and sources remain in job details.
 
 The dashboard currently uses Chinese labels; the steps below include the labels shown in the app.
@@ -71,7 +80,7 @@ The dashboard currently uses Chinese labels; the steps below include the labels 
 3. In the preview, click “编辑文字” (Edit text), edit the summary, skills, or project / work-experience body text, then click “保存新版本并预览” (Save a new version and preview).
 4. Headings, education, contact information, and paragraph structure are locked. Original files and previous versions are never overwritten. Users are responsible for verifying facts they enter manually.
 5. If a document exceeds one page or fails formatting checks, it is not published. Font sizes and margins are not reduced; the entered text is retained for revision.
-6. Review the DOCX / PDF and review.md, then explicitly upload that version's materials to move the application to ready to submit.
+6. Preview the automatically associated PDF in “申请材料” (Application materials), check the review confirmation, and save it as ready to submit. Only the resume PDF is mandatory; a Cover Letter is optional unless required by the job. DOCX and review.md stay local. You can also select a PDF from your computer. Confirmed records retain their material version and hash; generating another version does not replace confirmed attachments.
 
 Tailoring uses local rules, not a large language model. It selects previously verified factual statements, does not invent experience, skills, or achievements, and does not guarantee passing ATS or AI screening. `prepare --key '<key>'` only exports context; the dashboard's generation action performs the tailoring.
 
@@ -100,4 +109,4 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - There is no automatic application submission, form filling, bulk resume generation, daily scheduling, email synchronization, or model API integration.
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
-See [ROADMAP](ROADMAP.md): v1.0.2 adds Workday full descriptions; v1.0.1 highlights, source coverage, and conservative deduplication remain available. New discovery sources await a decision. School-portal linking (later v1.1), OpenClaw scheduled discovery, summaries and user-selected job processing (v1.3), and a multi-user service (v2.0) are planned and have not started. The current app remains manually operated.
+See [ROADMAP](ROADMAP.md): v1.1.3 is published, with the real dual-submission workflow awaiting user acceptance; next planned version v1.2.0 is prepared but development has not started. Its scope separates eligibility from scoring, rechecks job availability, and links JD, resume, scoring and material versions; v1.2.1 expands Canadian / GTA discovery sources and improves field extraction; v1.2.2 adds sentence-level evidence and controlled rewriting, subject to decisions on models, cost and permitted personal-data transfer. OpenClaw remains planned for v1.3; a multi-user service starting with CS / Data remains planned for v2.0. Version 1.2 and later are planning targets and have not started. The current app remains manually operated.

@@ -18,6 +18,6 @@ export function jobHighlights(job) {
 export function skillHighlights(job) {
   const matched = (job.match?.matched || []).filter(item => item.kind === 'skill');
   const gaps = (job.match?.gaps || []).filter(item => item.kind === 'skill');
-  const reason = job.match?.score == null ? job.match?.reason || '暂未取得技能匹配依据' : '未识别到有证据支持的匹配技能';
-  return `<section class="skill-summary" aria-label="技能匹配摘要"><strong>匹配技能</strong><div class="skill-chips">${matched.length ? matched.slice(0, 6).map(item => `<span class="skill-chip" title="${esc(item.evidence || '详情中查看依据')}">${esc(item.name)}${item.level < 1 ? ' · 基础' : ''}</span>`).join('') + (matched.length > 6 ? `<span class="skill-more">另 ${matched.length - 6} 项见详情</span>` : '') : `<span class="skill-empty">${esc(reason)}</span>`}</div>${gaps.length ? `<p class="skill-gaps">知识库未证实：${gaps.slice(0, 3).map(item => esc(item.name)).join('、')}${gaps.length > 3 ? ` 等 ${gaps.length} 项` : ''}</p>` : ''}</section>`;
+  const reason = job.match?.score == null ? job.match?.reason || '暂未取得技能匹配依据' : '未识别到简历中对应的技能';
+  return `<section class="skill-summary" aria-label="技能匹配摘要"><strong>匹配技能</strong><div class="skill-chips">${matched.length ? matched.slice(0, 6).map(item => `<span class="skill-chip" title="${esc(item.evidence || '详情中查看依据')}">${esc(item.name)}${item.level < 1 ? ' · 基础' : ''}</span>`).join('') + (matched.length > 6 ? `<span class="skill-more">另 ${matched.length - 6} 项见详情</span>` : '') : `<span class="skill-empty">${esc(reason)}</span>`}</div>${gaps.length ? `<p class="skill-gaps">当前简历未提及：${gaps.slice(0, 3).map(item => esc(item.name)).join('、')}${gaps.length > 3 ? ` 等 ${gaps.length} 项` : ''}</p>` : ''}</section>`;
 }
