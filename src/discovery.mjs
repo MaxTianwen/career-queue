@@ -3,6 +3,9 @@ import { fetchGreenhouse } from './greenhouse.mjs';
 import { fetchWorkday } from './workday.mjs';
 import { extractDeadline } from './deadlines.mjs';
 import { postingMetadata } from './posting-metadata.mjs';
+import { EMPLOYER_SOURCES, readEmployerBoard, readPublicJson, boardPosting } from './discovery-sources.mjs';
+import { enrichFields } from './job-field-evidence.mjs';
+import { discoveryMetrics } from './discovery-metrics.mjs';
 import { locationRegion } from '../web/job-facts.js';
 import { postingUrl, sourceName, mergeDiscoveryJobs, discoveryCoverage } from './discovery-records.mjs';
 
@@ -13,15 +16,8 @@ export const SOURCE = {
 };
 const geography = /\b(canada|toronto|north york|scarborough|markham|vaughan|waterloo|vancouver|montreal|montréal|ottawa|calgary|edmonton|remote)\b/i;
 const role = /\b(software|developer|programmer|data|analytics|analyst|machine learning|AI|ML|QA|quality assurance|test|SRE|DevOps|cloud|platform|IT|information (systems|technology)|cyber|security|firmware|embedded|full.stack|front.end|back.end)\b/i;
-const plain = s => String(s ?? '').replace(/<li\b[^>]*>/gi, '\n• ').replace(/<br\s*\/?>|<\/(p|li|h[1-6]|div)>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
 
-async function readJson(url, fetchImpl) {
-  const r = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Accept: 'application/json', 'User-Agent': 'CareerQueue/1.0' } });
-  if (!r.ok) throw new Error(`来源返回 HTTP ${r.status}`);
-  const text = await r.text();
-  if (text.length > 25_000_000) throw new Error('来源响应超过大小限制');
-  return JSON.parse(text);
-}
+const readJson = readPublicJson;
 
 // Restrict each adapter to its public ATS hosts and supported job-detail paths.
 export async function officialJob(candidate, fetchImpl = fetch, boards = new Map()) {
@@ -40,13 +36,13 @@ export async function officialJob(candidate, fetchImpl = fetch, boards = new Map
     const api = `https://api.lever.co/v0/postings/${encodeURIComponent(board)}/${id}?mode=json`;
     const j = await readJson(api, fetchImpl);
     if (j.id !== id || !j.text || !j.descriptionPlain) throw new Error('Lever 未返回完整 JD');
-    const jd = [j.descriptionPlain, ...(j.lists ?? []).map(l => `${l.text}\n${plain(l.content)}`), j.additionalPlain, j.salaryDescriptionPlain].filter(Boolean).join('\n\n');
+    const parsed = boardPosting({ name: candidate.company, type: 'lever', board: encodeURIComponent(board) }, j, api);
     const salary = j.salaryRange;
     const metadata = await postingMetadata(`https://jobs.lever.co/${encodeURIComponent(board)}/${id}`, j.text, fetchImpl);
-    return { ...candidate, title: j.text, jd, url: `https://jobs.lever.co/${encodeURIComponent(board)}/${id}`,
+    return { ...candidate, title: j.text, jd: parsed.jd, url: `https://jobs.lever.co/${encodeURIComponent(board)}/${id}`,
       location: j.categories?.allLocations?.join(' / ') || j.categories?.location || candidate.location,
       workMode: ({ 'on-site': 'onsite', remote: 'remote', hybrid: 'hybrid' })[j.workplaceType] || 'unknown',
-      salary: salary ? `${salary.currency} ${salary.min}–${salary.max} / ${salary.interval}` : '未披露',
+      salary: parsed.salary, fieldEvidence: parsed.fieldEvidence,
       paid: salary?.min > 0 ? true : null, postedAt: metadata.postedAt, postedAtKind: 'official', deadline: metadata.deadline,
       sourceEvidence: { url: api, retrievedAt: new Date().toISOString(), postedAtField: metadata.postedAt ? 'JobPosting.datePosted' : null,
         publicationUrl: metadata.url, publicationError: metadata.error, note: '发布日期取自官方岗位网页 JobPosting.datePosted；createdAt 创建时间不作为发布日期。' } };
@@ -59,10 +55,11 @@ export async function officialJob(candidate, fetchImpl = fetch, boards = new Map
     const j = data.jobs.find(x => x.id === id && x.isListed === true);
     if (!j) throw new Error('雇主已不再公开列出此岗位');
     if (!j.title || !j.descriptionPlain) throw new Error('Ashby 未返回完整 JD');
+    const parsed = boardPosting({ name: candidate.company, type: 'ashby', board: encodeURIComponent(board) }, j, api);
     return { ...candidate, title: j.title, jd: j.descriptionPlain, url: `https://jobs.ashbyhq.com/${encodeURIComponent(board)}/${id}`,
       location: [j.location, ...(j.secondaryLocations ?? []).map(x => x.location)].filter(Boolean).join(' / '),
       workMode: ({ OnSite: 'onsite', Remote: 'remote', Hybrid: 'hybrid' })[j.workplaceType] || 'unknown',
-      salary: j.compensation?.compensationTierSummary || '未披露', postedAt: j.publishedAt ?? null, postedAtKind: 'latest',
+      salary: parsed.salary, fieldEvidence: parsed.fieldEvidence, postedAt: j.publishedAt ?? null, postedAtKind: 'latest',
       sourceEvidence: { url: api, retrievedAt: new Date().toISOString(), postedAtField: 'publishedAt', lastPublishedAt: j.publishedAt,
         note: 'Ashby publishedAt 为最近一次发布，可能是重新发布；页面与排序保留这一含义。' } };
   }
@@ -76,8 +73,8 @@ export function extractFacts(job) {
   const terms = [...new Set(titleTerms)];
   const body = job.jd || '';
   const months = '(January|February|March|April|May|June|July|August|September|October|November|December)';
-  const start = job.title.match(new RegExp(`\\b${months}\\s+(?:[-–]|to)\\s+${months}\\s+(20\\d{2})\\b`, 'i'));
-  const datedStart = body.match(new RegExp(`(?:start date|starting|starts)\\s*:?\\s*${months}\\s+(20\\d{2})\\b`, 'i'));
+  const start = job.title.match(new RegExp(`\\b${months}\\s+(?:[-–]|to)\\s+${months}\\s+(?:\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+)?(20\\d{2})\\b`, 'i'));
+  const datedStart = body.match(new RegExp(`(?:term start|start date|starting|starts)\\s*:?\\s*${months}\\s+(?:\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+)?(20\\d{2})\\b`, 'i'));
   const season = month => /January|February|March/i.test(month) ? 'Winter' : /April/i.test(month) ? 'Spring' : /May|June|July|August/i.test(month) ? 'Summer' : 'Fall';
   const titleMonth = [...officialTitle.matchAll(new RegExp(`\\b${months}\\s+(20\\d{2})\\b`, 'gi'))];
   if (!terms.length && !start && titleMonth.length === 1) terms.push(`${season(titleMonth[0][1])} ${titleMonth[0][2]}`);
@@ -85,7 +82,7 @@ export function extractFacts(job) {
   if (!terms.length && datedStart) terms.push(`${season(datedStart[1])} ${datedStart[2]}`);
   // Ambiguous lengths ("8 or 12 months") are left for review; no guessed duration.
   const numbers = { one: 1, two: 2, three: 3, four: 4, six: 6, eight: 8, twelve: 12, sixteen: 16 };
-  const durations = [...body.matchAll(/(?:\b(?:duration|term|length)\s*:\s*|\bfor\s+)(\d{1,2}|one|two|three|four|six|eight|twelve|sixteen)[\s-]+months?\b/gi)].map(m => numbers[m[1].toLowerCase()] ?? Number(m[1]));
+  const durations = [...body.matchAll(/(?:\b(?:duration|term(?: length)?|length)\s*:\s*|\bfor\s+)(\d{1,2}|one|two|three|four|six|eight|twelve|sixteen)[\s-]+months?\b/gi)].map(m => numbers[m[1].toLowerCase()] ?? Number(m[1]));
   if (job.jd) durations.push(...[...job.title.matchAll(/\b(\d{1,2})[\s-]+months?\b/gi)].map(m => Number(m[1])));
   durations.push(...[...body.matchAll(/\b(\d{1,2})[\s-]+month\s+(?:co[ -]?op|internship|work term|placement)\b/gi)].map(m => Number(m[1])));
   const ambiguousDuration = /\b\d{1,2}\s*(?:or|to|[-–/])\s*\d{1,2}[\s-]+months?\b/i.test(`${job.title}\n${body}`);
@@ -107,52 +104,77 @@ export function extractFacts(job) {
     eligibilityNotes: /remote/i.test(job.location) ? '远程岗位需核实是否允许在加拿大办公；来源中的美国远程不代表加拿大可申请。' : null };
   if (/(?:^|[.!?\n]\s*)(?:this is an? unpaid internship|this position is unpaid|compensation:\s*unpaid)\b/i.test(body)) result.paid = false;
   else if (/^(?:CA|US)?\$\s*[1-9][\d,.]*\s*(?:per|\/)\s*(?:hour|year|month)/i.test(result.salary)) result.paid = true;
-  return result;
+  return enrichFields(result);
 }
 
-export async function discover({ fetchImpl = fetch, now = new Date(), onProgress = () => {} } = {}) {
-  const report = { dataVersion: 4, source: SOURCE, targetTerms: [...TARGET_TERMS], startedAt: now.toISOString(), finishedAt: null, total: 0, candidates: 0, duplicates: 0, skipped: 0, processed: 0, results: [], errors: [] };
-  onProgress({ phase: '正在读取公开实习索引…', report });
-  const data = await readJson(SOURCE.dataUrl, fetchImpl);
-  if (!Array.isArray(data) || !data.length || !data.some(x => typeof x.company_name === 'string' && Array.isArray(x.terms))) throw new Error('职位索引格式变化或为空，请稍后重试');
-  report.total = data.length;
-  const seen = new Map(), candidates = [];
-  for (const entry of data) {
-    if (!entry.active || !entry.is_visible || !entry.terms?.some(t => TARGET_TERMS.has(t)) || !entry.locations?.some(l => geography.test(l)) || !role.test(entry.title)) { report.skipped++; continue; }
-    try {
-      const url = postingUrl(entry.url);
-      // Application suffixes are not a separate job. Terms are kept as source hints, never asserted as employer facts.
-      const identity = JSON.stringify([url, [...entry.terms].sort(), entry.company_name, entry.title, [...entry.locations].sort()]);
-      if (seen.has(identity)) { seen.get(identity).sourceLinks.push(entry.url); report.duplicates++; continue; }
-      const candidate = { company: entry.company_name, title: entry.title, url, location: entry.locations.join(' / '), jd: '', sourceLinks: [entry.url],
-        indexEvidence: { url: SOURCE.url, terms: entry.terms, addedAt: Number.isFinite(entry.date_posted) ? new Date(entry.date_posted * 1000).toISOString() : null,
-          note: '索引收录时间不是雇主发布时间；批次与地点需对照官方 JD。' } };
-      candidates.push(candidate); seen.set(identity, candidate);
-    } catch { report.errors.push('索引中的一条链接无效，已跳过'); }
+export async function discover({ fetchImpl = fetch, now = new Date(), onProgress = () => {}, sources = EMPLOYER_SOURCES } = {}) {
+  const report = { dataVersion: 5, source: SOURCE, targetTerms: [...TARGET_TERMS], startedAt: now.toISOString(), finishedAt: null, total: 0, candidates: 0, duplicates: 0, skipped: 0, processed: 0, results: [], errors: [], sources: [] };
+  onProgress({ phase: '正在读取公开索引与雇主招聘列表…', report });
+  const index = { id: 'index', name: SOURCE.name, url: SOURCE.url, status: 'complete', raw: 0, candidates: 0, malformed: 0, pages: 0 };
+  const candidates = [], seen = new Map();
+  try {
+    const data = await readJson(SOURCE.dataUrl, fetchImpl);
+    if (!Array.isArray(data) || !data.length || !data.some(x => typeof x?.company_name === 'string' && Array.isArray(x.terms))) throw new Error('职位索引格式变化或为空，请稍后重试');
+    index.raw = data.length; index.pages = 1;
+    for (const entry of data) {
+      if (!entry || !entry.active || !entry.is_visible || !Array.isArray(entry.terms) || !Array.isArray(entry.locations) || !entry.terms.some(t => TARGET_TERMS.has(t)) || !entry.locations.some(l => geography.test(l)) || !role.test(entry.title)) { report.skipped++; continue; }
+      index.candidates++;
+      try {
+        if (typeof entry.company_name !== 'string' || !entry.company_name.trim() || typeof entry.title !== 'string' || !entry.title.trim()) throw new Error('公司 / 标题无效');
+        const url = postingUrl(entry.url);
+        const identity = JSON.stringify([url, [...entry.terms].sort(), entry.company_name, entry.title, [...entry.locations].sort()]);
+        if (seen.has(identity)) { seen.get(identity).sourceLinks.push(entry.url); report.duplicates++; continue; }
+        const candidate = { company: entry.company_name, title: entry.title, url, location: entry.locations.join(' / '), jd: '', sourceLinks: [entry.url],
+          discoverySources: [{ id: 'index', name: SOURCE.name, url: SOURCE.url }],
+          indexEvidence: { url: SOURCE.url, terms: entry.terms, addedAt: Number.isFinite(entry.date_posted) ? new Date(entry.date_posted * 1000).toISOString() : null,
+            note: '索引收录时间不是雇主发布时间；批次与地点需对照官方 JD。' } };
+        candidates.push(candidate); seen.set(identity, candidate);
+      } catch { index.malformed++; }
+    }
+    if (index.malformed) { index.status = 'partial'; index.error = `${index.malformed} 条无效记录已跳过`; }
+  } catch (e) { index.status = 'failed'; index.error = e.message; }
+  report.sources.push(index);
+  const boardResults = await Promise.all(sources.map(source => readEmployerBoard(source, fetchImpl)));
+  const inline = new Map();
+  for (const { jobs, ...stats } of boardResults) {
+    const selected = jobs.filter(j => geography.test(j.location) && role.test(j.title) && /\b(intern(?:ship)?|co[ -]?op)\b/i.test(j.title));
+    stats.candidates = selected.length; report.sources.push(stats);
+    for (const job of selected) { candidates.push(job); if (job.jd) inline.set(postingUrl(job.url), job); }
   }
-  report.candidates = candidates.length;
+  report.errors = report.sources.filter(s => s.error).map(s => `${s.name}：${s.error}`);
+  if (report.sources.every(s => s.status === 'failed')) throw new Error(report.errors.join('；'));
+  report.partial = report.sources.some(s => s.status !== 'complete');
+  report.total = report.sources.reduce((n, s) => n + s.raw, 0); report.candidates = candidates.length;
   const boards = new Map(); let cursor = 0;
-  // Three concurrent read-only requests. Failures stay attached to the affected result.
   async function worker() {
     while (cursor < candidates.length) {
       const candidate = candidates[cursor++];
-      let job = candidate, fetchError = null;
+      let job = candidate, fetchError = null, readMethod = candidate.jd ? 'inline' : 'unsupported';
       try {
-        const official = await officialJob(candidate, fetchImpl, boards);
-        if (official) job = { ...official, indexEvidence: candidate.indexEvidence, sourceLinks: candidate.sourceLinks };
-      } catch (e) { fetchError = e.message; }
+        const listed = inline.get(postingUrl(candidate.url));
+        if (listed) { job = { ...listed, indexEvidence: candidate.indexEvidence, discoverySources: candidate.discoverySources, sourceLinks: candidate.sourceLinks }; readMethod = 'inline'; }
+        else if (!candidate.jd) {
+          const official = await officialJob(candidate, fetchImpl, boards);
+          if (official) { job = { ...official, indexEvidence: candidate.indexEvidence, discoverySources: candidate.discoverySources, sourceLinks: candidate.sourceLinks }; readMethod = 'detail'; }
+        }
+        if (readMethod === 'inline' && sourceName(job) === 'Lever') {
+          const meta = await postingMetadata(job.url, job.title, fetchImpl);
+          job = { ...job, postedAt: meta.postedAt, deadline: meta.deadline, sourceEvidence: { ...job.sourceEvidence, publicationError: meta.error, postedAtField: meta.postedAt ? 'JobPosting.datePosted' : null } };
+        }
+      } catch (e) { fetchError = e.message; readMethod = 'failed'; }
       job = extractFacts(job);
-      const evaluation = evaluateJob(job, now);
-      const result = { ...job, ...evaluation, key: normalizeJob({ ...job, jd: job.jd || 'identity only' }).key,
-        fullJd: Boolean(job.jd), fetchError, sourceName: sourceName(job) };
+      const result = { ...job, ...evaluateJob(job, now), key: normalizeJob({ ...job, jd: job.jd || 'identity only' }).key,
+        fullJd: Boolean(job.jd), fetchError, readMethod, sourceName: sourceName(job) };
       if (!result.fullJd) result.reasons.unshift(fetchError ? `官方 JD 读取失败：${fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
       report.results.push(result); report.processed++;
       onProgress({ phase: `已检查 ${report.processed} / ${report.candidates} 条候选`, report });
     }
   }
   await Promise.all([worker(), worker(), worker()]);
-  const merged = mergeDiscoveryJobs(report.results);
+  report.results.sort((a, b) => a.url.localeCompare(b.url) || a.discoverySources[0].id.localeCompare(b.discoverySources[0].id));
+  const raw = report.results, dedup = {}, merged = mergeDiscoveryJobs(raw, dedup);
   report.results = merged.results;
+  report.metrics = discoveryMetrics(report.sources, raw, merged.results, { ...dedup, exact: dedup.exact + report.duplicates });
   report.duplicates += merged.duplicates;
   report.coverage = discoveryCoverage(report.results);
   report.results.sort((a, b) => Number(a.decision === 'REJECT') - Number(b.decision === 'REJECT') || Number(b.fullJd) - Number(a.fullJd) || comparePreference(a, b) || a.company.localeCompare(b.company));

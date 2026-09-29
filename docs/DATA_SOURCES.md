@@ -1,23 +1,45 @@
-# v1.0.2 数据来源与 API 清单
+# v1.2.1 数据来源与 API 清单
 
-2026-09-25 按源码、官方接口文档及真实只读搜索核查。新增服务尚未接入；本次没有向招聘服务发送个人简历或写入 Notion。
+2026-09-29 按当前代码、官方文档和公开接口只读核查；v1.2.1 已获用户授权发布。没有发送私人简历或向正式 Notion 写测试数据。历史实测保留下文。
 
 ## 两层来源
 
 **发现候选 → 根据候选官方链接读取 JD**。支持某 ATS 全文接口，不等于扫描了使用该 ATS 的全部公司。
 
-| 层次 / 入口 | v1.0.2 调用 | 提供什么 / 限制 |
+| 层次 / 入口 | 当前调用 | 提供什么 / 限制 |
 |---|---|---|
-| 自动发现索引 | `https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json` | Simplify / Pitt CSC 索引的公司、岗位、链接、地点与批次线索。当前唯一自动发现源；收录日期不是雇主发布日期。 |
+| 自动发现索引 | `https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json` | Simplify / Pitt CSC 索引的公司、岗位、链接、地点与批次线索。与下列雇主列表共同发现；收录日期不是雇主发布日期。 |
 | Greenhouse JD | `https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{postId}` | 正文、标题、地点等；只读已发现的支持格式链接。薪资 / 任期不保证有结构化值。 |
 | Lever JD | `https://api.lever.co/v0/postings/{board}/{id}?mode=json` | 合并正文、要求列表、补充说明、薪酬说明；可读结构化地点、办公方式、薪资范围，缺失标未知。 |
-| Ashby JD | `https://api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true` | 读取公司 board，选取对应且 isListed 的岗位；正文、地点、方式、可用薪酬与最近发布时间。没有把整张 board 作为新增发现源。 |
+| Ashby JD | `https://api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true` | 读取公司 board，选取对应且 isListed 的岗位；正文、地点、方式、可用薪酬与最近发布时间。Cohere 的完整公开列表同时作为发现入口，其他 board 仍只按已有岗位补全文。 |
 | Workday JD | HTTPS `{tenant}.wd{n}.myworkdayjobs.com` 官方职位页面 | 读取 JobPosting JSON-LD 的全文、招聘编号、地点与日期；不是私有 CXS API。不跟随跳转；仅支持匹配链接编号的职位，不扫描公司所有岗位。 |
 | 官方日期补读 | Greenhouse / Lever 受限官方岗位页的 `JobPosting` | 补 datePosted / validThrough；匹配对应职位，冲突 / 失败不猜日期，不抓任意站点。 |
 | 手动链接入口 | CLI `fetch-job` / 网页手动读取 | 当前仅 Greenhouse；不能因此认为自动发现也只有 Greenhouse。 |
 | Notion | `https://api.notion.com/v1` | 存 Queue、申请状态、JD 和材料；不是招聘数据源。 |
 
 实现位置：[discovery.mjs](../src/discovery.mjs)、[greenhouse.mjs](../src/greenhouse.mjs)、[posting-metadata.mjs](../src/posting-metadata.mjs)、[notion.mjs](../src/notion.mjs)。
+
+## v1.2.1 首批主动发现源与实测
+
+固定配置见 `src/discovery-sources.mjs`。本轮只启用下列三家；曾探查 Kensington、Solink，但未列为启用来源。
+
+| 雇主 / 官方列表 | 公开 API | 2026-09-29 返回 / 预筛候选 | 本次独立新增 |
+|---|---|---:|---:|
+| [Tenstorrent University](https://job-boards.greenhouse.io/tenstorrentuniversity) | `https://boards-api.greenhouse.io/v1/boards/tenstorrentuniversity/jobs?content=true` | 4 / 1 | 1，批次未知，待核实 |
+| [Cohere](https://jobs.ashbyhq.com/cohere) | `https://api.ashbyhq.com/posting-api/job-board/cohere?includeCompensation=true` | 144 / 2 | 2，Winter 2027，待核实 |
+| [Telesat](https://jobs.lever.co/telesat) | `https://api.lever.co/v0/postings/telesat?mode=json&limit=100&skip=0` | 48 / 0 | 0 |
+
+同次原索引 16,947 行 → 149 条预筛候选 → 143 张卡片。新来源增加 3 条，合计 152 条候选 / 146 张卡片。精确重复合并 6 条、四字段归组 0 条、身份冲突记录 2 条。三个新增均 REVIEW，全部规则明确 PASS 的新增为 0；不能把 REVIEW 说成已核实可投。索引存在 2 次 Greenhouse 详情失败；64 条候选链接未支持读取。首批来源列表均成功且单页完整；这不代表其它雇主、职位或批次都已覆盖。
+
+新增实际岗位：[Cohere Software Engineer Intern](https://jobs.ashbyhq.com/cohere/8c035d3d-081d-4c8a-914a-72f4efaad254)、[Cohere Machine Learning Intern](https://jobs.ashbyhq.com/cohere/36d1f52f-8270-4652-adf5-5303a0ff341b)、[Tenstorrent AI Compiler Intern](https://job-boards.greenhouse.io/tenstorrentuniversity/jobs/4873659007)。两条 Cohere 的 3–6 月来自 JD，方式来自 Remote；Tenstorrent 发布于 2025 年，但尚无截止，不能因为旧就删除，也不能猜是 2027 入职。标题未知季节时保留待核实。
+
+每家另抽查一个公开岗位。Tenstorrent 列表与详情 JD / 首次日期一致；Cohere 抽查 Toronto 全职岗位仅用于结构化薪资校验（CAD、1 YEAR），不混入实习结果；Telesat 抽查工程师仅核实 Lever 字段和日期补读，不计新增实习。原始公开数据及抽查在本机 `output/v121-audit/`，不提交原始大文件。
+
+接口依据：[Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html)、[Lever Postings API](https://github.com/lever/postings-api)、[Ashby Public Job Posting API](https://developers.ashbyhq.com/docs/public-job-posting-api)。只使用公开 GET，未调用申请提交接口、未登录 / 付费。Lever 支持 skip / limit，最多读 20 页，每页 100；达到上限、重复页、分页错误、结构变化或 GH 总数不符标 partial，不假称完整。Ashby 只用 isListed=true，publishedAt 按“最近发布”；GH first_published 与 updated_at 分开；Lever 创建时间不当发布日期。
+
+指标口径：发现表为同次完成快照、独立卡片分母包含拒绝 / 已截止结果，不随过滤变化；全文系统表按当前未截止结果重算。相对索引新增只在索引读取完整时给出，PASS / REVIEW 分列；共享来源行不能相加。列表自带 JD 不计详情请求成功。字段未提取到与请求失败分开，不将缺失写成明确“官方没有”。去重与归组保留各自 JD；字段冲突选取完整来源，不拼接虚假岗位。
+
+仍有限制：固定三家覆盖增量较小，未支持来源和旧 Workday 维护页替代链接继续作为后续候选；本版没有放宽跳转、开启其它 ATS 全量搜索或添加付费服务。来源长期变更仍可能导致部分失败，界面会显示。
 
 ## 日期、筛选和覆盖限制
 

@@ -3,6 +3,9 @@ import { canonicalUrl, normalizeJob } from './core.mjs';
 import { deadlineExpired } from './deadlines.mjs';
 import { durationRange, publication } from '../web/job-facts.js';
 
+const known = value => value != null && !['', 'unknown', '未披露'].includes(String(value).trim().toLowerCase());
+const lineage = jobs => [...new Map(jobs.flatMap(j => j.discoverySources || []).map(s => [s.id, s])).values()];
+const snapshots = jobs => [...new Map(jobs.flatMap(j => j.groupedSources || [{ key: j.key, url: j.url, term: j.term, title: j.title, location: j.location, jd: j.jd, sourceEvidence: j.sourceEvidence, fieldEvidence: j.fieldEvidence, discoverySources: j.discoverySources, requisitionId: j.requisitionId, salary: j.salary, durationMonths: j.durationMonths, durationRange: j.durationRange, workMode: j.workMode, deadline: j.deadline }]).map(s => [JSON.stringify([s.url, s.requisitionId, s.term, s.jd]), s])).values()];
 const normalized = value => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 export function postingUrl(value) {
@@ -29,7 +32,8 @@ export function sourceName(job) {
 }
 
 // Resolve known identities first, then group matching company/title/term/location.
-export function mergeDiscoveryJobs(jobs) {
+export function mergeDiscoveryJobs(jobs, stats = {}) {
+  Object.assign(stats, { exact: 0, grouped: 0, conflicts: 0 });
   const rows = [], identities = new Map();
   let duplicates = 0;
   for (const input of jobs) {
@@ -42,11 +46,18 @@ export function mergeDiscoveryJobs(jobs) {
     const matches = [...new Set(keys.map(key => identities.get(key)).filter(row => row !== undefined))];
     const existing = matches.length === 1 ? rows[matches[0]] : null;
     const conflict = existing && ['company', 'title', 'location', 'workMode', 'salary', 'durationMonths', 'deadline', 'requisitionId'].some(field =>
-      existing[field] != null && job[field] != null && normalized(existing[field]) !== normalized(job[field]));
+      known(existing[field]) && known(job[field]) && normalized(existing[field]) !== normalized(job[field]));
     if (existing && !conflict) {
-      duplicates++;
+      duplicates++; stats.exact++;
       const sourceLinks = [...new Set([...existing.sourceLinks, ...job.sourceLinks])];
-      if (!existing.fullJd && job.fullJd) Object.assign(existing, job);
+      const discoverySources = lineage([existing, job]);
+      const groupedSources = snapshots([existing, job]);
+      const indexEvidence = existing.indexEvidence || job.indexEvidence;
+      const richness = j => Number(Boolean(j.fullJd)) * 100 + ['salary', 'workMode', 'durationMonths', 'postedAt'].filter(f => known(j[f])).length;
+      if (richness(job) > richness(existing)) Object.assign(existing, job);
+      if (discoverySources.length) existing.discoverySources = discoverySources;
+      if (groupedSources.length > 1) existing.groupedSources = groupedSources;
+      if (indexEvidence) existing.indexEvidence = indexEvidence;
       existing.sourceLinks = sourceLinks;
       for (const key of keys) identities.set(key, matches[0]);
       continue;
@@ -67,16 +78,15 @@ export function mergeDiscoveryJobs(jobs) {
     const preferred = [...group].sort((a, b) => Number(deadlineExpired(a.deadline)) - Number(deadlineExpired(b.deadline))
       || Number(Boolean(b.fullJd)) - Number(Boolean(a.fullJd)) || (b.jd?.length || 0) - (a.jd?.length || 0)
       || a.url.localeCompare(b.url))[0];
-    const sources = group.flatMap(job => job.groupedSources || [{ key: job.key, url: job.url, term: job.term,
-      requisitionId: job.requisitionId, salary: job.salary, durationMonths: job.durationMonths, workMode: job.workMode, deadline: job.deadline }]);
-    const groupedSources = [...new Map(sources.map(source => [JSON.stringify([source.url, source.requisitionId, source.term]), source])).values()];
+    const groupedSources = snapshots(group);
     const merged = { ...preferred, key: preferred.identityConflict ? normalizeJob(preferred).key : preferred.key,
       sourceLinks: [...new Set(group.flatMap(job => job.sourceLinks))], groupedSources,
+      discoverySources: lineage(group), indexEvidence: preferred.indexEvidence || group.find(j => j.indexEvidence)?.indexEvidence,
       duplicateNote: `已按公司、标题、批次和地点合并 ${groupedSources.length} 条记录；当前显示一个来源的完整信息，其他入口与招聘编号已保留。` };
     delete merged.identityConflict;
     rows.splice(rows.indexOf(group[0]), 1, merged);
     for (const extra of group.slice(1)) rows.splice(rows.indexOf(extra), 1);
-    duplicates += group.length - 1;
+    duplicates += group.length - 1; stats.grouped += group.length - 1;
   }
   // The existing Queue key can coincide even when facts conflict. Keep each row
   // selectable, but require a human to resolve identity before a Queue write.
@@ -89,6 +99,7 @@ export function mergeDiscoveryJobs(jobs) {
     }
   }
   const conflicts = new Set([...queueKeys.values()].filter(group => group.length > 1).flat());
+  stats.conflicts = conflicts.size;
   for (const job of conflicts) {
     job.identityConflict = true;
     job.duplicateNote = '招聘编号或链接相同，但批次或岗位信息冲突；保留独立记录。请先核对官网，再通过手动添加录入已确认的职位。';

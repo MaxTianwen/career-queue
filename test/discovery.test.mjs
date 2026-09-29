@@ -10,7 +10,7 @@ const reply = data => new Response(JSON.stringify(data), { headers: { 'Content-T
 
 test('discovery scopes the feed, deduplicates, reads official JD and never substitutes index age for published time', async () => {
   const calls = [];
-  const result = await discover({ now, fetchImpl: async url => {
+  const result = await discover({ sources: [], now, fetchImpl: async url => {
     calls.push(url);
     if (url === SOURCE.dataUrl) return reply([entry(1), entry(1, { url: 'https://boards.greenhouse.io/synthetic/jobs/1/apply?utm_source=test' }), entry(2), entry(3),
       entry(4, { active: false }), entry(5, { locations: ['New York, NY'] }), entry(6, { title: 'Registered Nurse Intern' }), entry(7, { terms: ['Winter 2026'] }),
@@ -29,12 +29,12 @@ test('discovery scopes the feed, deduplicates, reads official JD and never subst
 });
 
 test('one employer failure is visible and does not discard other real results; source failure is not an empty success', async () => {
-  const result = await discover({ now, fetchImpl: async url => url === SOURCE.dataUrl ? reply([entry(1), entry(2)]) : url.endsWith('/1') ? new Response('', { status: 429 }) : reply({ id: 2, title: 'Software Intern', content: 'Full JD' }) });
+  const result = await discover({ sources: [], now, fetchImpl: async url => url === SOURCE.dataUrl ? reply([entry(1), entry(2)]) : url.endsWith('/1') ? new Response('', { status: 429 }) : reply({ id: 2, title: 'Software Intern', content: 'Full JD' }) });
   assert.equal(result.processed, 2);
   assert.match(result.results.find(x => x.fetchError).fetchError, /429/);
   assert.equal(result.results.filter(x => x.fullJd).length, 1);
-  await assert.rejects(discover({ fetchImpl: async () => new Response('', { status: 503 }) }), /503/);
-  await assert.rejects(discover({ fetchImpl: async () => reply({ changed: true }) }), /格式/);
+  await assert.rejects(discover({ sources: [], fetchImpl: async () => new Response('', { status: 503 }) }), /503/);
+  await assert.rejects(discover({ sources: [], fetchImpl: async () => reply({ changed: true }) }), /格式/);
 });
 
 test('ATS requests use only allowlisted hosts and do not follow redirects', async () => {
@@ -76,7 +76,7 @@ test('official January start overrides Summer index label; ambiguous duration an
 });
 
 test('Winter-only feed entries are discovered and confirmed January starts are retained', async () => {
-  const result = await discover({ now, fetchImpl: async url => url === SOURCE.dataUrl
+  const result = await discover({ sources: [], now, fetchImpl: async url => url === SOURCE.dataUrl
     ? reply([entry(9, { title: 'Software Co-op', terms: ['Winter 2027'] }), entry(10, { terms: ['Winter 2028'] })])
     : reply({ id: 9, title: 'Software Co-op (January to August 2027)', content: 'Duration: 8 months', location: { name: 'Toronto' }, first_published: now.toISOString() }) });
   assert.equal(result.candidates, 1);

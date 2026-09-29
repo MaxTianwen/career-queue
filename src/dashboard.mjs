@@ -174,7 +174,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/assessment-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/assessment-view.js', '/discovery-sources-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -353,7 +353,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         await loadedSearch;
         if (mode !== 'live') throw fail('自动搜索使用真实工作区，不写入演示记录');
         if (search.state === 'running') return send(await presentSearch(), 202);
-        if (search.state === 'done' && search.report.dataVersion === 4 && JSON.stringify(search.report.targetTerms) === JSON.stringify([...TARGET_TERMS]) && Date.now() - Date.parse(search.report.finishedAt) < 5 * 60 * 1000) return send({ ...(await presentSearch()), cached: true });
+        if (search.state === 'done' && search.report.dataVersion === 5 && JSON.stringify(search.report.targetTerms) === JSON.stringify([...TARGET_TERMS]) && Date.now() - Date.parse(search.report.finishedAt) < 5 * 60 * 1000) return send({ ...(await presentSearch()), cached: true });
         const previousJobs = new Map((search.report?.results || []).map(job => [job.key, job]));
         search = { state: 'running', phase: '正在连接职位来源…', report: null, error: null };
         void (async () => {
@@ -366,7 +366,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
             });
             await mkdir(dirname(searchFile), { recursive: true });
             await writeFile(searchFile, JSON.stringify(report));
-            search = { state: 'done', phase: '搜索完成', report, error: null };
+            search = { state: 'done', phase: report.partial ? '搜索完成 · 部分来源不完整' : '搜索完成', report, error: null };
           } catch (e) { search = { ...search, state: 'error', error: e.message, phase: '搜索未完成' }; }
         })();
         return send(await presentSearch(), 202);

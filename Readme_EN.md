@@ -1,4 +1,4 @@
-# Career Queue v1.2.0
+# Career Queue v1.2.1
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ma
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current release: `v1.2.0`, on `main` and the matching tag in the existing private GitHub repository. It adds separate eligibility evidence, official posting availability checks, and resume / JD / material version tracking. School-list matching and independent submission records remain available; real school submission still needs user acceptance. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md) for features and verification limits; these supporting documents are in Chinese.
+Current release: `v1.2.1`, published with user authorization to main and the matching tag in the existing private GitHub repository. This update adds three public employer discovery feeds, shared grouping, field evidence and discovery metrics. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
@@ -30,13 +30,21 @@ Examples contain synthetic data; do not import them into your live Notion databa
 
 ## Current features
 
+### v1.2.1 public employer discovery
+
+- Searches the existing index plus the public Tenstorrent University, Cohere and Telesat boards. These are three named employers, not all employers on three ATS platforms.
+- Partial failures retain other results. Discovery metrics distinguish raw rows, scoped candidates, incremental verified / pending results, deduplication, inline descriptions and actual detail requests.
+- Grouped sources keep separate JD text and evidence. Salary currency and period, duration ranges and workplace evidence remain explicit; missing values are not guessed.
+- The read-only live run found three incremental candidates requiring review, including two Cohere Winter 2027 postings. None passed every rule without review. See [source audit](docs/DATA_SOURCES.md).
+- v1.2.2 has an implementation and acceptance checklist only; development has not started.
+
 ### v1.2.0 eligibility, availability and material evidence
 
 - Job details separate required, preferred and alternative requirements, preserving JD quotes and evidence from the current resume. Missing resume evidence does not prove inability. Complex, negated, education, enrollment and work-authorization conditions remain unverified unless personally confirmed. Only a confirmed conflict with a current-JD mandatory condition causes rejection. Return-to-school arrangements are excluded at the user's request.
 - Personal confirmations apply to the current job and JD version; changes invalidate old confirmations. Match Score still uses active resumes with unchanged weights, without adding historical knowledge-base facts or personal eligibility answers.
 - Generation and preparation recheck the selected official posting, showing open, closed or unknown status with the check time. Open checks can be reused for 15 minutes. Explicit closure blocks new generation; timeouts, maintenance, redirects or missing content do not prove closure. Unknown results can be reviewed on the official site and explicitly confirmed with supporting notes.
 - Assessments bind the JD, active CS / Data resume versions and hashes, rules and confirmations. Changed inputs trigger recalculation and flag older materials for regeneration or explicit re-review. Generation, manual editing, material approval and submission retain their corresponding snapshots; originals and submitted PDFs are preserved.
-- This version adds no discovery source, model or form-filling integration. A read-only RBC Workday spot check returned open; a Super Ashby check remained unknown, not confirmed closed.
+- The earlier v1.2.0 added no discovery source, model or form-filling integration. A read-only RBC Workday spot check returned open; a Super Ashby check remained unknown, not confirmed closed.
 
 ### v1.1.3 school lists and independent submissions
 
@@ -62,7 +70,7 @@ Click outside a details or preview dialog, or press Esc, to close it. Unsaved ed
 
 ## Search and scoring limits
 
-- Automatic discovery uses one public index: Simplify / Pitt CSC's Summer2027-Internships. It is not a search of the entire web.
+- Automatic discovery combines the Simplify / Pitt CSC index with three named public employer boards. It is not a search of the entire web.
 - Automatic official job-description retrieval supports **Greenhouse, Lever, Ashby, and Workday**. The manual `fetch-job` URL entry point supports Greenhouse only. See [DATA_SOURCES](docs/DATA_SOURCES.md) for endpoints, date semantics, and coverage limits.
 - Workday reads JobPosting data from supported public job pages without an account or paid API. Redirects, login shells, missing data, and conflicting identities remain explicit failures. This does not search every Workday employer.
 - The 24-hour view is an optional filter, not a job's validity period. First publication, official dates, and latest republication are labeled separately. Index inclusion dates never substitute for unknown publication dates.
@@ -117,4 +125,4 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - There is no automatic application submission, form filling, bulk resume generation, daily scheduling, email synchronization, or model API integration.
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
-See [ROADMAP](ROADMAP.md): v1.2.1 has an implementation and acceptance plan for Canadian / GTA discovery sources, unified deduplication and field quality; development has not started. v1.2.2 covers sentence-level evidence and controlled rewriting; OpenClaw remains planned for v1.3. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. None of these future features has started; the current app remains manually operated.
+See [ROADMAP](ROADMAP.md): v1.2.1 is published. v1.2.2 has an implementation and acceptance plan for sentence-level evidence and controlled rewriting; development has not started; OpenClaw remains planned for v1.3. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. None of these future features has started; the current app remains manually operated.

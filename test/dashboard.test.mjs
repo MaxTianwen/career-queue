@@ -308,7 +308,7 @@ test('Notion failure is an error, not an empty list; failed upload preserves que
 test('automatic discovery runs without Notion, survives page reload and reports progress and cooldown honestly', async t => {
   let release, count = 0;
   const wait = new Promise(r => { release = r; });
-  const report = { dataVersion: 4, targetTerms: ['Winter 2027', 'Summer 2027', 'Fall 2027'], startedAt: new Date().toISOString(), total: 1, candidates: 1, processed: 0, results: [], errors: [] };
+  const report = { dataVersion: 5, targetTerms: ['Winter 2027', 'Summer 2027', 'Fall 2027'], startedAt: new Date().toISOString(), total: 1, candidates: 1, processed: 0, results: [], errors: [] };
   const { request, root } = await setup(t, undefined, async ({ onProgress }) => {
     count++; onProgress({ phase: 'Reading official JD', report }); await wait;
     return { ...report, processed: 1, finishedAt: new Date().toISOString() };
@@ -377,9 +377,9 @@ test('conflicting discovery identity cannot write Queue or generate materials', 
   assert.equal((await store.list()).length, 3);
 });
 
-test('v1.0.1 search snapshots refresh before applying the new deduplication cache', async t => {
+test('v1.2.0 search snapshots refresh before applying the new deduplication cache', async t => {
   let count = 0;
-  const { request } = await setup(t, undefined, async () => ({ dataVersion: ++count === 1 ? 3 : 4,
+  const { request } = await setup(t, undefined, async () => ({ dataVersion: ++count === 1 ? 4 : 5,
     targetTerms: ['Winter 2027', 'Summer 2027', 'Fall 2027'], results: [], finishedAt: new Date().toISOString() }));
   async function run() {
     const response = await request('/api/discovery', {}, 'live');
@@ -393,7 +393,7 @@ test('v1.0.1 search snapshots refresh before applying the new deduplication cach
 test('expanding target terms invalidates an otherwise fresh search cache', async t => {
   let count = 0;
   const current = ['Winter 2027', 'Summer 2027', 'Fall 2027'];
-  const { request } = await setup(t, undefined, async () => ({ dataVersion: 4, targetTerms: ++count === 1 ? ['Summer 2027', 'Fall 2027'] : current, results: [], finishedAt: new Date().toISOString() }));
+  const { request } = await setup(t, undefined, async () => ({ dataVersion: 5, targetTerms: ++count === 1 ? ['Summer 2027', 'Fall 2027'] : current, results: [], finishedAt: new Date().toISOString() }));
   async function run() {
     const response = await request('/api/discovery', {}, 'live');
     for (let n = 0; n < 30 && (await request('/api/discovery')).data.state !== 'done'; n++) await new Promise(r => setTimeout(r, 10));

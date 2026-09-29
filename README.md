@@ -1,4 +1,4 @@
-# Career Queue v1.2.0
+# Career Queue v1.2.1
 
 **中文** | [English](Readme_EN.md)
 
@@ -6,7 +6,7 @@
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 确认材料并保存为待提交 → 本人确认已投递。**
 
-当前发布版本：`v1.2.0`，沿用现有私密 GitHub 仓库的 `main` 与同名标签。新增独立资格对照、官方岗位有效性复查及简历 / JD / 材料版本关联。学校列表与双渠道记录继续保留，真实学校提交流程仍待本人验收。功能与验证边界见 [CHANGELOG](CHANGELOG.md)，当前规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。
+当前发布版本：`v1.2.1`，按用户授权发布到现有私密 GitHub 仓库 main 与同名标签。新增 3 个公开雇主发现源、跨来源归组、字段依据与来源效果统计。完整变更见 [CHANGELOG](CHANGELOG.md)，规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。
 
 ## 启动与验证
 
@@ -29,6 +29,14 @@ node src/cli.mjs preview --input examples/jobs.example.json
 示例为合成数据，不要导入正式 Notion。本版新增资格、有效性、输入版本和历史材料保护测试，最终回归结果见 [CHANGELOG](CHANGELOG.md)。公开官网只读抽查与模拟 API / 演示测试分别记录；没有测试写入正式 Notion 或实际投递。没有私有文档环境的公开副本会跳过对应文档保护测试，不能将跳过等同通过。`check` 仅检查配置；`verify` 才读取真实 Notion schema。
 
 ## 当前功能
+
+### v1.2.1 多来源发现
+
+- 搜索同次读取 Simplify / Pitt CSC 索引与 Tenstorrent University、Cohere、Telesat 的公开列表；这是三个指定雇主，并非三个 ATS 全量搜索。
+- 来源失败仍保留其他结果；来源统计分开展示原始条目、范围内候选、独立新增 / 待核实、重复归组、实际全文读取与字段取得数量。
+- 合并保留完整来源 JD 与链接，不拼接冲突要求；薪资保留币种 / 周期原文、任期范围和办公方式保留依据，不猜缺失值。
+- 本次真实只读搜索新增 3 条待核实候选（其中 Cohere 两条 Winter 2027）；明确通过全部规则的新增为 0。抽查及覆盖边界见 [数据来源](docs/DATA_SOURCES.md)。
+- v1.2.2 已准备实施 / 验收清单，尚未开工。
 
 ### v1.2.0 资格、有效性与材料依据
 
@@ -62,7 +70,7 @@ node src/cli.mjs preview --input examples/jobs.example.json
 
 ## 搜索和评分边界
 
-- 自动发现只有一个公开索引：Simplify / Pitt CSC 的 Summer2027-Internships，不是全网搜索。
+- 自动发现使用 Simplify / Pitt CSC 的 Summer2027-Internships 与 3 个指定雇主公开列表，统一筛选和归组；不是全网搜索。
 - 自动官方 JD 读取支持 **Greenhouse、Lever、Ashby、Workday**；手动链接 `fetch-job` 入口只支持 Greenhouse。接口、日期含义与覆盖限制见 [DATA_SOURCES](docs/DATA_SOURCES.md)。
 - Workday 从受支持的官方职位页读取 JobPosting 正文 / 日期 / 编号，无需账号或付费 API；重定向、登录页、缺失或冲突数据保持失败提示。不是全 Workday 岗位搜索。
 - 24 小时是可选视图，不是岗位有效期。首次发布、官方日期、最近重新发布分别标注；未知日期不使用索引收录时间代替。
@@ -115,4 +123,4 @@ Queue 过滤 Status = Queue；Applications 过滤待提交 / 已投递 / 面试�
 - 无自动投递、自动填表、批量简历、每日调度、邮箱同步或模型 API。
 - 本机功能验证不等于完整真实申请验收；尚未以真实材料上传并走完待提交 / 已投递链路。
 
-后续规划见 [ROADMAP](ROADMAP.md)：v1.2.1 已准备加拿大 / GTA 发现来源、统一去重和字段质量的实施与验收方案，尚未开发；v1.2.2 为逐句依据和受控改写；v1.3 保留 OpenClaw。半自动申请移入 v2.0，与面向 CS / Data 的多用户试用分阶段推进：先做好账号和资料隔离，再试点少量网站辅助填写，首轮建议由本人点击最终提交。具体网站、模型、费用与资料范围在实施前确认。后续功能均未开工，当前继续手动运行。
+后续规划见 [ROADMAP](ROADMAP.md)：v1.2.1 已按授权发布；v1.2.2 已准备逐句依据和受控改写的实施与验收方案，尚未开发；v1.3 保留 OpenClaw。半自动申请移入 v2.0，与面向 CS / Data 的多用户试用分阶段推进：先做好账号和资料隔离，再试点少量网站辅助填写，首轮建议由本人点击最终提交。具体网站、模型、费用与资料范围在实施前确认。后续功能均未开工，当前继续手动运行。

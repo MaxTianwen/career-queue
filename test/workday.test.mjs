@@ -98,7 +98,7 @@ test('verified Workday requisitions deduplicate locale links while conflicting l
 
 test('discovery integrates Workday full JD, dates and failures without replacing index timestamps', async () => {
   const entry = (url, title = 'Software Intern') => ({ company_name: 'Synthetic', title, url, terms: ['Summer 2027'], locations: ['Toronto, Canada'], active: true, is_visible: true, date_posted: 1790000000 });
-  const report = await discover({ now: new Date('2026-09-25T16:00:00Z'), fetchImpl: async url => {
+  const report = await discover({ sources: [], now: new Date('2026-09-25T16:00:00Z'), fetchImpl: async url => {
     if (url === SOURCE.dataUrl) return new Response(JSON.stringify([entry(candidate.url), entry(candidate.url.replace('R_123-2', 'R_404'))]));
     if (url.endsWith('R_404')) return new Response('', { status: 404 });
     return new Response(html({ ...post, validThrough: '2026-09-24' }));
@@ -109,5 +109,5 @@ test('discovery integrates Workday full JD, dates and failures without replacing
   assert.equal(deadlineExpired(success.deadline, new Date('2026-09-25T16:00:00Z')), true);
   assert.match(failure.fetchError, /404/); assert.equal(failure.postedAt, null);
   assert.equal(report.coverage.find(row => row.name === 'Workday').failed, 1);
-  assert.equal(report.dataVersion, 4);
+  assert.equal(report.dataVersion, 5);
 });

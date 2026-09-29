@@ -25,6 +25,7 @@ export function publicationDay(job) {
 
 // Ranges are displayed as ranges, never stored as a made-up exact duration.
 export function durationRange(job) {
+  if (job.durationRange && Number.isFinite(job.durationRange.min) && Number.isFinite(job.durationRange.max) && job.durationRange.min > 0 && job.durationRange.max >= job.durationRange.min) return job.durationRange;
   if (Number.isFinite(job.durationMonths)) return { min: job.durationMonths, max: job.durationMonths };
   if (!job.fullJd && !job.jd) return null;
   const range = (job.title || '').match(/\b(\d{1,2})\s*(?:[-–]|to)\s*(\d{1,2})[\s-]+months?\b/i);
