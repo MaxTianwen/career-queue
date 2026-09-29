@@ -228,7 +228,7 @@ test('dashboard manual workflow: notes, preparation, files, ready, confirmed sub
   assert.equal((await request(path + '/complete', { files, checked: true })).status, 200);
   detail = (await request(path)).data;
   assert.equal(detail.status, '待提交'); assert.equal(detail.applicationDate, null);
-  assert.equal(detail.localFiles.length, 5);
+  assert.equal(detail.localFiles.length, 6);
   assert.equal((await request(path + '/submitted', { date: '2026-01-01', confirmed: false })).status, 400);
   await request(path + '/submitted', { date: '2026-01-01', confirmed: true });
   assert.equal((await request(path)).data.status, '已投递');
@@ -279,8 +279,9 @@ test('overlapping writes are rejected while the first upload is in progress', as
   const entered = new Promise(r => { started = r; });
   store.upload = async () => { started(); await pending; return { demo: true }; };
   const { request } = await setup(t, store);
-  const key = (await request('/api/jobs', undefined, 'live')).data.jobs[0].key;
-  const first = request(`/api/jobs/${key}/complete`, { files, checked: true }, 'live');
+  const job = (await request('/api/jobs', undefined, 'live')).data.jobs[0];
+  const key = job.key;
+  const first = request(`/api/jobs/${key}/complete`, { files, checked: true, assessmentId: job.assessment.id }, 'live');
   await entered;
   try { assert.equal((await request(`/api/jobs/${key}/archive`, { confirmed: true }, 'live')).status, 409); }
   finally { release(); }
@@ -292,11 +293,12 @@ test('Notion failure is an error, not an empty list; failed upload preserves que
   const store = new DemoStore();
   store.upload = async () => { throw new Error('Simulated Notion upload failure'); };
   const { request, root } = await setup(t, store);
-  const key = (await request('/api/jobs', undefined, 'live')).data.jobs[0].key;
-  const result = await request(`/api/jobs/${key}/complete`, { checked: true, files }, 'live');
+  const job = (await request('/api/jobs', undefined, 'live')).data.jobs[0];
+  const key = job.key;
+  const result = await request(`/api/jobs/${key}/complete`, { checked: true, files, assessmentId: job.assessment.id }, 'live');
   assert.equal(result.status, 400);
   const detail = (await request(`/api/jobs/${key}`, undefined, 'live')).data;
-  assert.equal(detail.status, 'Queue'); assert.equal(detail.localFiles.length, 3);
+  assert.equal(detail.status, 'Queue'); assert.equal(detail.localFiles.length, 4);
   assert.ok((await readFile(resolve(root, 'career_knowledge_base.md'), 'utf8')).includes('Synthetic'));
   store.list = async () => { throw new Error('Simulated connection failure'); };
   const failed = await request('/api/jobs', undefined, 'live');

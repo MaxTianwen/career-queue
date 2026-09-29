@@ -1,5 +1,6 @@
 // Local keyword evidence coverage, not an ATS score or a hiring probability.
 // Read only the supported skill rows in knowledge-base section 5, never its search terms or prohibitions.
+import { excludeReturnArrangements } from './eligibility.mjs';
 const skills = [
   ['Python', /\bpython\b/i], ['SQL', /\bsql\b/i], ['MySQL', /\bmysql\b/i], ['PostgreSQL', /\bpostgres(?:ql)?\b/i],
   ['Excel', /\bexcel\b/i], ['Tableau', /\btableau\b/i], ['Power BI', /\bpower\s*bi\b/i], ['pandas', /\bpandas\b/i], ['NumPy', /\bnumpy\b/i],
@@ -78,7 +79,8 @@ export function matchJob(job, profile) {
   const score = Math.round(parts.reduce((n, p) => n + p.weight * p.rows.reduce((sum, r) => sum + r.level, 0) / p.rows.length, 0) / weight * 100);
   const evidence = [...technical.map(item => ({ ...item, kind: 'skill' })), ...experience.map(item => ({ ...item, kind: 'experience' }))]
     .map(({ name, level, evidence, unverified, kind }) => ({ name, level, evidence: evidence || null, unverified: Boolean(unverified), kind }));
-  const checks = job.jd.split(/\n|(?<=[.!?])\s+/).filter(l => /\b(?:\d+\+?\s*(?:years?|yrs?)|citizen|citizenship|security clearance|return(?:ing)? to school|enroll|degree|graduat)\b/i.test(l)).slice(0, 6).map(l => l.trim().slice(0, 350));
+  const checks = job.jd.split(/\n|(?<=[.!?])\s+/).flatMap(excludeReturnArrangements)
+    .filter(l => /\b(?:\d+\+?\s*(?:years?|yrs?)|citizen|citizenship|security clearance|enroll\w*|degree|graduat\w*)\b/i.test(l)).slice(0, 6).map(l => l.trim().slice(0, 350));
   return { score, version: '本地规则 v1', evidenceCount: evidence.length, comparedSection: qualifications ? 'JD 资格要求段落' : 'JD 全文（未识别独立资格段落）',
     components: parts.map(p => ({ name: p.name, weight: Math.round(p.weight / weight * 100), matched: p.rows.reduce((n, r) => n + r.level, 0), total: p.rows.length })),
     matched: evidence.filter(x => x.level > 0), gaps: evidence.filter(x => x.level === 0), checks,

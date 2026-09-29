@@ -46,10 +46,15 @@ async function setup(t) {
 test('generated PDF automatically appears on the job, transfers without reupload, and pins the reviewed version', async t => {
   const { root, store, uploads, key, request } = await setup(t);
   const old = await generated(root, key, 100), current = await generated(root, key, 200);
-  assert.equal((await request(`/api/jobs/${key}`)).data.generatedMaterial.version, current.version);
-  const body = { checked: true, files: {}, generatedVersion: current.version, resumeHash: current.resumeHash };
+  const details = (await request(`/api/jobs/${key}`)).data;
+  assert.equal(details.generatedMaterial.version, current.version);
+  assert.equal(details.generatedMaterial.freshness.status, 'unknown');
+  const body = { checked: true, files: {}, generatedVersion: current.version, resumeHash: current.resumeHash,
+    assessmentId: details.assessment.id, staleReviewed: true };
   assert.equal((await request(`/api/jobs/${key}/complete`, { ...body, checked: false })).status, 400);
   assert.equal((await request(`/api/jobs/${key}/complete`, { ...body, resumeHash: 'stale' })).status, 400);
+  const unreviewed = await request(`/api/jobs/${key}/complete`, { ...body, staleReviewed: false });
+  assert.equal(unreviewed.status, 400); assert.match(unreviewed.data.error, /重新审阅/);
   assert.equal((await store.find(key)).status, 'Queue');
   assert.equal(uploads.length, 0);
   const result = await request(`/api/jobs/${key}/complete`, body);
@@ -76,12 +81,14 @@ test('failed generations are not offered; corrupt published latest versions bloc
   const bad = await generated(root, key, 300);
   await writeFile(resolve(bad.folder, 'resume.pdf'), '%PDF-changed');
   assert.match((await request(`/api/jobs/${key}`)).data.generatedMaterial.error, /变化/);
-  assert.equal((await request(`/api/jobs/${key}/complete`, { checked: true, files: {}, generatedVersion: bad.version, resumeHash: bad.resumeHash })).status, 400);
+  const assessmentId = (await request(`/api/jobs/${key}`)).data.assessment.id;
+  assert.equal((await request(`/api/jobs/${key}/complete`, { checked: true, files: {}, generatedVersion: bad.version, resumeHash: bad.resumeHash, assessmentId, staleReviewed: true })).status, 400);
 });
 
 test('PDF alone is sufficient, cover letter is required only when the job requires it, and upload failure preserves state', async t => {
   const { root, store, uploads, key, request } = await setup(t);
-  const current = await generated(root, key, 100), body = { checked: true, files: {}, generatedVersion: current.version, resumeHash: current.resumeHash };
+  const current = await generated(root, key, 100), body = { checked: true, files: {}, generatedVersion: current.version, resumeHash: current.resumeHash,
+    assessmentId: (await request(`/api/jobs/${key}`)).data.assessment.id, staleReviewed: true };
   await store.updateState({ ...await store.find(key), coverLetterRequired: true });
   assert.equal((await request(`/api/jobs/${key}/complete`, body)).status, 400);
   assert.equal(uploads.length, 0);
@@ -92,7 +99,8 @@ test('PDF alone is sufficient, cover letter is required only when the job requir
   store.upload = async () => ({ demo: true });
   assert.equal((await request(`/api/jobs/${key}/complete`, body)).status, 200);
   const otherKey = (await store.list())[1].key;
-  assert.equal((await request(`/api/jobs/${otherKey}/complete`, body)).status, 400);
+  assert.equal((await request(`/api/jobs/${otherKey}/complete`, body)).status, 409);
   const pdf = Buffer.from('%PDF-1.7 Manual file').toString('base64');
-  assert.equal((await request(`/api/jobs/${otherKey}/complete`, { checked: true, files: { resume: pdf } })).status, 200);
+  const assessmentId = (await request(`/api/jobs/${otherKey}`)).data.assessment.id;
+  assert.equal((await request(`/api/jobs/${otherKey}/complete`, { checked: true, files: { resume: pdf }, assessmentId })).status, 200);
 });

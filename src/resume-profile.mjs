@@ -16,14 +16,14 @@ export async function currentResumeProfiles(root) {
       let path, source, expected;
       if (base) {
         path = base.pdf; expected = base.pdfSha256;
-        source = { track, name: base.name, version: base.version, kind: 'uploaded' };
+        source = { track, name: base.name, version: base.version, kind: 'uploaded', sha256: expected };
       } else {
         const folder = resolve(root, 'private/resume-templates');
         const config = JSON.parse(await readFile(resolve(folder, 'templates.json'), 'utf8'));
         const template = config.templates?.[track];
         if (!template || basename(template.baselinePdf) !== template.baselinePdf) throw new Error('未配置基准简历');
         path = resolve(folder, template.baselinePdf); expected = template.baselineSha256;
-        source = { track, name: template.file, version: `initial-${template.sha256.slice(0, 12)}`, kind: 'initial' };
+        source = { track, name: template.file, version: `initial-${template.sha256.slice(0, 12)}`, kind: 'initial', sha256: expected };
       }
       if (sha(await readFile(path)) !== expected) throw new Error('基准简历已变化，请重新上传');
       const key = `${path}:${expected}`;

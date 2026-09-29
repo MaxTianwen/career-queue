@@ -31,7 +31,11 @@ test('publication age is not an eligibility rejection; unknown dates remain expl
   assert.equal(assess({ postedAt: '2026-09-24T12:00:00Z', deadline: '2026-09-23' }).decision, 'REJECT');
 });
 test('non-intern and wrong term excluded; citizenship/year uncertainties treated separately', () => {
-  for (const changes of [{ isIntern: false }, { term: 'Winter 2026' }, { term: 'Spring 2027' }, { citizenOnly: true }, { graduateOnly: true }]) assert.equal(assess(changes).decision, 'REJECT');
+  for (const changes of [{ isIntern: false }, { term: 'Winter 2026' }, { term: 'Spring 2027' }]) assert.equal(assess(changes).decision, 'REJECT');
+  for (const changes of [{ citizenOnly: true }, { graduateOnly: true }]) {
+    const result = assess(changes);
+    assert.equal(result.decision, 'REVIEW'); assert.ok(result.reasons.some(reason => reason.includes('本人核实')));
+  }
   assert.equal(assess({ citizenOnly: false, eligibilityNotes: 'Requires third year; academic standing unconfirmed' }).decision, 'REVIEW');
 });
 

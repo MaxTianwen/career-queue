@@ -1,4 +1,4 @@
-# Career Queue v1.1.3
+# Career Queue v1.2.0
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ma
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.1.3`, published to the existing private repository on `main` with a matching tag. It includes the previously local v1.1.2 material reuse, current-resume scoring and list improvements; v1.1.2 has no separate release tag. School-list pasting, editable previews, batch matching and independent submission records are implemented. A real submission through the school account still needs user acceptance. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md) for features and verification limits; these supporting documents are in Chinese.
+Current release: `v1.2.0`, on `main` and the matching tag in the existing private GitHub repository. It adds separate eligibility evidence, official posting availability checks, and resume / JD / material version tracking. School-list matching and independent submission records remain available; real school submission still needs user acceptance. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md) for features and verification limits; these supporting documents are in Chinese.
 
 ## Start and verify
 
@@ -26,9 +26,17 @@ node src/cli.mjs check
 node src/cli.mjs preview --input examples/jobs.example.json
 ```
 
-Examples contain synthetic data; do not import them into your live Notion database. All 123 current tests passed, including school matching and independent states, Workday retrieval, failure handling, dates, deduplication, and cache upgrades. The supplied 23-row school sample was parsed successfully. Tests did not write to live Notion or submit a real school application. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
+Examples contain synthetic data; do not import them into your live Notion database. This version adds eligibility, availability, input-version and historical-material protection tests; final regression results are recorded in [CHANGELOG](CHANGELOG.md). Public read-only spot checks are reported separately from simulated API and demo tests. Tests do not write to live Notion or submit applications. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
 
 ## Current features
+
+### v1.2.0 eligibility, availability and material evidence
+
+- Job details separate required, preferred and alternative requirements, preserving JD quotes and evidence from the current resume. Missing resume evidence does not prove inability. Complex, negated, education, enrollment and work-authorization conditions remain unverified unless personally confirmed. Only a confirmed conflict with a current-JD mandatory condition causes rejection. Return-to-school arrangements are excluded at the user's request.
+- Personal confirmations apply to the current job and JD version; changes invalidate old confirmations. Match Score still uses active resumes with unchanged weights, without adding historical knowledge-base facts or personal eligibility answers.
+- Generation and preparation recheck the selected official posting, showing open, closed or unknown status with the check time. Open checks can be reused for 15 minutes. Explicit closure blocks new generation; timeouts, maintenance, redirects or missing content do not prove closure. Unknown results can be reviewed on the official site and explicitly confirmed with supporting notes.
+- Assessments bind the JD, active CS / Data resume versions and hashes, rules and confirmations. Changed inputs trigger recalculation and flag older materials for regeneration or explicit re-review. Generation, manual editing, material approval and submission retain their corresponding snapshots; originals and submitted PDFs are preserved.
+- This version adds no discovery source, model or form-filling integration. A read-only RBC Workday spot check returned open; a Super Ashby check remained unknown, not confirmed closed.
 
 ### v1.1.3 school lists and independent submissions
 
@@ -75,12 +83,12 @@ Version 1.1.1: **我的简历 (My resumes)** accepts separate CS / Data Word (`.
 
 The dashboard currently uses Chinese labels; the steps below include the labels shown in the app.
 
-1. Open a job's details, choose automatic / CS / Data, and click “生成定制简历” (Generate tailored resume).
+1. Open a job's details, review eligibility and availability, choose automatic / CS / Data, and click “生成定制简历” (Generate tailored resume). Unknown availability requires personal verification on the official site; closed jobs and confirmed mandatory conflicts block generation.
 2. Once validation passes, the PDF preview opens automatically. Use “查看已生成版本” (View generated versions) to access older files.
 3. In the preview, click “编辑文字” (Edit text), edit the summary, skills, or project / work-experience body text, then click “保存新版本并预览” (Save a new version and preview).
 4. Headings, education, contact information, and paragraph structure are locked. Original files and previous versions are never overwritten. Users are responsible for verifying facts they enter manually.
 5. If a document exceeds one page or fails formatting checks, it is not published. Font sizes and margins are not reduced; the entered text is retained for revision.
-6. Preview the automatically associated PDF in “申请材料” (Application materials), check the review confirmation, and save it as ready to submit. Only the resume PDF is mandatory; a Cover Letter is optional unless required by the job. DOCX and review.md stay local. You can also select a PDF from your computer. Confirmed records retain their material version and hash; generating another version does not replace confirmed attachments.
+6. Preview the associated PDF in “申请材料” (Application materials), check the review confirmation, and save it as ready to submit. Materials with older or missing input evidence require regeneration or explicit re-review. Only the resume PDF is mandatory; a Cover Letter is optional unless required by the job. DOCX and review.md stay local. You can also select a PDF from your computer. Confirmed records retain their material version and hash; generating another version does not replace confirmed attachments.
 
 Tailoring uses local rules, not a large language model. It selects previously verified factual statements, does not invent experience, skills, or achievements, and does not guarantee passing ATS or AI screening. `prepare --key '<key>'` only exports context; the dashboard's generation action performs the tailoring.
 
@@ -109,4 +117,4 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - There is no automatic application submission, form filling, bulk resume generation, daily scheduling, email synchronization, or model API integration.
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
-See [ROADMAP](ROADMAP.md): v1.1.3 is published, with the real dual-submission workflow awaiting user acceptance; next planned version v1.2.0 is prepared but development has not started. Its scope separates eligibility from scoring, rechecks job availability, and links JD, resume, scoring and material versions; v1.2.1 expands Canadian / GTA discovery sources and improves field extraction; v1.2.2 adds sentence-level evidence and controlled rewriting, subject to decisions on models, cost and permitted personal-data transfer. OpenClaw remains planned for v1.3; a multi-user service starting with CS / Data remains planned for v2.0. Version 1.2 and later are planning targets and have not started. The current app remains manually operated.
+See [ROADMAP](ROADMAP.md): v1.2.1 has an implementation and acceptance plan for Canadian / GTA discovery sources, unified deduplication and field quality; development has not started. v1.2.2 covers sentence-level evidence and controlled rewriting; OpenClaw remains planned for v1.3. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. None of these future features has started; the current app remains manually operated.

@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, readdir, realpath, stat } from 'node:fs/promises';
 import { parseEnv } from 'node:util';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { resolve, dirname, relative, isAbsolute, extname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NotionStore } from './notion.mjs';
@@ -12,8 +12,10 @@ import { fetchGreenhouse } from './greenhouse.mjs';
 import { discover, extractFacts } from './discovery.mjs';
 import { discoveryCoverage, sourceName, mergeDiscoveryJobs } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
-import { currentResumeProfiles, matchCurrentResumes } from './resume-profile.mjs';
-import { classifyResume } from './resume-track.mjs';
+import { currentResumeProfiles } from './resume-profile.mjs';
+import { selectResumeTrack } from './resume-track.mjs';
+import { assessJob, assessmentSnapshot, materialFreshness, jobInputHash, availabilityState, requireAvailable } from './assessment.mjs';
+import { checkAvailability } from './availability.mjs';
 import { resumeStatus, generateResume, editableResume, saveManualResume, latestResume, validatedResume } from './resume.mjs';
 import { renderPdf } from './pdf-preview.mjs';
 import { resumeLibrary, uploadResumeBase, activateResumeBase, readResumeBase } from './resume-bases.mjs';
@@ -38,7 +40,7 @@ async function jsonBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw fail('请求内容不是有效 JSON'); }
 }
 
-export function dashboardServer({ root = projectRoot, storeOverride, discoverImpl = discover } = {}) {
+export function dashboardServer({ root = projectRoot, storeOverride, discoverImpl = discover, availabilityImpl = checkAvailability, profilesImpl = currentResumeProfiles } = {}) {
   const csrf = randomBytes(32).toString('hex');
   const demo = new DemoStore();
   let busy = false;
@@ -64,7 +66,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     return { env, knowledge, knowledgeReady: Boolean(knowledgeText.trim()), knowledgeText };
   }
   async function presentJobs(records, mode = 'live') {
-    const profiles = mode === 'demo' ? Object.fromEntries(['cs', 'data'].map(track => [track, { available: false, source: { track }, reason: '演示模式不读取私人简历' }])) : await currentResumeProfiles(root);
+    const profiles = mode === 'demo' ? Object.fromEntries(['cs', 'data'].map(track => [track, { available: false, source: { track }, reason: '演示模式不读取私人简历' }])) : await profilesImpl(root);
     return records.map(record => {
       const extracted = record.indexEvidence ? extractFacts(record) : record;
       const job = { ...record, ...extractDeadline(record), durationMonths: record.durationMonths ?? extracted.durationMonths,
@@ -72,8 +74,12 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         workMode: record.workMode && record.workMode !== 'unknown' ? record.workMode : extracted.workMode };
       const evaluation = evaluateJob(job);
       if (record.fullJd === false) evaluation.reasons.unshift(record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
-      const resumeClassification = classifyResume(job);
-      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), ...matchCurrentResumes(job, resumeClassification, profiles), resumeClassification,
+      const assessed = assessJob(job, profiles);
+      const availability = availabilityState(job);
+      if (availability.status === 'closed' || assessed.eligibility?.summary.hardConflict) {
+        evaluation.decision = 'REJECT'; evaluation.reasons.unshift(availability.status === 'closed' ? '官方岗位已关闭或截止' : '本人已确认与必需资格冲突');
+      }
+      return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), ...assessed, availabilityView: availability, materialFreshness: materialFreshness(record.materialVersion, assessed.assessment),
         portalRevision: portalRevision(record), portalSummary: portalSummary(record) };
     });
   }
@@ -94,6 +100,46 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     return store;
   }
   const outputFor = mode => resolve(root, 'output', mode === 'demo' ? 'dashboard-demo' : '');
+  async function selectedJob(source, key, mode) {
+    if (!keyPattern.test(key || '')) throw fail('职位标识无效');
+    if (source === 'queue') return getRecord(await storeFor(mode), key);
+    if (source !== 'discovery' || mode !== 'live') throw fail('职位来源无效');
+    await loadedSearch;
+    if (search.state === 'running') throw fail('请等待搜索结束后核查');
+    const job = search.report?.results.find(j => j.key === key);
+    if (!job || job.identityConflict) throw fail('岗位不存在或身份冲突，请重新选择');
+    return job;
+  }
+  async function saveJobEvidence(source, before, changes, mode) {
+    const current = await selectedJob(source, before.key, mode);
+    if (jobInputHash(current) !== jobInputHash(before)) throw fail('JD 已变化，请重新打开详情后操作', 409);
+    const next = { ...current, ...changes };
+    if (source === 'queue') await (await storeFor(mode)).updateState(next);
+    else {
+      search.report.results = search.report.results.map(j => j.key === next.key ? next : j);
+      await mkdir(dirname(searchFile), { recursive: true });
+      await writeFile(searchFile, JSON.stringify(search.report));
+    }
+    return next;
+  }
+  async function recheckJob(source, job, mode) {
+    const check = mode === 'demo' ? { status: 'unknown', checkedAt: new Date().toISOString(), sourceUrl: job.url, evidence: '演示岗位，不代表真实开放状态' } : await availabilityImpl(job);
+    const changes = {};
+    if (check.job && check.status === 'open' && ['Queue', '待提交', undefined].includes(job.status)) {
+      for (const field of ['jd', 'fullJd', 'title', 'deadline', 'deadlineEvidence', 'sourceEvidence']) if (check.job[field] != null) changes[field] = check.job[field];
+    }
+    const { job: freshJob, ...evidence } = check;
+    changes.availability = { ...evidence, jdHash: jobInputHash({ ...job, ...changes }) };
+    return saveJobEvidence(source, job, changes, mode);
+  }
+  async function evaluated(job, mode) { return (await presentJobs([job], mode))[0]; }
+  async function snapshotFile(job, assessed, mode, prefix) {
+    const folder = resolve(outputFor(mode), job.key, `${prefix}-${Date.now()}-${randomUUID().slice(0, 8)}`);
+    await mkdir(folder, { recursive: true });
+    const path = resolve(folder, 'assessment.json');
+    await writeFile(path, JSON.stringify(assessmentSnapshot(job, assessed), null, 2), { flag: 'wx' });
+    return path;
+  }
   async function materials(mode, key) {
     const base = resolve(outputFor(mode), key);
     const files = [];
@@ -108,9 +154,9 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     }
     return files.sort((a, b) => b.modified.localeCompare(a.modified));
   }
-  async function generatedMaterial(mode, key) {
+  async function generatedMaterial(mode, key, job) {
     if (mode !== 'live') return null;
-    try { return await latestResume(root, key); }
+    try { const material = await latestResume(root, key); return material && job ? { ...material, freshness: materialFreshness(material, job.assessment) } : material; }
     catch (e) { return { error: e.message }; }
   }
   const server = createServer(async (req, res) => {
@@ -128,7 +174,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/assessment-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -177,10 +223,22 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
           status: j.status, applicationDate: j.applicationDate, portal: j.portal || null, summary: portalSummary(j) })) });
       }
       if (req.method === 'GET' && url.pathname === '/api/discovery') { await loadedSearch; return send(await presentSearch()); }
+      if (req.method === 'GET' && url.pathname === '/api/assessment') {
+        return send(await evaluated(await selectedJob(url.searchParams.get('source'), url.searchParams.get('key'), mode), mode));
+      }
       if (req.method === 'GET' && url.pathname === '/api/resume/files') {
         const key = url.searchParams.get('key');
         if (mode !== 'live' || !keyPattern.test(key || '')) throw fail('简历版本参数无效');
-        return send({ files: (await materials('live', key)).filter(f => f.version.startsWith('resume-')), generatedMaterial: await generatedMaterial(mode, key) });
+        await loadedSearch;
+        const source = url.searchParams.get('source');
+        let record = source === 'discovery' ? search.report?.results.find(j => j.key === key) : null;
+        if (!record) {
+          const { env } = await config();
+          if (storeOverride || env.NOTION_TOKEN) record = await (await storeFor(mode)).find(key);
+          record ||= search.report?.results.find(j => j.key === key);
+        }
+        const job = record && (await presentJobs([record], mode))[0];
+        return send({ files: (await materials('live', key)).filter(f => f.version.startsWith('resume-')), assessment: job?.assessment, generatedMaterial: await generatedMaterial(mode, key, job) });
       }
       if (req.method === 'GET' && url.pathname === '/api/resume/edit') {
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
@@ -189,13 +247,39 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const match = url.pathname.match(/^\/api\/jobs\/([a-f0-9]{24})(?:\/(\w+))?$/);
       if (req.method === 'GET' && match && !match[2]) {
         const record = await getRecord(await storeFor(mode), match[1]);
-        return send({ ...(await presentJobs([record], mode))[0], localFiles: await materials(mode, record.key), generatedMaterial: await generatedMaterial(mode, record.key) });
+        const job = (await presentJobs([record], mode))[0];
+        return send({ ...job, localFiles: await materials(mode, record.key), generatedMaterial: await generatedMaterial(mode, record.key, job) });
       }
       if (req.method !== 'POST') throw fail('未找到', 404);
       if (req.headers['x-csrf-token'] !== csrf) throw fail('页面已过期，请刷新重试', 403);
       if (busy) throw fail('另一个操作正在进行，请稍后再试', 409);
       busy = true; ownsLock = true;
       const body = await jsonBody(req);
+      if (url.pathname === '/api/assessment/recheck' || url.pathname === '/api/assessment/confirm' || url.pathname === '/api/assessment/eligibility') {
+        let job = await selectedJob(body.source, body.key, mode);
+        if (url.pathname.endsWith('/recheck')) job = await recheckJob(body.source, job, mode);
+        else {
+          const assessed = await evaluated(job, mode);
+          if (body.assessmentId !== assessed.assessment.id) throw fail('简历或 JD 已变化，请重新核对', 409);
+          if (body.confirmed !== true) throw fail('需要本人明确核实后确认');
+          if (url.pathname.endsWith('/confirm')) {
+            const state = availabilityState(job);
+            if (!state.recent || state.status !== 'unknown' || body.checkedAt !== state.checkedAt) throw fail('请先重新核查；明确关闭的岗位不能人工改为开放');
+            const note = text(body.note, 1000).trim(); if (!note) throw fail('请简述在官网确认仍开放的依据');
+            job = await saveJobEvidence(body.source, job, { availability: { ...job.availability,
+              manual: { checkedAt: state.checkedAt, jdHash: jobInputHash(job), confirmedAt: new Date().toISOString(), note } } }, mode);
+          } else {
+            const requirement = assessed.eligibility?.requirements.find(r => r.id === body.requirementId);
+            if (!requirement || !['met', 'conflict', 'unknown'].includes(body.outcome)) throw fail('请选择当前 JD 中的条件及核实结果');
+            const note = text(body.note, 1000).trim(); if (!note) throw fail('请填写本人核实依据，不从旧知识库推断');
+            const confirmations = [...(job.eligibilityConfirmations || [])].filter(c => !(c.jdHash === jobInputHash(job) && c.requirementId === requirement.id));
+            if (confirmations.length >= 40) throw fail('核实历史已达本版上限，请保留历史并联系维护');
+            confirmations.push({ requirementId: requirement.id, outcome: body.outcome, note, jdHash: jobInputHash(job), confirmedAt: new Date().toISOString() });
+            job = await saveJobEvidence(body.source, job, { eligibilityConfirmations: confirmations }, mode);
+          }
+        }
+        return send(await evaluated(job, mode));
+      }
       if (url.pathname === '/api/portal/parse') return send(parsePortalPaste(body.text));
       if (url.pathname === '/api/portal/preview') {
         const records = await (await storeFor(mode)).list();
@@ -255,18 +339,31 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         } else if (body.source === 'queue') {
           job = await getRecord(await storeFor(mode), body.key);
         } else throw fail('职位来源无效');
+        // Check only the selected official posting. A failed read requires a separate human confirmation.
+        job = await selectedJob(body.source, body.key, mode);
+        if (!availabilityState(job).recent) job = await recheckJob(body.source, job, mode);
+        requireAvailable(job);
+        const assessed = await evaluated(job, mode);
+        if (assessed.eligibility?.summary.hardConflict) throw fail('本人已确认与岗位必需条件冲突，不能生成');
+        if (body.assessmentId !== assessed.assessment.id) throw fail('简历或官方 JD 已变化，请重新打开详情核对后生成', 409);
         const { knowledgeText } = await config();
-        return send(await generateResume(root, job, knowledgeText, body.resumeTrack ?? 'auto'));
+        return send(await generateResume(root, job, knowledgeText, body.resumeTrack ?? 'auto', assessmentSnapshot(job, assessed)));
       }
       if (url.pathname === '/api/discovery') {
         await loadedSearch;
         if (mode !== 'live') throw fail('自动搜索使用真实工作区，不写入演示记录');
         if (search.state === 'running') return send(await presentSearch(), 202);
         if (search.state === 'done' && search.report.dataVersion === 4 && JSON.stringify(search.report.targetTerms) === JSON.stringify([...TARGET_TERMS]) && Date.now() - Date.parse(search.report.finishedAt) < 5 * 60 * 1000) return send({ ...(await presentSearch()), cached: true });
+        const previousJobs = new Map((search.report?.results || []).map(job => [job.key, job]));
         search = { state: 'running', phase: '正在连接职位来源…', report: null, error: null };
         void (async () => {
           try {
             const report = await discoverImpl({ onProgress: update => { search = { state: 'running', ...update, error: null }; } });
+            report.results = report.results.map(job => {
+              const previous = previousJobs.get(job.key);
+              return previous && jobInputHash(previous) === jobInputHash(job)
+                ? { ...job, availability: previous.availability, eligibilityConfirmations: previous.eligibilityConfirmations } : job;
+            });
             await mkdir(dirname(searchFile), { recursive: true });
             await writeFile(searchFile, JSON.stringify(report));
             search = { state: 'done', phase: '搜索完成', report, error: null };
@@ -281,7 +378,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         let job = search.report?.results.find(x => x.key === body.key);
         if (job?.identityConflict) throw fail('岗位身份有冲突，请核对官网后手动添加');
         if (job) [job] = await presentJobs([job]);
-        if (!job?.fullJd || evaluateJob({ ...job, ...extractDeadline(job) }).decision === 'REJECT') throw fail('此结果还不能入队，请核实筛选条件并补齐 JD');
+        if (!job?.fullJd || job.decision === 'REJECT') throw fail('此结果还不能入队，请核实筛选条件并补齐 JD');
         if (deadlineExpired(extractDeadline(job).deadline)) throw fail('申请已截止，不能加入 Queue');
         return send(await ingest(await storeFor('live'), [job]));
       }
@@ -307,6 +404,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       }
       if (action === 'prepare') {
         if (deadlineExpired(extractDeadline(record).deadline)) throw fail('申请已截止，不能继续准备申请');
+        const checked = mode === 'demo' || availabilityState(record).recent ? record : await recheckJob('queue', record, mode);
+        if (mode === 'live') requireAvailable(checked);
+        const assessed = mode === 'demo' ? await evaluated(checked, mode) : assessJob(checked, await profilesImpl(root), new Date(), selectResumeTrack(checked, body.resumeTrack ?? 'auto').track);
+        if (assessed.eligibility?.summary.hardConflict) throw fail('本人已确认与必需条件冲突，不能准备材料');
         const { knowledge } = await config();
         let knowledgePath = knowledge;
         if (mode === 'demo') {
@@ -314,17 +415,20 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
           knowledgePath = resolve(outputFor(mode), 'demo-knowledge.md');
           await writeFile(knowledgePath, '# 演示资料\n虚构测试学生；只用于操作演示，不可用于真实申请。');
         }
-        return send(await prepare(store, key, knowledgePath, outputFor(mode), { resumeTrack: body.resumeTrack ?? 'auto' }));
+        return send(await prepare(store, key, knowledgePath, outputFor(mode), { resumeTrack: body.resumeTrack ?? 'auto', evaluationSnapshot: assessmentSnapshot(checked, assessed) }));
       }
       if (action === 'complete') {
         if (body.checked !== true) throw fail('请先确认已检查材料的事实与排版');
         if (!['Queue', '待提交'].includes(record.status)) throw fail('该状态不允许替换材料');
+        const assessed = await evaluated(record, mode);
+        if (mode === 'live' && body.assessmentId !== assessed.assessment.id) throw fail('简历或 JD 已变化，请重新预览材料后确认', 409);
         const specs = { resume: '.pdf', docx: '.docx', reviewNotes: '.md', coverLetter: '.pdf' };
         let generated;
         if (body.generatedVersion) {
           if (mode !== 'live' || body.files?.resume) throw fail('请选择生成版本或本机上传，不要同时提供两份简历');
           generated = await validatedResume(root, key, body.generatedVersion);
           if (body.resumeHash !== generated.validation.pdfSha256) throw fail('材料已变化，请重新预览并确认');
+          if (materialFreshness(generated.provenance, assessed.assessment).needsReview && body.staleReviewed !== true) throw fail('这份材料基于旧版或未记录的输入；请重新生成，或明确重新审阅后继续');
         }
         if ((!generated && !body.files?.resume) || (record.coverLetterRequired === true && !body.files?.coverLetter)) throw fail('请提供简历 PDF，以及岗位要求的 Cover Letter');
         const buffers = {}; let total = 0;
@@ -346,10 +450,22 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
           paths[field] = resolve(folder, `${stem}-${key.slice(0, 6)}-${version}-${labels[field]}${specs[field]}`);
           await writeFile(paths[field], data, { flag: 'wx' });
         }
-        return send(await complete(store, key, paths, true, generated ? { version: generated.version, sha256: generated.validation.pdfSha256,
-          baseline: generated.provenance.baseline || null, reviewedAt: new Date().toISOString() } : null));
+        const snapshotPath = resolve(folder, 'assessment.json');
+        await writeFile(snapshotPath, JSON.stringify(assessmentSnapshot(record, assessed), null, 2), { flag: 'wx' });
+        return send(await complete(store, key, paths, true, {
+          version: generated?.version || basename(folder), sha256: createHash('sha256').update(buffers.resume).digest('hex'),
+          baseline: generated?.provenance.baseline || null, assessment: assessed.assessment, snapshotPath,
+          generatedAssessment: generated?.provenance.assessment || null, staleReviewed: body.staleReviewed === true,
+          reviewedAt: new Date().toISOString() }));
       }
-      if (action === 'submitted') return send(await submit(store, key, body.date, body.confirmed === true, new Date(), body.receipt ?? ''));
+      if (action === 'submitted') {
+        const assessed = await evaluated(record, mode);
+        if (mode === 'live' && body.assessmentId !== assessed.assessment.id) throw fail('当前输入已变化，请重新核对实际投递的材料', 409);
+        if (mode === 'live' && materialFreshness(record.materialVersion, assessed.assessment).needsReview && body.staleReviewed !== true) throw fail('已确认材料与当前输入版本不同，请核对实际使用的 PDF 后确认');
+        // Record an already completed application even if the posting closed afterwards.
+        const context = { assessment: assessed.assessment, snapshotPath: await snapshotFile(record, assessed, mode, 'submission'), staleReviewed: body.staleReviewed === true };
+        return send(await submit(store, key, body.date, body.confirmed === true, new Date(), body.receipt ?? '', context));
+      }
       if (action === 'progress') {
         if (!['已投递', '面试中', '已结束'].includes(record.status) || !['面试中', '已结束'].includes(body.status)) throw fail('只有投递后的申请可更新进展');
         return send(await store.updateState({ ...record, status: body.status, nextStep: text(body.nextStep) }));

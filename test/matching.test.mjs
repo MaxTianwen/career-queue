@@ -44,3 +44,11 @@ test('skill aliases stay distinct; experience coverage and years/degree checks a
   assert.ok(result.checks.some(x => x.includes('3 years')));
   assert.ok(result.checks.some(x => x.includes('degree')));
 });
+
+test('matching check prompts exclude return arrangements while retaining separable enrollment facts', () => {
+  const jd = 'Python required.\nMust return to school after the internship.\nCurrently enrolled in a degree program and returning after internship.';
+  const result = matchJob({ jd }, profile);
+  assert.equal(result.score, 100);
+  assert.deepEqual(result.checks, ['Currently enrolled in a degree program']);
+  assert.match(jd, /return to school/);
+});

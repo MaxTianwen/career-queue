@@ -57,8 +57,8 @@ export function evaluateJob(job, now = new Date()) {
   else if (job.paid !== true) review.push('薪资未确认；未披露不等于无薪');
   if (job.meetsMinimumWage === false) reject.push('已核实低于适用最低工资');
   else if (job.paid !== false && job.meetsMinimumWage !== true) review.push('核实适用最低工资，不自动估算');
-  if (job.citizenOnly === true) reject.push('明确仅限公民，PR 不满足');
-  if (job.graduateOnly === true) reject.push('明确仅限硕士 / 博士');
+  if (job.citizenOnly === true) review.push('岗位仅限公民，需本人核实是否满足');
+  if (job.graduateOnly === true) review.push('岗位仅限硕士 / 博士，需本人核实是否满足');
   if (job.eligibilityNotes) review.push(clean(job.eligibilityNotes));
 
   const inGta = job.inGta ?? (GTA.test(job.location) ? true : null);
@@ -116,11 +116,11 @@ export function submissionMaterials(record) {
   return structuredClone({ files: record.materials || null, version: record.materialVersion || null });
 }
 
-export function markSubmitted(record, date, confirmed, now = new Date(), receipt = '') {
+export function markSubmitted(record, date, confirmed, now = new Date(), receipt = '', assessmentContext = null) {
   if (!confirmed) throw new Error('只有用户明确确认已实际投递后才能更新');
   if (record.status !== '待提交') throw new Error('只有待提交记录可以确认投递');
   validateApplicationDate(date, now);
   if (typeof receipt !== 'string' || receipt.length > 1000) throw new Error('回执说明不得超过 1000 字');
   return { ...record, status: '已投递', applicationDate: date, nextStep: '等待回复',
-    externalSubmission: { date, confirmedAt: now.toISOString(), receipt: receipt.trim(), materials: submissionMaterials(record) } };
+    externalSubmission: { date, confirmedAt: now.toISOString(), receipt: receipt.trim(), assessmentContext: structuredClone(assessmentContext), materials: submissionMaterials(record) } };
 }
