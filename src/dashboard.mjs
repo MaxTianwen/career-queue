@@ -16,7 +16,8 @@ import { currentResumeProfiles } from './resume-profile.mjs';
 import { selectResumeTrack } from './resume-track.mjs';
 import { assessJob, assessmentSnapshot, materialFreshness, jobInputHash, availabilityState, requireAvailable } from './assessment.mjs';
 import { checkAvailability } from './availability.mjs';
-import { resumeStatus, generateResume, editableResume, saveManualResume, latestResume, validatedResume } from './resume.mjs';
+import { resumeStatus, prepareResumeDraft, generateResume, editableResume, saveManualResume, latestResume, validatedResume } from './resume.mjs';
+import { publicReviewDraft } from './resume-review.mjs';
 import { renderPdf } from './pdf-preview.mjs';
 import { resumeLibrary, uploadResumeBase, activateResumeBase, readResumeBase } from './resume-bases.mjs';
 import { previewPortal, linkPortal, updatePortal, portalRevision, portalSummary } from './portal.mjs';
@@ -45,6 +46,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
   const demo = new DemoStore();
   let busy = false;
   const portalPreviews = new Map();
+  const resumeDrafts = new Map();
   let search = { state: 'idle', phase: '', report: null, error: null };
   const searchFile = resolve(root, 'output', 'discovery', 'latest.json');
   const loadedSearch = readFile(searchFile, 'utf8').then(data => {
@@ -174,7 +176,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/assessment-view.js', '/discovery-sources-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -239,6 +241,11 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         }
         const job = record && (await presentJobs([record], mode))[0];
         return send({ files: (await materials('live', key)).filter(f => f.version.startsWith('resume-')), assessment: job?.assessment, generatedMaterial: await generatedMaterial(mode, key, job) });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/resume/review') {
+        if (mode !== 'live') throw fail('演示模式不使用私人简历');
+        const checked = await validatedResume(root, url.searchParams.get('key'), url.searchParams.get('version'));
+        return send({ version: checked.version, review: checked.provenance.review || null });
       }
       if (req.method === 'GET' && url.pathname === '/api/resume/edit') {
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
@@ -325,7 +332,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
         return send(await saveManualResume(root, body));
       }
-      if (url.pathname === '/api/resume/generate') {
+      if (['/api/resume/generate', '/api/resume/proposal'].includes(url.pathname)) {
         if (mode !== 'live') throw fail('私人简历只能在真实工作区为选中的职位生成');
         if (!keyPattern.test(body.key || '')) throw fail('职位标识无效');
         let job;
@@ -346,8 +353,20 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         const assessed = await evaluated(job, mode);
         if (assessed.eligibility?.summary.hardConflict) throw fail('本人已确认与岗位必需条件冲突，不能生成');
         if (body.assessmentId !== assessed.assessment.id) throw fail('简历或官方 JD 已变化，请重新打开详情核对后生成', 409);
-        const { knowledgeText } = await config();
-        return send(await generateResume(root, job, knowledgeText, body.resumeTrack ?? 'auto', assessmentSnapshot(job, assessed)));
+        if (url.pathname === '/api/resume/proposal') {
+          for (const [id, d] of resumeDrafts) if (d.expiresAt < Date.now()) resumeDrafts.delete(id);
+          if (resumeDrafts.size >= 20) resumeDrafts.delete(resumeDrafts.keys().next().value);
+          const draft = await prepareResumeDraft(root, job, body.resumeTrack ?? 'auto', assessmentSnapshot(job, assessed));
+          const id = randomUUID(), expiresAt = Date.now() + 20 * 60 * 1000;
+          resumeDrafts.set(id, { draft, key: job.key, source: body.source, expiresAt });
+          return send({ ...publicReviewDraft(draft), id, expiresAt });
+        }
+        const saved = resumeDrafts.get(body.proposalId);
+        if (!saved || saved.expiresAt < Date.now() || saved.key !== job.key || saved.source !== body.source || body.resumeTrack !== saved.draft.track) throw fail('修改对照已失效或不属于当前岗位，请重新准备', 409);
+        const result = await generateResume(root, job, '', saved.draft.track, assessmentSnapshot(job, assessed),
+          { draft: saved.draft, confirmed: body.confirmed, decisions: body.decisions });
+        resumeDrafts.delete(body.proposalId);
+        return send(result);
       }
       if (url.pathname === '/api/discovery') {
         await loadedSearch;

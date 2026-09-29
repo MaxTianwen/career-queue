@@ -1,4 +1,4 @@
-# Career Queue v1.2.1
+# Career Queue v1.2.2
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ma
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current release: `v1.2.1`, published with user authorization to main and the matching tag in the existing private GitHub repository. This update adds three public employer discovery feeds, shared grouping, field evidence and discovery metrics. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current release: `v1.2.2`, published with user authorization to main and the matching tag in the existing private GitHub repository. Local sentence comparison and review are included; model-based semantic rewriting remains deferred. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
@@ -30,13 +30,22 @@ Examples contain synthetic data; do not import them into your live Notion databa
 
 ## Current features
 
+### v1.2.2 local sentence comparison and review
+
+- Choose “准备简历修改对照” (Prepare resume comparison) to inspect original and proposed text, the exact supporting sentence and position in the active Word document, and related JD quotes. Keyword correspondence explains ordering, not eligibility.
+- Accept or keep each whole same-experience reorder group; partial swaps cannot duplicate or remove bullets. No decision is preselected. If there is no safe adjustment, the app explicitly offers an unchanged copy.
+- Confirm choices to create new DOCX/PDF versions, preserving typography and layout and enforcing one page. The latest PDF is automatically associated; final material review remains a separate confirmation.
+- PDF preview includes “查看修改依据” (View change evidence). Manual edits record before/after text as user input with unverified facts. Older versions without review records are labeled honestly.
+- Drafts bind the job, JD, resume files and assessment. They expire after 20 minutes or a service restart; input changes require a fresh comparison. Failed generation retains choices and does not publish unchecked files.
+- Per user decision, this release uses local verbatim reordering only. Model integration and semantic rewriting remain deferred; historical knowledge-base text is not inserted.
+
 ### v1.2.1 public employer discovery
 
 - Searches the existing index plus the public Tenstorrent University, Cohere and Telesat boards. These are three named employers, not all employers on three ATS platforms.
 - Partial failures retain other results. Discovery metrics distinguish raw rows, scoped candidates, incremental verified / pending results, deduplication, inline descriptions and actual detail requests.
 - Grouped sources keep separate JD text and evidence. Salary currency and period, duration ranges and workplace evidence remain explicit; missing values are not guessed.
 - The read-only live run found three incremental candidates requiring review, including two Cohere Winter 2027 postings. None passed every rule without review. See [source audit](docs/DATA_SOURCES.md).
-- v1.2.2 has an implementation and acceptance checklist only; development has not started.
+
 
 ### v1.2.0 eligibility, availability and material evidence
 
@@ -91,7 +100,7 @@ Version 1.1.1: **我的简历 (My resumes)** accepts separate CS / Data Word (`.
 
 The dashboard currently uses Chinese labels; the steps below include the labels shown in the app.
 
-1. Open a job's details, review eligibility and availability, choose automatic / CS / Data, and click “生成定制简历” (Generate tailored resume). Unknown availability requires personal verification on the official site; closed jobs and confirmed mandatory conflicts block generation.
+1. Open a job's details, review eligibility and availability, choose automatic / CS / Data, and click “准备简历修改对照” (Prepare resume comparison), accept or keep each group, and confirm to generate. Unknown availability requires personal verification on the official site; closed jobs and confirmed mandatory conflicts block generation.
 2. Once validation passes, the PDF preview opens automatically. Use “查看已生成版本” (View generated versions) to access older files.
 3. In the preview, click “编辑文字” (Edit text), edit the summary, skills, or project / work-experience body text, then click “保存新版本并预览” (Save a new version and preview).
 4. Headings, education, contact information, and paragraph structure are locked. Original files and previous versions are never overwritten. Users are responsible for verifying facts they enter manually.
@@ -125,4 +134,4 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - There is no automatic application submission, form filling, bulk resume generation, daily scheduling, email synchronization, or model API integration.
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
-See [ROADMAP](ROADMAP.md): v1.2.1 is published. v1.2.2 has an implementation and acceptance plan for sentence-level evidence and controlled rewriting; development has not started; OpenClaw remains planned for v1.3. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. None of these future features has started; the current app remains manually operated.
+See [ROADMAP](ROADMAP.md): v1.2.1 is published. v1.2.2 local comparison and review are published; semantic rewriting is deferred. OpenClaw remains planned for v1.3. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. None of these future features has started; the current app remains manually operated.

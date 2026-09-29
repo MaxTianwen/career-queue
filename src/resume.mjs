@@ -9,6 +9,7 @@ import { assessJob, assessmentSnapshot } from './assessment.mjs';
 import { selectResumeTrack } from './resume-track.mjs';
 import { buildProfile, matchJob } from './matching.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
+import { buildReviewDraft, reviewedPlan, manualReview } from './resume-review.mjs';
 import { activeResumeBase, resumeRuntime, buildUploadedPlan } from './resume-bases.mjs';
 
 const run = promisify(execFile);
@@ -101,7 +102,7 @@ export async function saveManualResume(root, { key, version, sourceHash, edits: 
   const edits = manualEdits(source.fields, inputs);
   const plan = { track: source.provenance.track, template: source.docx, templateSha256: source.digest,
     baselinePdf: source.pdf, fixedText: source.provenance.fixedText, edits, parentVersion: version,
-    assessment: source.provenance.assessment, evaluationSnapshot: source.provenance.evaluationSnapshot, baseline: source.provenance.baseline, editableSlots: source.provenance.editableSlots, engine: '手动文字修改' };
+    assessment: source.provenance.assessment, evaluationSnapshot: source.provenance.evaluationSnapshot, baseline: source.provenance.baseline, editableSlots: source.provenance.editableSlots, engine: '手动文字修改', review: manualReview(source.provenance, edits, version, source.fields) };
   const review = `# 手动修改记录\n\n来源版本：${version}\n\n以下文字由用户手动输入，未调用模型或自动核验事实。保存只生成本机新版本，不修改原稿、旧版本、Notion 材料或申请状态。\n\n${edits.map(e => `- 原文：${e.original}\n  修改：${e.text}\n`).join('\n')}\n\n通过原格式、字体、字号和 PDF 一页检查；仍需本人核对事实和版式。`;
   return publishResume(root, key, plan, review, source.config.python);
 }
@@ -111,7 +112,6 @@ export async function resumeStatus(root, knowledge) {
   let legacy;
   try {
     const config = await configuration(root);
-    if (hash(knowledge) !== config.knowledgeSha256) throw new Error('知识库已更新，需要复核简历事实映射后再生成');
     legacy = config;
   } catch (error) { legacy = { error: error.code === 'ENOENT' ? '原始模板或文档运行环境尚未配置' : error.message }; }
   for (const track of ['cs', 'data']) {
@@ -122,7 +122,7 @@ export async function resumeStatus(root, knowledge) {
     } catch (e) { tracks[track] = { ready: false, name: '基准不可用', reason: e.message }; }
   }
   return { ready: Object.values(tracks).some(t => t.ready), tracks, templates: Object.fromEntries(Object.entries(tracks).map(([k, t]) => [k, t.name])),
-    note: '使用所选方向当前基准；上传稿按 JD 重排已有要点，不新增事实。保留原格式并检查一页，仍需审阅。',
+    note: '使用所选方向当前简历，先逐句对照与审阅，再按选择重排原文；不调用模型、不新增事实。生成后检查原格式与一页限制。',
     reason: Object.values(tracks).map(t => t.reason).join('；') };
 }
 
@@ -170,26 +170,45 @@ export function buildResumePlan(job, knowledge, config, requested = 'auto') {
     engine: '本地规则定制 v1' };
 }
 
-export async function generateResume(root, job, knowledge, requested = 'auto', evaluationSnapshot = null) {
+export async function prepareResumeDraft(root, job, requested = 'auto', evaluationSnapshot = null) {
   if (!keyPattern.test(job.key || '')) throw new Error('职位标识无效');
   if (job.status && !['Queue', '待提交'].includes(job.status)) throw new Error('该申请状态不允许生成新材料');
   if (!job.jd?.trim() || job.fullJd === false) throw new Error('需要完整 JD 才能定制简历');
   if (deadlineExpired(extractDeadline(job).deadline)) throw new Error('申请已截止，不能生成申请材料');
-  const selection = selectResumeTrack(job, requested), base = await activeResumeBase(root, selection.track);
+  const selection = selectResumeTrack(job, requested); let base = await activeResumeBase(root, selection.track);
   if (base && !base.ready) throw new Error(base.reason);
   const assessed = assessJob(job, await currentResumeProfiles(root), new Date(), selection.track);
   if (evaluationSnapshot && evaluationSnapshot.assessment.id !== assessed.assessment.id) throw new Error('简历或 JD 已变化，请重新核对后生成');
   if (base && assessed.match.source.sha256 !== base.pdfSha256) throw new Error('基准简历已变化，请重新核对后生成');
   const snapshot = { ...assessmentSnapshot(job, assessed), generationTrack: selection.track };
-  if (base) {
-    const plan = { ...buildUploadedPlan(job, base, selection.track), assessment: snapshot.assessment, evaluationSnapshot: snapshot };
-    const review = `# 上传简历定制记录\n\n基准：${base.name}\n版本：${base.version}\n上传：${base.createdAt}\n\n${base.reason}\n\n${plan.edits.length ? plan.edits.map(e => `- 原文：${e.original}\n  调整：${e.text}`).join('\n') : '没有需要重排的要点，本次保留原文。'}\n\n不混入旧简历或知识库的事实；不代表 ATS 分数或录取保证。原文件和历史版本不变，仍需人工审阅。`;
-    return publishResume(root, job.key, plan, review, await resumeRuntime(root));
+
+  if (!base) {
+    // Initial templates are treated as current documents, never as permission to
+    // import an alternative sentence from the historical knowledge base.
+    const config = await configuration(root), template = config.templates[selection.track];
+    const original = resolve(config.folder, template.file), pdf = resolve(config.folder, template.baselinePdf);
+    base = { ready: true, original, pdf, sha256: template.sha256, pdfSha256: template.baselineSha256,
+      name: template.file, version: 'initial-' + template.sha256.slice(0, 16) };
   }
-  const config = await configuration(root);
-  const plan = { ...buildResumePlan(job, knowledge, config, requested), assessment: snapshot.assessment, evaluationSnapshot: snapshot };
-  const review = `# ${job.company} / ${job.title} — 修改说明\n\n方向：${plan.track.toUpperCase()}；模板：${basename(plan.template)}\n引擎：${plan.engine}（没有模型 API 调用）\n\n实际 PDF 1 页；原 DOCX 字体、字号、段落、页边距和非文字部件检查通过。原文件未修改。自动检查不替代人工事实与视觉审阅。\n\n## 修改与事实依据\n${plan.edits.map(e => `\n- 原文：${e.original}\n  新文：${e.text}\n  依据：${e.source}\n`).join('')}\n## JD 已识别证据\n${(plan.requirements.matched || []).map(x => `- ${x.name}：${x.evidence}`).join('\n') || '未识别，需人工阅读 JD'}\n\n## 未证实与资格待核实\n${(plan.requirements.gaps || []).map(x => `- ${x.name}：没有补进简历`).join('\n')}\n${(plan.requirements.checks || []).map(x => `- ${x}`).join('\n')}\n\n本版采用事先核对的事实表达与关键词规则，不作完整语义推理；保留原稿项目日期。未证实技能未新增，基础技能不升级。成果口径保留估算或采用非数字表述；CMS 后续迭代保留 Codex 辅助说明。此版本仍需人工审阅，不保证 ATS / AI 通过，不代表已投递。\n`;
-  return publishResume(root, job.key, plan, review, config.python);
+  if (hash(await readFile(base.original)) !== base.sha256 || hash(await readFile(base.pdf)) !== base.pdfSha256) throw new Error('基准文件已变化，请重新上传或核对');
+  // Trace suggestions against the actual document, not cached paragraph metadata.
+  const { stdout } = await run(await resumeRuntime(root), [resolve(root, 'scripts/resume_base.py'), 'docx', base.original],
+    { windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024 });
+  base = { ...base, ...JSON.parse(stdout) };
+  const plan = { ...buildUploadedPlan(job, base, selection.track), assessment: snapshot.assessment, evaluationSnapshot: snapshot };
+  return buildReviewDraft(job, base, plan);
+}
+
+export async function generateResume(root, job, knowledge, requested = 'auto', evaluationSnapshot = null, reviewInput = null) {
+  const fresh = await prepareResumeDraft(root, job, requested, evaluationSnapshot);
+  if (!reviewInput?.draft) throw new Error('请先准备修改对照并逐组审阅');
+  const plan = reviewedPlan(reviewInput.draft, fresh, reviewInput);
+  const review = '# 本地简历修改审阅\n\n基准：' + plan.baseline.name + '\n版本：' + plan.baseline.version +
+    '\n\n原文重排，无模型或语义改写。完整逐句依据见网页“查看修改依据”。\n\n' +
+    plan.review.groups.map(g => g.label + '：' + (g.accepted ? '应用' : '保留原文') + '\n' +
+      g.rows.map(r => '- 原文：' + r.original + '\n  建议：' + r.proposed + '\n  来源正文位置：' + r.evidence.paragraph).join('\n')).join('\n\n') +
+    '\n\n原稿不改动；最终 PDF 仍须人工预览确认，不代表已投递。';
+  return publishResume(root, job.key, plan, review, await resumeRuntime(root));
 }
 
 async function publishResume(root, key, plan, review, python) {
