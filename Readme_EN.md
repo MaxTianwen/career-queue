@@ -1,4 +1,4 @@
-# Career Queue v1.3.1
+# Career Queue v1.3.2
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.3.1` (authorized for release). Fixes the refresh/ledger-save race and improves background readiness checks and status reporting. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.3.2` (authorized for release). Scheduled checks explicitly defer when another operation is busy; background details show check times, stale records and recovery guidance. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
@@ -29,6 +29,8 @@ node src/cli.mjs preview --input examples/jobs.example.json
 Examples contain synthetic data; do not import them into your live Notion database. This version adds eligibility, availability, input-version and historical-material protection tests; final regression results are recorded in [CHANGELOG](CHANGELOG.md). Public read-only spot checks are reported separately from simulated API and demo tests. Tests do not write to live Notion or submit applications. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
 
 ## Background discovery
+
+v1.3.2: a scheduled check receiving the explicit operation-busy conflict returns a deferred outcome and waits for the existing schedule to check again. It starts no search, adds no retry loop and consumes no search attempt. Manual requests still ask you to retry; authentication, stale input and real failures remain errors. Expand background check details for schedule check time, service records and guidance. Records older than 90 seconds are marked stale; unknown processes are never terminated.
 
 Dashboard now shows Gateway status, pause/resume, immediate search and run history. The daily target is **09:00 America/Toronto**, with DST handled automatically. Results stay in Dashboard.
 

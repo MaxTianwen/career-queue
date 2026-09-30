@@ -262,7 +262,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       }
       if (req.method !== 'POST') throw fail('未找到', 404);
       if (req.headers['x-csrf-token'] !== csrf) throw fail('页面已过期，请刷新重试', 403);
-      if (busy) throw fail('另一个操作正在进行，请稍后再试', 409);
+      if (busy) throw Object.assign(fail('另一个操作正在进行，请稍后再试', 409), { code: 'OPERATION_BUSY' });
       busy = true; ownsLock = true;
       const body = await jsonBody(req);
       if (url.pathname === '/api/assessment/recheck' || url.pathname === '/api/assessment/confirm' || url.pathname === '/api/assessment/eligibility') {
@@ -489,7 +489,8 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         return send(await store.updateState({ ...record, status: body.status, nextStep: text(body.nextStep) }));
       }
       throw fail('未知操作', 404);
-    } catch (error) { if (!res.headersSent) send({ error: error.code === 'ENOENT' ? '文件不存在，请检查知识库或材料路径' : error.message }, error.status ?? 400); else res.end(); }
+    } catch (error) { if (!res.headersSent) send({ error: error.code === 'ENOENT' ? '文件不存在，请检查知识库或材料路径' : error.message,
+      ...(error.code === 'OPERATION_BUSY' ? { code: error.code } : {}) }, error.status ?? 400); else res.end(); }
     finally { if (ownsLock) busy = false; }
   });
   return server;

@@ -11,7 +11,7 @@ const report = (results = []) => ({ dataVersion: 5, targetTerms: ['Winter 2027',
 async function fixture(options = {}) {
   const root = resolve('output/test-runs', randomUUID()); await mkdir(root, { recursive: true });
   let now = new Date('2026-09-29T13:00:00Z'), count = 0;
-  const config = { root, clock: () => now, discover: async () => { count++; return report(); }, ...options };
+  const config = { root, clock: () => now, discover: async () => { count++; return { ...report(), finishedAt: now.toISOString() }; }, ...options };
   const runner = new DiscoveryRunner(config); await runner.ready;
   return { root, runner, config, setTime: date => { now = new Date(date); }, count: () => count };
 }

@@ -76,7 +76,7 @@ test('Gateway failure is unknown rather than paused, and startup hints expire', 
   let status = await f.adapter.status();
   assert.equal(status.state, 'unavailable'); assert.equal(status.enabled, null); assert.equal(status.connected, false);
   await mkdir(resolve(f.root, 'output/automation'), { recursive: true });
-  await writeFile(resolve(f.root, 'output/automation/background.json'), JSON.stringify({ checkedAt: 100000, services: { gateway: { state: 'starting' } } }));
+  await writeFile(resolve(f.root, 'output/automation/background.json'), JSON.stringify({ checkedAt: 100000, services: { gateway: { state: 'starting', checkedAt: 100000 } } }));
   assert.equal((await f.adapter.status(true)).state, 'starting');
   f.setTime(200000); assert.equal((await f.adapter.status()).state, 'unavailable');
 });
@@ -91,6 +91,50 @@ test('status calls share one check; enabled changes require a fresh verified res
   assert.equal(calls, 1); assert.ok(values.every(v => v.state === 'paused'));
   assert.equal((await f.adapter.setEnabled(true)).state, 'enabled'); assert.equal(calls, 3);
   assert.equal((await f.adapter.status()).enabled, true); assert.equal(calls, 3);
+});
+
+test('background diagnostics require both fresh file and service timestamps and expose only known fields', async () => {
+  const f = await adapterFixture(async () => { throw new Error('unreachable'); });
+  const path = resolve(f.root, 'output/automation/background.json');
+  await mkdir(resolve(f.root, 'output/automation'), { recursive: true });
+  for (const [fileTime, serviceTime, expectedStale] of [[100000, 100000, false], [100000, 1, true], [1, 100000, true], [100001, 100000, true], [100000, 100001, true], [100000, null, true]]) {
+    await writeFile(path, JSON.stringify({ checkedAt: fileTime, token: 'PRIVATE_FIXTURE', services: {
+      gateway: { state: 'starting', checkedAt: serviceTime, reason: 'PRIVATE_FIXTURE', command: 'PRIVATE_FIXTURE' } } }));
+    const result = await f.adapter.status(true);
+    assert.equal(result.background.gateway.stale, expectedStale);
+    assert.equal(result.state, expectedStale ? 'unavailable' : 'starting');
+    assert.equal(result.background.dashboard.state, 'unknown');
+    assert.ok(!JSON.stringify(result).includes('PRIVATE_FIXTURE'));
+  }
+  await writeFile(path, 'invalid json');
+  assert.equal((await f.adapter.status(true)).background.gateway.checkedAt, null);
+});
+
+test('live schedule verification stays independent of stale service records; diagnostics include safe reasons', async () => {
+  const f = await adapterFixture(async () => ({ id: 'fixture-job', enabled: true }));
+  const path = resolve(f.root, 'output/automation/background.json');
+  await mkdir(resolve(f.root, 'output/automation'), { recursive: true });
+  await writeFile(path, JSON.stringify({ checkedAt: 100000, services: {
+    gateway: { state: 'unavailable', checkedAt: 100000, reason: 'port-unverified' },
+    dashboard: { state: 'ready', checkedAt: 1 } } }));
+  const result = await f.adapter.status(true);
+  assert.equal(result.connected, true); assert.equal(result.enabled, true);
+  assert.equal(result.background.gateway.reason, 'port-unverified');
+  assert.equal(result.background.dashboard.stale, true);
+});
+
+test('diagnostic view labels old records without claiming readiness and hides stale recovery instructions', () => {
+  const now = Date.now();
+  const result = automationView({ schedule: { connected: false, state: 'unavailable', checkedAt: now,
+    background: { gateway: { checkedAt: now - 100000, stale: false, state: 'ready', reason: 'port-unverified' },
+      dashboard: { checkedAt: now, stale: false, state: 'unavailable', reason: 'launch-failed' } } },
+    runs: [{ status: 'done', finishedAt: '2026-09-29T13:00:00Z' }] });
+  assert.match(result, /后台检查详情/); assert.match(result, /最近日程核查/);
+  assert.match(result, /记录已过期，当前待核实/); assert.doesNotMatch(result, /已就绪（最近记录）/);
+  assert.doesNotMatch(result, /端口有响应/); assert.match(result, /启动失败；请检查/);
+  assert.match(result, /上次完成搜索/);
+  assert.match(automationView({ schedule: { state: 'starting' } }), /请等待后台启动/);
+  assert.match(automationView({ schedule: { state: 'unconfigured' } }), /尚未配置日程；请先完成/);
 });
 test('mismatched or incomplete Gateway records cannot verify the schedule', async () => {
   for (const result of [{ id: 'other', enabled: true }, { id: 'fixture-job' }]) {

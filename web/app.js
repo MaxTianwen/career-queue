@@ -365,17 +365,17 @@ function renderSearch() {
   $('#search-pagination').innerHTML = paginationControls(filtered.length, searchPage, pages, 'search');
 }
 async function pollAutomation() {
+  const expanded = ['automation-history', 'automation-diagnostics'].filter(name => $(`#automation .${name}`)?.open);
   try {
     automationState = await api('/api/automation');
-    const expanded = $('#automation details')?.open;
     $('#automation').innerHTML = automationView(automationState);
-    if (expanded && $('#automation details')) $('#automation details').open = true;
     $('.local-label').textContent = !automationState.schedule?.connected ? '本机 · 后台连接待核实' : automationState.schedule.enabled ? '本机 · 自动发现已启用' : '本机 · 自动发现已暂停';
   } catch {
     automationState = { ...automationState, schedule: { connected: false, enabled: null, state: 'unavailable', error: '暂时无法读取后台状态，请检查本机服务' } };
     $('#automation').innerHTML = automationView(automationState);
     $('.local-label').textContent = '本机 · 后台连接待核实';
   }
+  for (const name of expanded) { const panel = $(`#automation .${name}`); if (panel) panel.open = true; }
 }
 async function pollSearch() {
   clearTimeout(searchTimer);

@@ -4,6 +4,18 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const exec = promisify(execFile);
+async function backgroundStatus(root, now) {
+  const saved = await readFile(resolve(root, 'output/automation/background.json'), 'utf8').then(JSON.parse).catch(() => null);
+  const fresh = time => Number.isFinite(time) && time > 0 && now - time >= 0 && now - time < 90000;
+  return Object.fromEntries(['dashboard', 'gateway'].map(name => {
+    const service = saved?.services?.[name];
+    const checkedAt = Number.isFinite(service?.checkedAt) && service.checkedAt > 0 ? service.checkedAt : null;
+    // Only expose known status fields, never raw logs, arguments or paths.
+    return [name, { checkedAt, stale: !fresh(saved?.checkedAt) || !fresh(checkedAt),
+      state: ['ready', 'starting', 'unavailable'].includes(service?.state) ? service.state : 'unknown',
+      reason: ['port-unverified', 'process-exited', 'launch-failed'].includes(service?.reason) ? service.reason : null }];
+  }));
+}
 export function openclawArgs(root, args = []) {
   return ['--require', resolve(root, 'scripts/hide-background-windows.cjs'),
     resolve(root, 'private/openclaw-runtime/node_modules/openclaw/openclaw.mjs'), ...args];
@@ -28,19 +40,19 @@ export function automationAdapter(root, { call = openclaw, clock = () => Date.no
       if (pending) { await pending; if (!force) return cached; }
       if (!force && cached && clock() < expires) return cached;
       pending = (async () => {
+        const background = await backgroundStatus(root, clock());
         try {
           const config = await setting();
           const response = await call(root, ['automations', 'get', config.jobId], { timeout: 10000 });
           const job = response.job || response;
           if (job.id !== config.jobId) throw new Error('日程记录不匹配');
           if (typeof job.enabled !== 'boolean') throw new Error('日程开关未确认');
-          cached = { configured: true, connected: true, enabled: job.enabled, state: job.enabled ? 'enabled' : 'paused', checkedAt: clock(), jobId: job.id,
+          cached = { configured: true, connected: true, enabled: job.enabled, state: job.enabled ? 'enabled' : 'paused', checkedAt: clock(), background, jobId: job.id,
             gatewayNextCheck: job.state?.nextRunAtMs ? new Date(job.state.nextRunAtMs).toISOString() : null };
         } catch (e) {
-          const background = await readFile(resolve(root, 'output/automation/background.json'), 'utf8').then(JSON.parse).catch(() => null);
-          const starting = clock() - background?.checkedAt >= 0 && clock() - background?.checkedAt < 90000 && background?.services?.gateway?.state === 'starting';
+          const starting = !background.gateway.stale && background.gateway.state === 'starting';
           cached = { configured: e.code !== 'ENOENT', connected: false, enabled: null,
-            state: e.code === 'ENOENT' ? 'unconfigured' : starting ? 'starting' : 'unavailable', checkedAt: clock(),
+            state: e.code === 'ENOENT' ? 'unconfigured' : starting ? 'starting' : 'unavailable', checkedAt: clock(), background,
             error: e.code === 'ENOENT' ? '尚未安装日程' : starting ? '后台正在启动，请稍后刷新' : '后台连接待核实，不能确认日程是否启用' };
         }
         expires = clock() + 15000;

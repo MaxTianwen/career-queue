@@ -12,7 +12,13 @@ export async function runDiscoveryCommand(command = 'tick', base = 'http://127.0
   const r = await fetch(base + (command === 'tick' ? '/api/automation/tick' : '/api/discovery'), {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: '{}', signal: AbortSignal.timeout(60000)
   });
-  const started = await r.json(); if (!r.ok) throw new Error(started.error);
+  const started = await r.json();
+  // A busy tick has not started a search. Let the existing schedule check again;
+  // do not retry mutations or disguise other conflicts and failures as success.
+  if (command === 'tick' && r.status === 409 && started.code === 'OPERATION_BUSY') {
+    return { deferred: true, reason: 'operation-busy', message: '本次检查暂缓；未开始搜索，等待下一次定时检查' };
+  }
+  if (!r.ok) throw new Error(started.error);
   if (started.cached || started.skipped || started.waiting) return started;
   const id = started.runId;
   if (!id) return started;
