@@ -1,22 +1,22 @@
-# Career Queue v1.2.2
+# Career Queue v1.3.0
 
 [中文](README.md) | **English**
 
-A personal workspace for finding Canadian co-op and internship opportunities. Manually run job discovery, filter Winter / Summer / Fall 2027 roles, save selected jobs to Notion, and prepare, preview, and edit one-page resumes for individual positions.
+A personal workspace for finding Canadian co-op and internship opportunities. Run job discovery manually or on a daily local schedule, filter Winter / Summer / Fall 2027 roles, save selected jobs to Notion, and prepare, preview, and edit one-page resumes for individual positions.
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current release: `v1.2.2`, published with user authorization to main and the matching tag in the existing private GitHub repository. Local sentence comparison and review are included; model-based semantic rewriting remains deferred. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.3.0`. Daily discovery uses a dedicated local OpenClaw command job without model calls, with hidden Windows subprocesses for background operation. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
-Requires Node.js 22+; tested locally with Node.js 24. There are no npm runtime dependencies. From the project root, run:
+Requires Node.js 22+; tested locally with Node.js 24. The core app has no npm runtime dependencies; optional OpenClaw is installed separately. From the project root, run:
 
 ```powershell
 npm start
 ```
 
-Open http://127.0.0.1:4317 . The server listens on localhost only. Keep the terminal running; if it is closed, run the same command again.
+Open http://127.0.0.1:4317 . The server listens on localhost only. For this manual command, keep the terminal running. If background mode below is already running, open the page directly instead of starting a second server.
 
 Without private configuration, you can still open the dashboard, try the clearly labeled demo workspace, or manually trigger public job discovery. The live Queue requires Notion; matching scores require the current resume and local Python text extraction environment; resume generation, editing, and PDF preview require the local document environment. The shareable source code excludes these private resources and is not a general-purpose resume editor that works out of the box.
 
@@ -27,6 +27,29 @@ node src/cli.mjs preview --input examples/jobs.example.json
 ```
 
 Examples contain synthetic data; do not import them into your live Notion database. This version adds eligibility, availability, input-version and historical-material protection tests; final regression results are recorded in [CHANGELOG](CHANGELOG.md). Public read-only spot checks are reported separately from simulated API and demo tests. Tests do not write to live Notion or submit applications. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
+
+## Background discovery (v1.3.0)
+
+Dashboard now shows Gateway status, pause/resume, immediate search and run history. The daily target is **09:00 America/Toronto**, with DST handled automatically. Results stay in Dashboard.
+
+After shutdown or sleep, start the background service to catch up once that day. Several missed days produce one current search, not historical replays. A locked screen is fine while Windows stays awake. The service runs after Windows sign-in; it does not wake the computer or run while it is powered off.
+
+OpenClaw checks every minute; the app allows one successful automatic search per Toronto day. Manual success after 09:00 also satisfies that day. Offline checks retry every 5 minutes; actual searches retry at 15-minute intervals, up to 3 automatic attempts per day. Partial results are labeled and count as completed. Failure keeps the last snapshot. Pause affects future triggers, not work in progress.
+
+For a fresh Windows installation, install the pinned optional runtime and create the initially paused schedule:
+
+```powershell
+npm install --prefix private/openclaw-runtime --no-audit --no-fund openclaw@2026.9.6
+node scripts/setup-automation.mjs --startup
+```
+
+OpenClaw requires Node 24.16+ in the 24.x line or 26.1+; consult the pinned package engines. Then choose Resume in Dashboard. This machine is already configured and enabled. A hidden supervisor starts on the current user’s Windows login, without an open browser or terminal. To start it manually: `.\scripts\start-background.ps1`.
+
+To remove login startup, remove only the `Career Queue` value from `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Pausing in Dashboard leaves the local service available. Service logs are in `output/automation/`.
+
+Dashboard 4317, supervisor lock 4318 and token-authenticated Gateway 18791 bind only to loopback. Credentials/runtime/state stay in ignored `private/`; run records and snapshots stay in `output/discovery/`. Model heartbeat and autonomous learning are disabled. No external notifications, model calls, automatic Queue writes or submissions are added.
+
+`npm run discover` triggers the same running service; `npm run automation:status` reads its state. A scheduler check is not itself a search or an application submission.
 
 ## Current features
 
@@ -131,7 +154,7 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - Code, synthetic examples, and current documentation are suitable for inclusion in GitHub. Credentials, the knowledge base, templates, generated materials, logs, caches, and historical backups are excluded by `.gitignore`. Machine-specific AGENTS.md and unverified OpenClaw drafts remain local and are not part of the shareable v1.0 files.
 - `.gitignore` does not remove sensitive files already committed. Review staged files and history before committing or pushing; credentials, private resumes, and generated materials are excluded even from a private repository. No open-source license has been selected.
 - Writes are serialized within one server process. Do not use the CLI or multiple services to write the same record concurrently. Notion provides no cross-client transaction or uniqueness guarantee for this workflow.
-- There is no automatic application submission, form filling, bulk resume generation, daily scheduling, email synchronization, or model API integration.
+- There is no automatic application submission, form filling, bulk resume generation, email synchronization, or model API integration.
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
-See [ROADMAP](ROADMAP.md): v1.2.1 is published. v1.2.2 local comparison and review are published; semantic rewriting is deferred. OpenClaw remains planned for v1.3. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. None of these future features has started; the current app remains manually operated.
+See [ROADMAP](ROADMAP.md): v1.2.1 is published. v1.2.2 local comparison and review are published; semantic rewriting is deferred. v1.3 now provides local OpenClaw discovery. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. v1.3 local scheduled discovery is implemented; the v2.0 features remain unstarted.

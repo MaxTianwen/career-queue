@@ -6,11 +6,13 @@ import { resolve, dirname, relative, isAbsolute, extname, basename } from 'node:
 import { fileURLToPath } from 'node:url';
 import { NotionStore } from './notion.mjs';
 import { DemoStore } from './demo-store.mjs';
-import { normalizeJob, newRecord, comparePreference, TARGET_TERMS, evaluateJob } from './core.mjs';
+import { normalizeJob, newRecord, comparePreference, evaluateJob } from './core.mjs';
 import { getRecord, ingest, prepare, complete, submit } from './pipeline.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
+import { DiscoveryRunner } from './discovery-runner.mjs';
+import { automationAdapter, networkAvailable } from './automation.mjs';
 import { discover, extractFacts } from './discovery.mjs';
-import { discoveryCoverage, sourceName, mergeDiscoveryJobs } from './discovery-records.mjs';
+import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
 import { currentResumeProfiles } from './resume-profile.mjs';
 import { selectResumeTrack } from './resume-track.mjs';
@@ -41,23 +43,15 @@ async function jsonBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw fail('请求内容不是有效 JSON'); }
 }
 
-export function dashboardServer({ root = projectRoot, storeOverride, discoverImpl = discover, availabilityImpl = checkAvailability, profilesImpl = currentResumeProfiles } = {}) {
+export function dashboardServer({ root = projectRoot, storeOverride, discoverImpl = discover, availabilityImpl = checkAvailability, profilesImpl = currentResumeProfiles, automationImpl, clock, onlineImpl = networkAvailable } = {}) {
   const csrf = randomBytes(32).toString('hex');
   const demo = new DemoStore();
   let busy = false;
   const portalPreviews = new Map();
   const resumeDrafts = new Map();
-  let search = { state: 'idle', phase: '', report: null, error: null };
-  const searchFile = resolve(root, 'output', 'discovery', 'latest.json');
-  const loadedSearch = readFile(searchFile, 'utf8').then(data => {
-    const report = JSON.parse(data);
-    if (report.finishedAt && Array.isArray(report.results)) {
-      const merged = mergeDiscoveryJobs(report.results);
-      report.results = merged.results;
-      report.duplicates = (report.duplicates || 0) + merged.duplicates;
-      search = { state: 'done', phase: '上次搜索结果', report, error: null };
-    }
-  }).catch(() => {});
+  const runner = new DiscoveryRunner({ root, discover: discoverImpl, clock, online: onlineImpl });
+  const loadedSearch = runner.ready;
+  const automation = automationImpl || automationAdapter(root);
   async function config() {
     let local = {};
     try { local = parseEnv(await readFile(resolve(root, '.env'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
@@ -86,10 +80,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     });
   }
   async function presentSearch() {
-    if (!search.report) return search;
-    const results = await presentJobs(search.report.results);
+    if (!runner.search.report) return runner.search;
+    const results = await presentJobs(runner.search.report.results);
     const visible = results.filter(j => !j.expired);
-    return { ...search, report: { ...search.report, expiredCount: results.filter(j => j.expired).length, results: visible, coverage: discoveryCoverage(visible) } };
+    return { ...runner.search, report: { ...runner.search.report, expiredCount: results.filter(j => j.expired).length, results: visible, coverage: discoveryCoverage(visible) } };
   }
   async function storeFor(mode) {
     if (mode === 'demo') return demo;
@@ -107,8 +101,8 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     if (source === 'queue') return getRecord(await storeFor(mode), key);
     if (source !== 'discovery' || mode !== 'live') throw fail('职位来源无效');
     await loadedSearch;
-    if (search.state === 'running') throw fail('请等待搜索结束后核查');
-    const job = search.report?.results.find(j => j.key === key);
+    if (runner.search.state === 'running') throw fail('请等待搜索结束后核查');
+    const job = runner.search.report?.results.find(j => j.key === key);
     if (!job || job.identityConflict) throw fail('岗位不存在或身份冲突，请重新选择');
     return job;
   }
@@ -118,9 +112,8 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     const next = { ...current, ...changes };
     if (source === 'queue') await (await storeFor(mode)).updateState(next);
     else {
-      search.report.results = search.report.results.map(j => j.key === next.key ? next : j);
-      await mkdir(dirname(searchFile), { recursive: true });
-      await writeFile(searchFile, JSON.stringify(search.report));
+      runner.search.report.results = runner.search.report.results.map(j => j.key === next.key ? next : j);
+      await runner.saveEvidence(runner.search.report);
     }
     return next;
   }
@@ -176,10 +169,15 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/automation') {
+        await loadedSearch;
+        if (mode !== 'live') return send({ demo: true, runs: [] });
+        return send({ ...runner.info(), schedule: await automation.status() });
       }
       if (req.method === 'GET' && url.pathname === '/api/status') {
         const { env, knowledgeReady, knowledgeText } = await config();
@@ -233,11 +231,11 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         if (mode !== 'live' || !keyPattern.test(key || '')) throw fail('简历版本参数无效');
         await loadedSearch;
         const source = url.searchParams.get('source');
-        let record = source === 'discovery' ? search.report?.results.find(j => j.key === key) : null;
+        let record = source === 'discovery' ? runner.search.report?.results.find(j => j.key === key) : null;
         if (!record) {
           const { env } = await config();
           if (storeOverride || env.NOTION_TOKEN) record = await (await storeFor(mode)).find(key);
-          record ||= search.report?.results.find(j => j.key === key);
+          record ||= runner.search.report?.results.find(j => j.key === key);
         }
         const job = record && (await presentJobs([record], mode))[0];
         return send({ files: (await materials('live', key)).filter(f => f.version.startsWith('resume-')), assessment: job?.assessment, generatedMaterial: await generatedMaterial(mode, key, job) });
@@ -338,8 +336,8 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         let job;
         if (body.source === 'discovery') {
           await loadedSearch;
-          if (search.state === 'running') throw fail('搜索尚未完成，请等待去重结束后操作');
-          job = search.report?.results.find(x => x.key === body.key);
+          if (runner.search.state === 'running') throw fail('搜索尚未完成，请等待去重结束后操作');
+          job = runner.search.report?.results.find(x => x.key === body.key);
           if (job?.identityConflict) throw fail('岗位身份有冲突，请核对官网后手动添加');
           if (job) [job] = await presentJobs([job]);
           if (!job || !job.fullJd || evaluateJob({ ...job, ...extractDeadline(job) }).decision === 'REJECT') throw fail('请选择未排除且有完整 JD 的岗位');
@@ -368,33 +366,29 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         resumeDrafts.delete(body.proposalId);
         return send(result);
       }
+      if (url.pathname.startsWith('/api/automation')) {
+        if (mode !== 'live') throw fail('演示模式不操作真实日程');
+        if (url.pathname === '/api/automation/enabled') {
+          if (typeof body.enabled !== 'boolean') throw fail('日程开关无效');
+          return send(await automation.setEnabled(body.enabled));
+        }
+        if (url.pathname === '/api/automation/tick') {
+          const schedule = await automation.status();
+          if (!schedule.connected || !schedule.enabled) return send({ skipped: true, reason: '日程未启用或无法核实' });
+          return send(await runner.start('scheduled'));
+        }
+        throw fail('未知日程操作', 404);
+      }
       if (url.pathname === '/api/discovery') {
-        await loadedSearch;
         if (mode !== 'live') throw fail('自动搜索使用真实工作区，不写入演示记录');
-        if (search.state === 'running') return send(await presentSearch(), 202);
-        if (search.state === 'done' && search.report.dataVersion === 5 && JSON.stringify(search.report.targetTerms) === JSON.stringify([...TARGET_TERMS]) && Date.now() - Date.parse(search.report.finishedAt) < 5 * 60 * 1000) return send({ ...(await presentSearch()), cached: true });
-        const previousJobs = new Map((search.report?.results || []).map(job => [job.key, job]));
-        search = { state: 'running', phase: '正在连接职位来源…', report: null, error: null };
-        void (async () => {
-          try {
-            const report = await discoverImpl({ onProgress: update => { search = { state: 'running', ...update, error: null }; } });
-            report.results = report.results.map(job => {
-              const previous = previousJobs.get(job.key);
-              return previous && jobInputHash(previous) === jobInputHash(job)
-                ? { ...job, availability: previous.availability, eligibilityConfirmations: previous.eligibilityConfirmations } : job;
-            });
-            await mkdir(dirname(searchFile), { recursive: true });
-            await writeFile(searchFile, JSON.stringify(report));
-            search = { state: 'done', phase: report.partial ? '搜索完成 · 部分来源不完整' : '搜索完成', report, error: null };
-          } catch (e) { search = { ...search, state: 'error', error: e.message, phase: '搜索未完成' }; }
-        })();
-        return send(await presentSearch(), 202);
+        const result = await runner.start('manual');
+        return send({ ...(await presentSearch()), ...result }, result.running ? 202 : 200);
       }
       if (url.pathname === '/api/discovery/save') {
         await loadedSearch;
-        if (search.state === 'running') throw fail('搜索尚未完成，请等待去重结束后操作');
+        if (runner.search.state === 'running') throw fail('搜索尚未完成，请等待去重结束后操作');
         if (mode !== 'live') throw fail('真实搜索结果只能保存到正式 Queue');
-        let job = search.report?.results.find(x => x.key === body.key);
+        let job = runner.search.report?.results.find(x => x.key === body.key);
         if (job?.identityConflict) throw fail('岗位身份有冲突，请核对官网后手动添加');
         if (job) [job] = await presentJobs([job]);
         if (!job?.fullJd || job.decision === 'REJECT') throw fail('此结果还不能入队，请核实筛选条件并补齐 JD');

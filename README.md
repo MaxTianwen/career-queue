@@ -1,22 +1,22 @@
-# Career Queue v1.2.2
+# Career Queue v1.3.0
 
 **中文** | [English](Readme_EN.md)
 
-个人加拿大 co-op / intern 求职工作台。手动触发岗位发现，筛选 Winter / Summer / Fall 2027 职位，保存到 Notion，并为选中的岗位准备、预览和修改一页简历。
+个人加拿大 co-op / intern 求职工作台。手动或本机定时发现岗位，筛选 Winter / Summer / Fall 2027 职位，保存到 Notion，并为选中的岗位准备、预览和修改一页简历。
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 确认材料并保存为待提交 → 本人确认已投递。**
 
-当前发布版本：`v1.2.2`，按用户授权发布至现有私密 GitHub 仓库 main 与同名标签。包含本地逐句对照与审阅；模型语义改写暂缓。完整变更见 [CHANGELOG](CHANGELOG.md)，规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。
+当前版本：`v1.3.0`。新增本机 OpenClaw 无模型定时搜岗，以及 Windows 后台子进程隐藏保护。变更见 [CHANGELOG](CHANGELOG.md)，规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。
 
 ## 启动与验证
 
-需要 Node.js 22+；本机验证为 Node.js 24。无 npm 运行依赖，在项目根目录运行：
+需要 Node.js 22+；本机验证为 Node.js 24。核心程序无 npm 运行依赖；可选 OpenClaw 单独安装，在项目根目录运行：
 
 ```powershell
 npm start
 ```
 
-打开 http://127.0.0.1:4317 ，服务仅监听本机。保持启动终端运行，关闭后可再次运行同一命令。
+打开 http://127.0.0.1:4317 ，服务仅监听本机。使用此手动命令时需保持终端运行。已启用下方后台方式时直接打开网页，不必重复启动。
 
 没有私人配置也可打开 Dashboard、体验明确标注的演示工作区或手动触发公开岗位搜索。正式 Queue 需要 Notion；匹配评分需要当前简历及本机 Python 文本读取环境；简历生成 / 编辑及 PDF 预览需要本机文档环境。公开源码不含这些私人资料，不是开箱即用的通用简历编辑器。
 
@@ -27,6 +27,27 @@ node src/cli.mjs preview --input examples/jobs.example.json
 ```
 
 示例为合成数据，不要导入正式 Notion。本版新增资格、有效性、输入版本和历史材料保护测试，最终回归结果见 [CHANGELOG](CHANGELOG.md)。公开官网只读抽查与模拟 API / 演示测试分别记录；没有测试写入正式 Notion 或实际投递。没有私有文档环境的公开副本会跳过对应文档保护测试，不能将跳过等同通过。`check` 仅检查配置；`verify` 才读取真实 Notion schema。
+
+## 后台自动发现（v1.3.0）
+
+Dashboard 新增每日发现状态、暂停 / 恢复、立即搜索和运行记录。固定 **America/Toronto 每天 09:00**，自动随夏令时调整，结果仅留在 Dashboard。
+
+- 关机 / 睡眠时不能运行；登录并启动后台后，当天补跑一次。跨多日只搜索当前最新岗位，不补历史日报。锁屏或关屏且未休眠时可继续运行。
+- OpenClaw 每分钟检查，应用限制每天自动成功一轮；09:00 后手动成功也满足当天任务。断网每 5 分钟检查恢复，不消耗搜索次数。实际搜索失败间隔 15 分钟，最多自动尝试 3 次，再失败可手动重试。
+- 部分来源失败明确标注，算作一轮完成；全部失败保留旧结果。暂停只阻止后续触发，不取消正在搜索的任务。新增数量与上次完成快照比较，首次运行显示首次基线。
+
+全新 Windows 安装需要额外安装固定版本 OpenClaw，再创建默认暂停的日程：
+
+```powershell
+npm install --prefix private/openclaw-runtime --no-audit --no-fund openclaw@2026.9.6
+node scripts/setup-automation.mjs --startup
+```
+
+OpenClaw 需要 Node 24.16+（24.x）或 26.1+，以固定包 engines 为准。安装后在 Dashboard 点“恢复自动运行”。本机已配置并启用。登录 Windows 后隐藏启动后台，不需要保持浏览器或终端开启；未登录时不运行，也不修改休眠 / 唤醒设置。手动后台启动：`.\scripts\start-background.ps1`。如不再需要登录启动，只移除 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下名为 `Career Queue` 的值；Dashboard 暂停只暂停搜索。
+
+Dashboard 4317、后台单实例锁 4318、需令牌认证的 Gateway 18791 均仅监听本机。凭证与 OpenClaw 安装 / 状态在被忽略的 `private/`，运行记录与搜索快照在 `output/discovery/`。无外部通知、模型、自动入 Queue 或投递；已关闭 OpenClaw 模型心跳及自主学习。
+
+`npm run discover` 通过同一服务立即搜索；`npm run automation:status` 查看运行状态。需要本机 Dashboard 服务在线，后台日志在 `output/automation/`。
 
 ## 当前功能
 
@@ -129,7 +150,7 @@ Queue 过滤 Status = Queue；Applications 过滤待提交 / 已投递 / 面试�
 - 代码、合成示例、当前文档为 GitHub 候选；凭证、知识库、模板、生成材料、日志、缓存、历史备份由 `.gitignore` 排除。机器专属 AGENTS.md 和未验证的 OpenClaw 草稿保留本机，不纳入公开 v1.0。
 - `.gitignore` 不会移除已提交的敏感文件。提交 / 推送前检查暂存区和历史；即使是私密仓库，也不纳入凭证、私人简历或生成材料。尚未选择开源许可证。
 - 单服务写操作串行；不要同时通过 CLI / 多个服务写同一记录。Notion 没有跨客户端事务与唯一键保证。
-- 无自动投递、自动填表、批量简历、每日调度、邮箱同步或模型 API。
+- 无自动投递、自动填表、批量简历、邮箱同步或模型 API。
 - 本机功能验证不等于完整真实申请验收；尚未以真实材料上传并走完待提交 / 已投递链路。
 
-后续规划见 [ROADMAP](ROADMAP.md)：v1.2.1 已按授权发布；v1.2.2 本地对照与审阅已发布，模型语义改写按用户选择暂缓；v1.3 保留 OpenClaw。半自动申请移入 v2.0，与面向 CS / Data 的多用户试用分阶段推进：先做好账号和资料隔离，再试点少量网站辅助填写，首轮建议由本人点击最终提交。具体网站、模型、费用与资料范围在实施前确认。后续功能均未开工，当前继续手动运行。
+后续规划见 [ROADMAP](ROADMAP.md)：v1.2.1 已按授权发布；v1.2.2 本地对照与审阅已发布，模型语义改写按用户选择暂缓；v1.3 已完成本机 OpenClaw 定时发现。半自动申请移入 v2.0，与面向 CS / Data 的多用户试用分阶段推进：先做好账号和资料隔离，再试点少量网站辅助填写，首轮建议由本人点击最终提交。具体网站、模型、费用与资料范围在实施前确认。v2.0 尚未开工；当前支持手动与每日定时搜岗。

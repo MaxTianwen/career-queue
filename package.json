@@ -1,12 +1,16 @@
 {
   "name": "career-queue",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "start": "node src/dashboard.mjs",
-    "cli": "node src/cli.mjs"
+    "cli": "node src/cli.mjs",
+    "discover": "node src/automation-client.mjs discover",
+    "automation:status": "node src/automation-client.mjs status"
   }
 }

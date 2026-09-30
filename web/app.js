@@ -1,3 +1,4 @@
+import { automationView } from './automation-view.js';
 import { resumeReviewView, resumeReviewHistory } from './resume-review-view.js';
 import { discoverySourcesView, fieldEvidenceView } from './discovery-sources-view.js';
 import { openPortalImport } from './portal-import.js';
@@ -11,6 +12,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;
 const safeUrl = value => { try { const u = new URL(value); return ['https:', 'http:'].includes(u.protocol) ? esc(u.href) : '#'; } catch { return '#'; } };
 let mode = 'live', view = ['discover', 'queue', 'applications', 'resumes', 'portal'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'discover', jobs = [], csrf = '', status, selected, connected = false, listError = '', refreshId = 0;
 let portalJobs = [], portalLoad = 0;
+let automationState = null;
 let detailContext = null;
 let highlightedKey = '', loadingJobs = true, listPage = 0, pageSize = 20;
 let searchState = { state: 'idle', report: null }, searchPage = 0, searchTimer, importedSource = null;
@@ -45,6 +47,7 @@ function render() {
   $('.filter-panel').hidden = ['resumes', 'portal'].includes(view);
   $('.heading-actions').hidden = ['resumes', 'portal'].includes(view);
   $('#discovery').hidden = !isDiscover;
+  $('#automation').hidden = !isDiscover || mode === 'demo';
   $('#workspace-list').hidden = isDiscover || ['resumes', 'portal'].includes(view);
   $('#breadcrumb').textContent = isDiscover ? '发现职位' : isQueue ? '已保存 Queue' : '申请记录';
   $('#page-title').textContent = isDiscover ? '找到值得投入的下一站。' : isQueue ? '你选中的机会，都在这里。' : '让每一次申请都有进展。';
@@ -346,7 +349,7 @@ function renderSearch() {
   const results = report?.results ?? [];
   const recent = j => j.decision !== 'REJECT' && recentPublication(j);
   const accepted = results.filter(j => j.decision !== 'REJECT');
-  $('#search-progress').innerHTML = `<div class="search-status${searchState.error ? ' search-error' : ''}"><strong>${esc(searchState.phase || '搜索完成')}</strong>${searchState.error ? `<p>${esc(searchState.error)}。下方为本次已取得的部分结果，可重试搜索。</p>` : ''}${report ? `<p>扫描 ${report.total} 条公开条目 · ${report.candidates} 条方向 / 地域候选 · ${results.filter(j => j.fullJd).length} 条完整 JD · ${results.filter(recent).length} 条最近 24 小时发布 / 重新发布 · ${results.length - accepted.length} 条不符合求职条件${report.expiredCount ? ` · ${report.expiredCount} 条已截止并剔除` : ''}</p><small>${report.finishedAt ? `完成于 ${esc(searchDate(report.finishedAt))}（多伦多时间）· 5 分钟内复用结果；重新搜索会更新` : '正在读取官方来源，结果会陆续显示'}${report.duplicates ? ` · 合并 ${report.duplicates} 条重复` : ''}</small>${report.errors?.length ? `<p>${esc(report.errors.join('；'))}</p>` : ''}${discoverySourcesView(report)}${sourceReport(report.coverage)}` : '<p>正在连接来源，无需打开搜索网页。</p>'}</div>`;
+  $('#search-progress').innerHTML = `<div class="search-status${searchState.error ? ' search-error' : ''}"><strong>${esc(searchState.phase || '搜索完成')}</strong>${searchState.error ? `<p>${esc(searchState.error)}。下方保留上次完成的结果，可重试搜索。</p>` : ''}${report ? `<p>扫描 ${report.total} 条公开条目 · ${report.candidates} 条方向 / 地域候选 · ${results.filter(j => j.fullJd).length} 条完整 JD · ${results.filter(recent).length} 条最近 24 小时发布 / 重新发布 · ${results.length - accepted.length} 条不符合求职条件${report.expiredCount ? ` · ${report.expiredCount} 条已截止并剔除` : ''}</p><small>${report.finishedAt ? `完成于 ${esc(searchDate(report.finishedAt))}（多伦多时间）· 5 分钟内复用结果；重新搜索会更新` : '正在读取官方来源，结果会陆续显示'}${report.duplicates ? ` · 合并 ${report.duplicates} 条重复` : ''}</small>${report.errors?.length ? `<p>${esc(report.errors.join('；'))}</p>` : ''}${discoverySourcesView(report)}${sourceReport(report.coverage)}` : '<p>正在连接来源，无需打开搜索网页。</p>'}</div>`;
   if (!running && report) {
     const expanded = $('#search-progress').dataset.expanded === 'true' || Boolean(searchState.error || report.errors?.length);
     const content = $('#search-progress').innerHTML;
@@ -361,11 +364,20 @@ function renderSearch() {
   $('#search-results').innerHTML = filtered.length ? `<div class="discovery-grid">${filtered.slice(searchPage * pageSize, (searchPage + 1) * pageSize).map(discoveryCard).join('')}</div>` : `<div class="search-empty"><h3>${running ? '正在读取…' : kind === 'recent' ? '暂未找到可核实最近 24 小时发布的岗位' : '此筛选下没有结果'}</h3><p>${kind === 'recent' ? '可切换到“候选 · 不限发布日期”；只有日期或未提供日期的岗位仍会保留。' : '可以调整关键词或查看其他结果类型。'}</p></div>`;
   $('#search-pagination').innerHTML = paginationControls(filtered.length, searchPage, pages, 'search');
 }
+async function pollAutomation() {
+  try {
+    automationState = await api('/api/automation');
+    const expanded = $('#automation details')?.open;
+    $('#automation').innerHTML = automationView(automationState);
+    if (expanded && $('#automation details')) $('#automation details').open = true;
+    $('.local-label').textContent = automationState.schedule?.connected && automationState.schedule.enabled ? '本机 · 自动发现已启用' : '本机 · 手动运行可用';
+  } catch { $('#automation').textContent = '暂时无法读取后台状态，请检查本机服务'; }
+}
 async function pollSearch() {
   clearTimeout(searchTimer);
-  try { searchState = await api('/api/discovery'); renderSearch(); }
+  try { searchState = await api('/api/discovery'); renderSearch(); await pollAutomation(); }
   catch (e) { searchState = { ...searchState, state: 'error', error: e.message, phase: '无法读取搜索进度' }; renderSearch(); }
-  if (searchState.state === 'running') searchTimer = setTimeout(pollSearch, 1200);
+  searchTimer = setTimeout(pollSearch, searchState.state === 'running' ? 1200 : 30000);
 }
 function searchDetail(key, updated) {
   const j = updated || searchState.report?.results.find(x => x.key === key); if (!j) throw new Error('搜索结果已更新，请重新选择');
@@ -527,6 +539,10 @@ async function handle(action, button) {
     showModal('连接工作区', '凭证仅保存在本机，页面不会显示你的 token。', `<div class="hint">知识库：${status.knowledgeReady ? '已就位' : '未找到'}\nNotion：${connected && mode === 'live' ? '连接正常' : status.notionConfigured ? '已配置，连接尚待验证' : '尚未配置'}\n项目：${esc(status.root)}</div><ol class="steps"><li>在本机项目 <code>.env</code> 中填写 <code>NOTION_TOKEN</code>。</li><li>在 Notion 中给该 integration 授权访问 Career Queue。</li><li>保存后点击“重新连接”，无需重启页面服务。</li></ol><div class="form-actions"><button class="button primary" data-action="connect">重新连接</button><a class="button secondary" href="${safeUrl(status.notionUrl)}" target="_blank" rel="noopener noreferrer">打开 Notion ↗</a></div><p>自动搜岗无需密钥，可直接使用。已支持本地规则定制与 PDF 预览；可上传审阅后的材料并更新状态。</p>`); return;
   }
   if (action === 'connect') { mode = 'live'; await refresh(); if (!connected) throw new Error(listError); $('#modal').close(); feedback('Notion 连接成功。'); return; }
+  if (action === 'automation-toggle') {
+    await api('/api/automation/enabled', { enabled: !automationState?.schedule?.enabled });
+    await pollAutomation(); return;
+  }
   if (action === 'search') {
     mode = 'live'; view = 'discover'; history.replaceState(null, '', '#discover'); await refresh(); searchPage = 0;
     searchState = await api('/api/discovery', {}); renderSearch();
@@ -675,4 +691,9 @@ document.addEventListener('submit', async event => {
   finally { if (button) button.disabled = false; }
 });
 render();
-refresh().then(pollSearch).catch(error => { loadingJobs = false; listError = error.message; render(); feedback(`本地服务无法连接：${error.message}`, true); });
+Promise.all([refresh(), pollSearch()]).then(async () => {
+  const link = new URLSearchParams(location.search), key = link.get("job"), source = link.get("source");
+  if (!key) return;
+  if (!/^[a-f0-9]{24}$/.test(key) || !["queue", "discovery"].includes(source)) throw new Error("职位详情链接无效");
+  if (source === "discovery") searchDetail(key); else await detail(key);
+}).catch(error => { loadingJobs = false; listError = error.message; render(); feedback(`本地服务无法连接：${error.message}`, true); });

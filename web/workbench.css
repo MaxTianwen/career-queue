@@ -47,3 +47,13 @@ main{margin:0}.content{max-width:1536px;padding:20px 32px 36px;display:grid;grid
 .rewrite-row details { margin: 10px 0; }
 #review-status { margin: 16px 0; }
 @media (max-width: 650px) { .rewrite-columns { grid-template-columns: 1fr; } }
+
+/* Daily discovery is a compact status strip, with history tucked away. */
+.automation-panel{grid-column:1/-1;min-width:0;background:#fff;border:1px solid #dbe1d6;border-radius:18px;padding:22px 26px;margin-bottom:0}
+.automation-summary{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.automation-summary h2{font-size:19px;margin:5px 0}.automation-summary p{margin:0;color:#60716c}
+.automation-next{display:grid;gap:4px}.automation-next span,.automation-next small{color:#60716c;font-size:13px}
+.automation-next strong{font-size:16px;color:#255b53}.automation-history{border-top:1px solid #e8ece5;margin-top:18px;padding-top:15px}
+.automation-history summary{cursor:pointer;font-size:14px;color:#385b53}.automation-history p,.automation-runs small{font-size:13px;color:#60716c}
+.automation-runs{max-height:300px;overflow:auto}.automation-runs article{padding:12px 0;border-top:1px solid #edf0e8}
+.automation-warning{background:#fff5df;color:#76511e;padding:10px 12px;border-radius:8px;font-size:14px}.automation-empty{font-size:13px;color:#60716c;margin-bottom:0}
