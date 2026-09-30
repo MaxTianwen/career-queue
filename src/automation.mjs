@@ -13,35 +13,43 @@ export function openclawEnv(root) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(path|pathext|systemroot|windir|temp|tmp|userprofile|appdata|localappdata|comspec|processor_architecture)$/i.test(key)));
   return { ...env, OPENCLAW_STATE_DIR: resolve(root, 'private/openclaw-state'), OPENCLAW_CONFIG_PATH: resolve(root, 'private/openclaw-state/openclaw.json') };
 }
-export async function openclaw(root, args) {
+export async function openclaw(root, args, { timeout = 45000 } = {}) {
   const { stdout } = await exec(process.execPath, openclawArgs(root, [...args, '--json']),
-    { cwd: resolve(root, 'private'), env: openclawEnv(root), windowsHide: true, timeout: 45000, maxBuffer: 1024 * 1024 });
+    { cwd: resolve(root, 'private'), env: openclawEnv(root), windowsHide: true, timeout, maxBuffer: 1024 * 1024 });
   const start = stdout.indexOf('{');
   if (start < 0) throw new Error('OpenClaw 未返回有效状态');
   return JSON.parse(stdout.slice(start));
 }
-export function automationAdapter(root) {
-  let cached = null, expires = 0;
+export function automationAdapter(root, { call = openclaw, clock = () => Date.now() } = {}) {
+  let cached = null, expires = 0, pending = null;
   async function setting() { return JSON.parse(await readFile(resolve(root, 'private/automation.json'), 'utf8')); }
   return {
     async status(force = false) {
-      if (!force && cached && Date.now() < expires) return cached;
-      try {
-        const config = await setting();
-        const response = await openclaw(root, ['automations', 'get', config.jobId]);
-        const job = response.job || response;
-        if (job.id !== config.jobId) throw new Error('日程记录不匹配');
-        cached = { configured: true, connected: true, enabled: job.enabled === true, jobId: job.id,
-          gatewayNextCheck: job.state?.nextRunAtMs ? new Date(job.state.nextRunAtMs).toISOString() : null };
-      } catch (e) {
-        cached = { configured: e.code !== 'ENOENT', connected: false, enabled: false,
-          error: e.code === 'ENOENT' ? '尚未安装日程' : '无法连接 OpenClaw，请检查后台运行状态' };
-      }
-      expires = Date.now() + 15000; return cached;
+      if (pending) { await pending; if (!force) return cached; }
+      if (!force && cached && clock() < expires) return cached;
+      pending = (async () => {
+        try {
+          const config = await setting();
+          const response = await call(root, ['automations', 'get', config.jobId], { timeout: 10000 });
+          const job = response.job || response;
+          if (job.id !== config.jobId) throw new Error('日程记录不匹配');
+          if (typeof job.enabled !== 'boolean') throw new Error('日程开关未确认');
+          cached = { configured: true, connected: true, enabled: job.enabled, state: job.enabled ? 'enabled' : 'paused', checkedAt: clock(), jobId: job.id,
+            gatewayNextCheck: job.state?.nextRunAtMs ? new Date(job.state.nextRunAtMs).toISOString() : null };
+        } catch (e) {
+          const background = await readFile(resolve(root, 'output/automation/background.json'), 'utf8').then(JSON.parse).catch(() => null);
+          const starting = clock() - background?.checkedAt >= 0 && clock() - background?.checkedAt < 90000 && background?.services?.gateway?.state === 'starting';
+          cached = { configured: e.code !== 'ENOENT', connected: false, enabled: null,
+            state: e.code === 'ENOENT' ? 'unconfigured' : starting ? 'starting' : 'unavailable', checkedAt: clock(),
+            error: e.code === 'ENOENT' ? '尚未安装日程' : starting ? '后台正在启动，请稍后刷新' : '后台连接待核实，不能确认日程是否启用' };
+        }
+        expires = clock() + 15000;
+      })();
+      try { await pending; return cached; } finally { pending = null; }
     },
     async setEnabled(enabled) {
       const config = await setting();
-      await openclaw(root, ['automations', enabled ? 'enable' : 'disable', config.jobId]);
+      await call(root, ['automations', enabled ? 'enable' : 'disable', config.jobId]);
       const result = await this.status(true);
       if (!result.connected || result.enabled !== enabled) throw new Error('无法确认日程设置，请刷新后检查');
       return result;

@@ -1,4 +1,4 @@
-# Career Queue v1.3.0
+# Career Queue v1.3.1
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.3.0`. Daily discovery uses a dedicated local OpenClaw command job without model calls, with hidden Windows subprocesses for background operation. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.3.1` (authorized for release). Fixes the refresh/ledger-save race and improves background readiness checks and status reporting. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
@@ -28,9 +28,11 @@ node src/cli.mjs preview --input examples/jobs.example.json
 
 Examples contain synthetic data; do not import them into your live Notion database. This version adds eligibility, availability, input-version and historical-material protection tests; final regression results are recorded in [CHANGELOG](CHANGELOG.md). Public read-only spot checks are reported separately from simulated API and demo tests. Tests do not write to live Notion or submit applications. A checkout without the private document environment skips the corresponding document protection test; a skipped test is not a pass. `check` inspects configuration only; `verify` reads the actual Notion schema.
 
-## Background discovery (v1.3.0)
+## Background discovery
 
 Dashboard now shows Gateway status, pause/resume, immediate search and run history. The daily target is **09:00 America/Toronto**, with DST handled automatically. Results stay in Dashboard.
+
+v1.3.1 distinguishes startup, an unverified connection, and an actually paused schedule. Pause/resume is disabled while the connection cannot be verified; manual search remains available. The summary retains the last completed search and labels catch-up, network waits, exhausted retries, and partial results. Background checks verify the Dashboard workspace identity and an authenticated Gateway response. An occupied but unverified port is reported without terminating its process; a child still starting is not launched again.
 
 After shutdown or sleep, start the background service to catch up once that day. Several missed days produce one current search, not historical replays. A locked screen is fine while Windows stays awake. The service runs after Windows sign-in; it does not wake the computer or run while it is powered off.
 

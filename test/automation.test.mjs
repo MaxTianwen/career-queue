@@ -17,6 +17,29 @@ async function fixture(options = {}) {
 }
 async function finish(runner, trigger = 'scheduled') { const result = await runner.start(trigger); await runner.pending; return result; }
 
+test('a refresh during final ledger persistence waits, then starts a new run instead of returning old results', async () => {
+  let release, reached;
+  const atCommit = new Promise(r => { reached = r; });
+  let hold = true;
+  const f = await fixture({ save: async (path, value) => {
+    if (hold && path.endsWith('runs.json') && value.runs.at(-1)?.status === 'done') {
+      hold = false; reached(); await new Promise(r => { release = r; });
+    }
+    await atomicJson(path, value);
+  } });
+  const first = await f.runner.start('manual'); await atCommit;
+  assert.equal(f.runner.search.state, 'done');
+  f.setTime('2026-09-30T13:00:00Z'); // Outside the normal five-minute result cache.
+  const refresh = f.runner.start('manual');
+  release();
+  const next = await refresh; await f.runner.pending;
+  assert.notEqual(next.runId, first.runId);
+  assert.equal(f.count(), 2);
+  const disk = JSON.parse(await readFile(f.runner.file, 'utf8'));
+  assert.equal(disk.runId, next.runId);
+  assert.equal(f.runner.info().runs.filter(r => r.status === 'done').length, 2);
+});
+
 test('Toronto 09:00 follows DST including transition days', () => {
   assert.equal(scheduledAt('2026-09-29'), '2026-09-29T13:00:00.000Z');
   assert.equal(scheduledAt('2026-11-01'), '2026-11-01T14:00:00.000Z');

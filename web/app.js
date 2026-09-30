@@ -370,8 +370,12 @@ async function pollAutomation() {
     const expanded = $('#automation details')?.open;
     $('#automation').innerHTML = automationView(automationState);
     if (expanded && $('#automation details')) $('#automation details').open = true;
-    $('.local-label').textContent = automationState.schedule?.connected && automationState.schedule.enabled ? '本机 · 自动发现已启用' : '本机 · 手动运行可用';
-  } catch { $('#automation').textContent = '暂时无法读取后台状态，请检查本机服务'; }
+    $('.local-label').textContent = !automationState.schedule?.connected ? '本机 · 后台连接待核实' : automationState.schedule.enabled ? '本机 · 自动发现已启用' : '本机 · 自动发现已暂停';
+  } catch {
+    automationState = { ...automationState, schedule: { connected: false, enabled: null, state: 'unavailable', error: '暂时无法读取后台状态，请检查本机服务' } };
+    $('#automation').innerHTML = automationView(automationState);
+    $('.local-label').textContent = '本机 · 后台连接待核实';
+  }
 }
 async function pollSearch() {
   clearTimeout(searchTimer);

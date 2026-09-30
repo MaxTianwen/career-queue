@@ -78,7 +78,9 @@ export class DiscoveryRunner {
   }
   async start(trigger = 'manual') {
     await this.ready;
-    if (this.pending && this.search.state === 'error') await this.pending;
+    // A displayed result may still be committing its ledger. Drain that commit
+    // before deciding whether this request is cached or should start a new run.
+    if (this.pending && this.search.state !== 'running') await this.pending;
     if (this.pending) return { runId: this.search.runId, running: true };
     if (this.broken) throw new Error(this.state.waiting);
     const now = this.clock(), day = torontoDay(now), planned = scheduledAt(day);

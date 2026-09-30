@@ -11,6 +11,7 @@ import { getRecord, ingest, prepare, complete, submit } from './pipeline.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import { DiscoveryRunner } from './discovery-runner.mjs';
 import { automationAdapter, networkAvailable } from './automation.mjs';
+import { workspaceId } from './background-services.mjs';
 import { discover, extractFacts } from './discovery.mjs';
 import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
@@ -173,6 +174,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
+      }
+      if (req.method === 'GET' && url.pathname === '/api/health') {
+        await loadedSearch;
+        return send({ service: 'career-queue', workspaceId: workspaceId(root), ready: true });
       }
       if (req.method === 'GET' && url.pathname === '/api/automation') {
         await loadedSearch;

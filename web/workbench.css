@@ -57,3 +57,4 @@ main{margin:0}.content{max-width:1536px;padding:20px 32px 36px;display:grid;grid
 .automation-history summary{cursor:pointer;font-size:14px;color:#385b53}.automation-history p,.automation-runs small{font-size:13px;color:#60716c}
 .automation-runs{max-height:300px;overflow:auto}.automation-runs article{padding:12px 0;border-top:1px solid #edf0e8}
 .automation-warning{background:#fff5df;color:#76511e;padding:10px 12px;border-radius:8px;font-size:14px}.automation-empty{font-size:13px;color:#60716c;margin-bottom:0}
+.automation-last-result{font-size:14px;color:#385b53;margin:14px 0 0}
