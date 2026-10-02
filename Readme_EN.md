@@ -1,4 +1,4 @@
-# Career Queue v1.3.2
+# Career Queue v1.3.3
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.3.2` (authorized for release). Scheduled checks explicitly defer when another operation is busy; background details show check times, stale records and recovery guidance. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current local version: `v1.3.3` (not pushed; user confirmation required before release). Background refresh preserves panel changes made while requests are pending, and late responses cannot overwrite newer schedule state. The current Dashboard passed 39 browser checks (live read-only and isolated fault cases); successful runs cover three dates (including catch-up), and process recovery plus real offline/reconnect preservation and deduplication are verified. Acceptance is complete within the agreed scope; sustained sleep and sign-out/login tests were explicitly waived by the user and remain unverified; see [verification](docs/releases/v1.3.3-verification.md), [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
@@ -47,9 +47,9 @@ npm install --prefix private/openclaw-runtime --no-audit --no-fund openclaw@2026
 node scripts/setup-automation.mjs --startup
 ```
 
-OpenClaw requires Node 24.16+ in the 24.x line or 26.1+; consult the pinned package engines. Then choose Resume in Dashboard. This machine is already configured and enabled. A hidden supervisor starts on the current user’s Windows login, without an open browser or terminal. To start it manually: `.\scripts\start-background.ps1`.
+OpenClaw requires Node 24.16+ in the 24.x line or 26.1+; consult the pinned package engines. Then choose Resume in Dashboard. This machine is already configured and enabled. Windows Task Scheduler runs `Career Queue Background` hidden under the current user, without an open browser or terminal. It starts at login and checks every five minutes to recover an exited supervisor. It maintains services only; the existing OpenClaw schedule still limits automatic discovery to one successful run per day. It does not run while signed out, wake the computer, or change power settings. To start it manually: `.\scripts\start-background.ps1`. Upgrade the old login entry with `.\scripts\start-background.ps1 -Install`.
 
-To remove login startup, remove only the `Career Queue` value from `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Pausing in Dashboard leaves the local service available. Service logs are in `output/automation/`.
+To disable background startup and recovery, disable `Career Queue Background` in Task Scheduler. Pausing in Dashboard only pauses discovery and leaves the local service available. Service logs are in `output/automation/`.
 
 Dashboard 4317, supervisor lock 4318 and token-authenticated Gateway 18791 bind only to loopback. Credentials/runtime/state stay in ignored `private/`; run records and snapshots stay in `output/discovery/`. Model heartbeat and autonomous learning are disabled. No external notifications, model calls, automatic Queue writes or submissions are added.
 

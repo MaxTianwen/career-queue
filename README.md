@@ -1,4 +1,4 @@
-# Career Queue v1.3.2
+# Career Queue v1.3.3
 
 **中文** | [English](Readme_EN.md)
 
@@ -6,7 +6,7 @@
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 确认材料并保存为待提交 → 本人确认已投递。**
 
-当前版本：`v1.3.2`（已获用户发布授权）。定时检查遇到操作占用时明确暂缓，后台详情显示核查时间、记录时效和处理建议。变更见 [CHANGELOG](CHANGELOG.md)，规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。
+当前本机版本：`v1.3.3`（未推送，发布前需用户确认）。后台刷新保留请求等待期间的面板展开 / 收起操作，迟到响应不覆盖较新的日程状态。本版正式页面已通过 39 项浏览器检查；三个实际日期的成功记录、后台退出恢复和真实断网防重已核验。本版按用户确认范围收口，睡眠及注销登录为用户免测项（未验证），详见 [本版验收](docs/releases/v1.3.3-verification.md)。变更见 [CHANGELOG](CHANGELOG.md)，规格见 [PROJECT_SPEC](PROJECT_SPEC.md)。
 
 ## 启动与验证
 
@@ -47,7 +47,7 @@ npm install --prefix private/openclaw-runtime --no-audit --no-fund openclaw@2026
 node scripts/setup-automation.mjs --startup
 ```
 
-OpenClaw 需要 Node 24.16+（24.x）或 26.1+，以固定包 engines 为准。安装后在 Dashboard 点“恢复自动运行”。本机已配置并启用。登录 Windows 后隐藏启动后台，不需要保持浏览器或终端开启；未登录时不运行，也不修改休眠 / 唤醒设置。手动后台启动：`.\scripts\start-background.ps1`。如不再需要登录启动，只移除 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下名为 `Career Queue` 的值；Dashboard 暂停只暂停搜索。
+OpenClaw 需要 Node 24.16+（24.x）或 26.1+，以固定包 engines 为准。安装后在 Dashboard 点“恢复自动运行”。本机已配置并启用。Windows 任务计划程序中的 `Career Queue Background` 使用当前用户权限隐藏启动后台，不需要保持浏览器或终端开启；登录时启动，后台退出后每 5 分钟检查恢复。它只维护后台，搜岗仍由原 OpenClaw 日程控制，每天成功一轮。未登录时不运行，不唤醒电脑、不修改电源设置。手动后台启动：`.\scripts\start-background.ps1`；旧版安装可运行 `.\scripts\start-background.ps1 -Install` 迁移本项目的旧登录启动项。如不再需要后台自启 / 恢复，在任务计划程序中禁用此任务；Dashboard 暂停只暂停搜索。
 
 Dashboard 4317、后台单实例锁 4318、需令牌认证的 Gateway 18791 均仅监听本机。凭证与 OpenClaw 安装 / 状态在被忽略的 `private/`，运行记录与搜索快照在 `output/discovery/`。无外部通知、模型、自动入 Queue 或投递；已关闭 OpenClaw 模型心跳及自主学习。
 

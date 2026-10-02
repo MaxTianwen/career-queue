@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A · 分栏工作台 — Career Queue</title><link rel="stylesheet" href="option-a.css"><script defer src="demo-data.js"></script><script defer src="option-a.js"></script></head>
+<body>
+<a class="skip" href="#job-list">跳至职位列表</a>
+<aside class="rail">
+  <a class="brand" href="index.html"><span class="brand-symbol">cq<span>↗</span></span><strong>Career Queue<small>个人求职工作台</small></strong></a>
+  <div class="rail-section">工作区</div>
+  <nav aria-label="设计稿导航"><button class="nav active" data-view="discover"><span aria-hidden="true">◎</span>发现职位 <b id="all-count">6</b></button><button class="nav" data-view="queue"><span aria-hidden="true">▱</span>已保存 <b id="saved-count">0</b></button></nav>
+  <div class="rail-note"><span class="tiny-label">本次设计范围</span><p>职位浏览<br>详情与匹配依据<br>材料预览与审阅</p></div>
+  <footer><span class="avatar">AC</span><div>示例工作区<small>本页操作 · 刷新重置</small></div></footer>
+</aside>
+<main>
+  <header class="topline"><span><b>设计稿 A</b><span class="sep">/</span>分栏工作台</span><a href="index.html">比较两套方案 ↗</a></header>
+  <div class="prototype-note"><span>V1.4 · INTERACTIVE CONCEPT</span>示例数据，不会保存到正式 Queue</div>
+  <section class="page-title"><div><p class="eyebrow">YOUR NEXT OPPORTUNITY</p><h1 id="page-name">发现职位<span class="title-dot">.</span></h1><p>先找到适合的岗位，再准备下一步。</p></div><div class="daily"><span class="status-dot"></span><div>每日发现<small>09:00 · Toronto · 状态示例</small></div><details><summary aria-label="展开日程说明">ⓘ</summary><p>此处展示日程信息的位置。设计稿不读取或修改真实日程。</p></details></div></section>
+  <section class="filters" aria-label="筛选职位"><div class="search-row"><label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/></svg><input id="keyword" type="search" placeholder="搜索职位、公司或城市" aria-label="搜索职位、公司或城市"></label><label class="sort-label">排序<select id="sort"><option value="score">匹配程度优先</option><option value="date">发布时间优先</option></select></label></div>
+    <div class="filter-row"><label>入职季<select id="season"><option value="">全部入职季</option><option>Winter 2027</option><option>Summer 2027</option><option>Fall 2027</option></select></label><label>方向<select id="track"><option value="">全部方向</option><option value="cs">CS</option><option value="data">Data</option><option value="mixed">CS / Data</option></select></label><label>地点<select id="region"><option value="">全部地点</option><option value="gta">GTA</option><option value="toronto">Toronto / North York</option><option value="outside">GTA 外</option></select></label><label>工作方式<select id="mode"><option value="">全部方式</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option><option value="onsite">On-site</option></select></label><label>时长<select id="duration"><option value="">全部时长</option><option value="4">4 个月</option><option value="8">8 个月</option><option value="12">12 个月</option><option value="16">16 个月</option></select></label><button class="text-button" id="clear">清空筛选</button></div>
+    <div id="filter-summary" class="filter-summary" role="status"></div>
+  </section>
+  <section class="workspace" id="workspace"><section class="inbox" aria-label="职位列表"><div class="list-heading"><h2 id="list-title">所有机会</h2><span id="result-count"></span></div><div id="job-list"></div></section><section class="reader" id="reader" aria-label="选中职位详情"></section></section>
+</main><div id="toast" role="status" class="toast" hidden></div>
+</body></html>

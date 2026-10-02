@@ -1,0 +1,15 @@
+// Fictional, shared fixtures for comparing design directions. No personal data.
+window.CQ_DEMO = {
+  jobs: [
+    { id:'j1', company:'Northstar Labs', title:'Software Developer Intern, Analytics', track:'mixed', season:'Summer 2027', duration:8, city:'Toronto, ON', region:'gta', mode:'hybrid', salary:'CA$ 28–34 / 小时', score:84, posted:'2026-09-30', deadline:'2026-10-16', skills:['Python','SQL','React'], missing:['AWS'], summary:'参与内部分析平台开发，将数据处理流程转化为清晰、易用的产品功能。与工程师和分析师协作，完成从接口到界面的交付。', requirements:['使用 Python 与 SQL 处理数据，维护可复用的数据流程。','使用 React 构建界面，编写并维护自动化测试。','了解云平台为加分项；能够清晰说明技术决策。'] },
+    { id:'j2', company:'Relay Systems', title:'Data Analyst Co-op', track:'data', season:'Summer 2027', duration:4, city:'North York, ON', region:'gta', mode:'hybrid', salary:'CA$ 26 / 小时', score:81, posted:'2026-09-29', deadline:'2026-10-20', skills:['SQL','Python','Excel'], missing:['Tableau'], summary:'帮助运营团队理解业务数据，维护指标口径、分析异常并整理可执行的建议。', requirements:['使用 SQL 提取与核对数据。','用 Excel 或可视化工具呈现分析结果。','能与非技术同事沟通发现和数据限制。'] },
+    { id:'j3', company:'Fieldwork Studio', title:'Frontend Engineering Intern', track:'cs', season:'Winter 2027', duration:8, city:'Toronto, ON', region:'gta', mode:'remote', salary:'CA$ 30–36 / 小时', score:78, posted:'2026-09-28', deadline:'2026-10-12', skills:['React','JavaScript','Git'], missing:['TypeScript'], summary:'为团队协作产品开发交互界面，关注可访问性、性能与跨设备体验。', requirements:['掌握 JavaScript、HTML 与 CSS。','有 React 项目经验和版本控制实践。','TypeScript 与可访问性测试经验为加分项。'] },
+    { id:'j4', company:'Meridian Devices', title:'Software Tools & Test Development Intern', track:'cs', season:'Summer 2027', duration:16, city:'Markham, ON', region:'gta', mode:'onsite', salary:'未披露', score:72, posted:'2026-09-30', deadline:'2026-10-09', skills:['C++','Python','Git'], missing:['Embedded Linux'], summary:'开发工程测试工具和自动化脚本，协助定位系统行为与性能问题。', requirements:['有 C++ 或 Python 编程经验。','能够定位问题，记录重现步骤与测试结果。','嵌入式 Linux 知识为加分项。'] },
+    { id:'j5', company:'Current Research', title:'Machine Learning Platform Intern', track:'mixed', season:'Fall 2027', duration:12, city:'Ottawa, ON', region:'outside', mode:'hybrid', salary:'CA$ 32–38 / 小时', score:66, posted:'2026-09-27', deadline:'2026-10-30', skills:['Python','SQL'], missing:['PyTorch','Docker'], summary:'协助维护机器学习数据管线与实验工具，支持研究成果的复现和部署。', requirements:['熟悉 Python 与数据处理。','有机器学习实验或工程项目经验。','了解 PyTorch、Docker 等工具。'] },
+    { id:'j6', company:'Harbour Commerce', title:'Business Intelligence Intern', track:'data', season:'Summer 2027', duration:8, city:'Vaughan, ON', region:'gta', mode:'remote', salary:'CA$ 27–31 / 小时', score:76, posted:'2026-09-29', deadline:'2026-10-22', skills:['SQL','Excel'], missing:['Power BI'], summary:'整理业务指标、核实报表数据，为产品和运营决策提供可靠依据。', requirements:['熟悉关系型数据与 SQL 查询。','能够定义指标、检查数据质量并解释变化。','Power BI 报表制作经验为加分项。'] }
+  ],
+  resume: { name:'Alex Chen', track:'CS', version:'CS · v4（示例）', bullets:[
+    'Built a Python and SQL pipeline to validate and summarize sample datasets.',
+    'Developed a React interface for exploring records and reviewing data quality.'
+  ] }
+};

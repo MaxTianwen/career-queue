@@ -13,6 +13,7 @@ const safeUrl = value => { try { const u = new URL(value); return ['https:', 'ht
 let mode = 'live', view = ['discover', 'queue', 'applications', 'resumes', 'portal'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'discover', jobs = [], csrf = '', status, selected, connected = false, listError = '', refreshId = 0;
 let portalJobs = [], portalLoad = 0;
 let automationState = null;
+let automationPollId = 0;
 let detailContext = null;
 let highlightedKey = '', loadingJobs = true, listPage = 0, pageSize = 20;
 let searchState = { state: 'idle', report: null }, searchPage = 0, searchTimer, importedSource = null;
@@ -365,16 +366,20 @@ function renderSearch() {
   $('#search-pagination').innerHTML = paginationControls(filtered.length, searchPage, pages, 'search');
 }
 async function pollAutomation() {
-  const expanded = ['automation-history', 'automation-diagnostics'].filter(name => $(`#automation .${name}`)?.open);
+  const requestId = ++automationPollId;
   try {
-    automationState = await api('/api/automation');
-    $('#automation').innerHTML = automationView(automationState);
+    const result = await api('/api/automation');
+    if (requestId !== automationPollId) return;
+    automationState = result;
     $('.local-label').textContent = !automationState.schedule?.connected ? '本机 · 后台连接待核实' : automationState.schedule.enabled ? '本机 · 自动发现已启用' : '本机 · 自动发现已暂停';
   } catch {
+    if (requestId !== automationPollId) return;
     automationState = { ...automationState, schedule: { connected: false, enabled: null, state: 'unavailable', error: '暂时无法读取后台状态，请检查本机服务' } };
-    $('#automation').innerHTML = automationView(automationState);
     $('.local-label').textContent = '本机 · 后台连接待核实';
   }
+  // Capture user changes made while the request was pending, just before rendering.
+  const expanded = ['automation-history', 'automation-diagnostics'].filter(name => $(`#automation .${name}`)?.open);
+  $('#automation').innerHTML = automationView(automationState);
   for (const name of expanded) { const panel = $(`#automation .${name}`); if (panel) panel.open = true; }
 }
 async function pollSearch() {

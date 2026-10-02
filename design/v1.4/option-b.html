@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Career Queue · 设计稿 B</title>
+  <meta name="color-scheme" content="light">
+  <link rel="stylesheet" href="option-b.css">
+  <script defer src="demo-data.js"></script>
+  <script defer src="option-b.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div class="prototype-strip">
+    <p><strong>v1.4 设计稿 B</strong><span> · 示例数据，不会保存到正式 Queue</span></p>
+    <a href="index.html">返回方案比较 <span aria-hidden="true">↗</span></a>
+  </div>
+  <header class="site-header">
+    <button type="button" class="wordmark" data-action="discover" aria-label="Career Queue，返回发现职位">Career<span>Queue</span><i aria-hidden="true"></i></button>
+    <nav class="primary-nav" aria-label="主要导航">
+      <button type="button" data-action="discover" class="nav-link active" aria-current="page">发现职位</button>
+      <button type="button" data-action="saved" class="nav-link">已保存 <span id="saved-count">0</span></button>
+    </nav>
+    <p class="workspace-label"><span class="status-dot" aria-hidden="true"></span>独立设计预览</p>
+  </header>
+  <main id="main" tabindex="-1">
+    <section id="discovery-screen" aria-labelledby="discovery-title">
+      <div class="page-heading">
+        <div><p class="eyebrow">01 <span aria-hidden="true">/</span> OPPORTUNITIES</p><h1 id="discovery-title">发现职位</h1><p id="discovery-description" class="intro">把方向、任期和地点放在一起比较。</p></div>
+        <div class="collection-note"><span class="serif-number" id="total-count">00</span><p>合成示例岗位<br><span>2027 co-op / internship</span></p></div>
+      </div>
+      <form id="filter-form" class="filter-bar" aria-label="筛选示例岗位">
+        <label class="search-field"><span>关键词</span><input type="search" id="query-filter" name="query" placeholder="职位、公司或技能" autocomplete="off"></label>
+        <label><span>开始季</span><select id="season-filter" name="season"><option value="">全部季节</option></select></label>
+        <label><span>岗位方向</span><select id="track-filter" name="track"><option value="">全部方向</option><option value="cs">CS</option><option value="data">Data</option><option value="mixed">CS / Data 混合</option></select></label>
+        <label><span>任期时长</span><select id="duration-filter" name="duration"><option value="">全部时长</option><option value="4">4 个月</option><option value="8">8 个月</option><option value="12">12 个月</option><option value="16">16 个月</option></select></label>
+        <label><span>地点</span><select id="region-filter" name="region"><option value="">全部地点</option><option value="gta">Toronto / GTA</option><option value="outside">GTA 以外</option></select></label>
+        <label><span>办公方式</span><select id="mode-filter" name="mode"><option value="">全部方式</option><option value="hybrid">混合办公</option><option value="onsite">现场办公</option><option value="remote">远程办公</option></select></label>
+        <button type="reset" class="text-button clear-filters">重置</button>
+      </form>
+      <div class="results-toolbar">
+        <p id="result-count" role="status"></p>
+        <label class="sort-field">排序 <select id="sort-filter"><option value="score">示例覆盖分从高到低</option><option value="deadline">截止日期从近到远</option><option value="posted">示例发布日期从新到旧</option></select></label>
+      </div>
+      <div class="table-heading" aria-hidden="true"><span>岗位 / 公司</span><span>任期 / 薪资</span><span>地点 / 办公方式</span><span>覆盖分 · 示例</span><span></span></div>
+      <div id="job-list" class="job-list"></div>
+      <div class="list-footnote"><span class="small-mark" aria-hidden="true">i</span><p>岗位、来源、技能及分数均为合成示例。覆盖分仅演示信息布局，不代表 ATS 分数或录取概率。</p></div>
+    </section>
+    <section id="detail-screen" hidden aria-labelledby="detail-title"></section>
+    <section id="review-screen" hidden aria-labelledby="review-title"></section>
+  </main>
+  <footer class="site-footer"><p>Career Queue <span> / </span> Editorial workspace</p><p>设计方向 B <span>·</span> 本页修改刷新后恢复</p></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
