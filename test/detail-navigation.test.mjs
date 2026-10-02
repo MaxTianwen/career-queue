@@ -5,13 +5,13 @@ import {runInNewContext} from 'node:vm';
 const app=await readFile(new URL('../web/app.js',import.meta.url),'utf8');
 const controller=app.slice(app.indexOf('async function detail(key)'),app.indexOf('const select ='));
 function fixture(){
-  const pending=[], dialog={dataset:{},inert:false}, body={innerHTML:''}; let shown=0;
+  const pending=[], messages=[], dialog={dataset:{},inert:false}, body={innerHTML:''}; let shown=0;
   const helpers=Object.fromEntries(['directionBadge','jobHighlights','skillHighlights','sourceLinks','fieldEvidenceView','assessmentPanel','scoreDetails','resumeControls','portalPanel','jobDescription','fileLinks','materialForm','freshnessReview'].map(name=>[name,()=> '']));
   const api=()=>new Promise((resolve,reject)=>pending.push({resolve,reject}));
   const f=runInNewContext(`let detailRequest=0,view='queue',mode='live',selected,detailContext;${controller};({detail,invalidate:()=>detailRequest++,navigate:()=>view='resumes',switchMode:()=>mode='demo',selected:()=>selected})`,{
-    ...helpers,api,esc:String,safeUrl:String,publicationText:()=>'',modeText:()=>'',showDetailSurface:()=>{shown++;dialog.inert=false;},$:s=>s==='#detail'?dialog:body
+    ...helpers,api,esc:String,safeUrl:String,publicationText:()=>'',modeText:()=>'',document:{activeElement:{closest:()=>dialog}},detailFeedback:(key,error)=>messages.push({key,error:error?.message}),showDetailSurface:()=>{shown++;dialog.inert=false;},$:s=>s==='#detail'?dialog:body
   });
-  return {...f,pending,dialog,body,shown:()=>shown};
+  return {...f,pending,messages,dialog,body,shown:()=>shown};
 }
 const job=key=>({key,company:'Example',title:key,term:'Summer 2027',status:'Queue',url:'https://example.com',localFiles:[],reasons:[]});
 test('split detail keeps the newest job when responses arrive out of order',async()=>{
@@ -21,23 +21,36 @@ test('split detail keeps the newest job when responses arrive out of order',asyn
 });
 for(const action of ['navigate','switchMode','invalidate'])test(`detail response cannot reopen after ${action}`,async()=>{
  const f=fixture(),loading=f.detail('old');f[action]();f.pending[0].resolve(job('old'));
- assert.equal(await loading,false);assert.equal(f.shown(),0);assert.equal(f.selected(),undefined);
+ assert.equal(await loading,false);assert.equal(f.shown(),0);assert.equal(f.selected(),null);
 });
-test('a failed detail read releases its temporary interaction lock',async()=>{
- const f=fixture(),loading=f.detail('missing');assert.equal(f.dialog.inert,true);
- f.pending[0].reject(new Error('offline'));await assert.rejects(loading,/offline/);assert.equal(f.dialog.inert,false);
+test('loading names the requested job and immediately clears the previous selection',async()=>{
+ const f=fixture(),a=f.detail('first');f.pending[0].resolve(job('first'));await a;
+ const b=f.detail('second');assert.equal(f.selected(),null);assert.equal(f.messages.at(-1).key,'second');
+ f.pending[1].resolve(job('second'));await b;assert.equal(f.dialog.dataset.state,'ready');
 });
-test('an older failed request cannot unlock the newer detail still loading',async()=>{
+test('a failed detail read shows a local error without leaving the old job actionable',async()=>{
+ const f=fixture(),loading=f.detail('missing');f.pending[0].reject(new Error('offline'));
+ assert.equal(await loading,false);assert.equal(f.messages.at(-1).error,'offline');assert.equal(f.selected(),null);
+});
+test('an older failed request cannot replace the newer job loading message',async()=>{
  const f=fixture(),a=f.detail('first'),b=f.detail('second');
- f.pending[0].reject(new Error('offline'));await assert.rejects(a,/offline/);assert.equal(f.dialog.inert,true);
- f.pending[1].resolve(job('second'));await b;assert.equal(f.dialog.inert,false);
+ f.pending[0].reject(new Error('offline'));await a;assert.equal(f.messages.at(-1).key,'second');assert.equal(f.messages.at(-1).error,undefined);
+ f.pending[1].resolve(job('second'));await b;assert.equal(f.selected().key,'second');
+});
+test('retry reads the same job and replaces the failure with fresh detail',async()=>{
+ const f=fixture(),a=f.detail('job');f.pending[0].reject(new Error('offline'));await a;
+ const b=f.detail('job');f.pending[1].resolve(job('job'));assert.equal(await b,true);assert.equal(f.selected().key,'job');
+});
+test('late failure after navigating away does not reopen an error',async()=>{
+ const f=fixture(),a=f.detail('job');f.navigate();f.pending[0].reject(new Error('offline'));await a;
+ assert.equal(f.messages.length,1);assert.equal(f.shown(),0);
 });
 // The navigation guard is exercised before any API or DOM replacement.
 const guard=app.slice(app.indexOf('async function handle(action, button)'),app.indexOf("  if (action === 'recheck-availability')"))+"return 'proceed';}";
 function navigationGuard({dirty=false,saving=false,confirm=true}={}){
  let confirmations=0,focuses=0;
  const dialog={open:true,dataset:{...(dirty?{dirty:'true'}:{}),...(saving?{saving:'true'}:{})}};
- const handle=runInNewContext(`let detailContext={key:'current',source:'queue'},detailRequest=0,detailOpener;${guard};handle`,{
+ const handle=runInNewContext(`let window={scrollY:100},view='queue',detailReturnY=0,detailReturnView='',detailContext={key:'current',source:'queue'},detailRequest=0,detailOpener;${guard};handle`,{
   $:s=>s==='#detail'?dialog:{focus:()=>focuses++},confirm:()=>{confirmations++;return confirm;}
  });
  return{handle,confirmations:()=>confirmations,focuses:()=>focuses};

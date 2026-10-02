@@ -108,7 +108,7 @@ function syncDetailSelection() {
   const note = $('#detail-selection-note');
   if (note) note.hidden = visible || dialog.dataset.layout !== 'split';
 }
-function showDetailSurface() {
+function showDetailSurface({ focus = true } = {}) {
   const dialog = $('#detail'), split = ['discover','queue','applications'].includes(view);
   dialog.inert = false;
   if (!split) {
@@ -124,8 +124,28 @@ function showDetailSurface() {
   close.textContent = split ? '← 返回' : '×'; close.setAttribute('aria-label', split ? '返回职位列表' : '关闭详情'); close.classList.toggle('detail-back', split);
   $('#detail-body').insertAdjacentHTML('afterbegin', '<p id="detail-selection-note" class="selection-note" hidden>所选职位不在当前筛选或分页中，详情仍为上次所选职位。</p>');
   dialog.scrollTop = 0; syncDetailSelection();
-  $('#detail-title').focus({ preventScroll: true });
+  if (focus) $('#detail-title').focus({ preventScroll: true });
   if (split && matchMedia('(max-width: 900px)').matches) $('#browse-workspace').scrollIntoView({block:'start'});
+}
+function detailFeedback(key, error) {
+  const focus = !error || Boolean(document.activeElement?.closest('#detail'));
+  const job = jobs.find(j => j.key === key) || portalJobs.find(j => j.key === key);
+  $('#detail').dataset.state = error ? 'failed' : 'loading';
+  $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">${esc(job?.company || '已保存职位')}</span><h2 id="detail-title">${esc(job?.title || '职位详情')}</h2></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content detail-status"><p role="${error ? 'alert' : 'status'}">${error ? `详情读取失败：${esc(error.message)}` : '正在读取这份职位…'}</p>${error ? `<p>尚未载入当前详情，可以重试或选择其他职位。</p><button class="button primary" data-action="retry-detail" data-key="${esc(key)}">重新读取详情</button>` : '<p>读取完成后显示当前要求与材料。</p>'}</div>`;
+  showDetailSurface({ focus });
+}
+function formFeedback(form, message, kind = 'success') {
+  let box = form.nextElementSibling;
+  if (!box?.classList.contains('form-status')) {
+    box = document.createElement('p'); box.className = 'form-status'; box.tabIndex = -1;
+    form.insertAdjacentElement('afterend', box);
+  }
+  box.dataset.state = kind; box.setAttribute('role', kind === 'error' ? 'alert' : 'status'); box.textContent = message;
+  if (kind === 'error') { box.focus({preventScroll:true}); box.scrollIntoView({block:'nearest'}); }
+}
+function detailNotice(message) {
+  const box = document.createElement('p'); box.className = 'form-status'; box.setAttribute('role', 'status');
+  box.textContent = message; $('#detail .dialog-content').prepend(box);
 }
 $('#detail').addEventListener('close', () => {
   // A previous dialog close event may arrive after another job has opened.
@@ -355,7 +375,7 @@ for (const dialog of document.querySelectorAll('dialog')) {
   dialog.addEventListener('pointerdown', event => { startedOutside = event.target === dialog && outside(event); });
   dialog.addEventListener('click', event => { if (startedOutside && event.target === dialog && outside(event)) requestClose(dialog); startedOutside = false; });
   dialog.addEventListener('cancel', event => { event.preventDefault(); requestClose(dialog); });
-  dialog.addEventListener('input', event => { if (event.target.closest('form')) dialog.dataset.dirty = 'true'; });
+  dialog.addEventListener('input', event => { const form = event.target.closest('form'); if (form) { dialog.dataset.dirty = 'true'; form.dataset.dirty = 'true'; } });
 }
 $('#preview').addEventListener('close', () => { previewRequest++; previewSource = null; $('#preview-body').replaceChildren(); });
 function matchingDetails(job) {
@@ -455,6 +475,7 @@ async function pollSearch() {
 }
 function searchDetail(key, updated) {
   detailRequest++;
+  $('#detail').dataset.state = 'ready';
   const j = updated || searchState.report?.results.find(x => x.key === key); if (!j) throw new Error('搜索结果已更新，请重新选择');
   const saved = savedDiscoveryJob(j);
   detailContext = { source: 'discovery', key: j.key, job: j };
@@ -505,11 +526,16 @@ async function syncGeneratedMaterials(key) {
 async function detail(key) {
   const requestId = ++detailRequest;
   const requestedView = view, requestedMode = mode;
+  const current = () => requestId === detailRequest && view === requestedView && mode === requestedMode;
+  selected = null; detailContext = { source: 'queue', key };
+  delete $('#detail').dataset.dirty;
+  detailFeedback(key);
   let result;
-  $('#detail').inert = true;
   try { result = await api(`/api/jobs/${key}`); }
-  finally { if (requestId === detailRequest) $('#detail').inert = false; }
-  if (requestId !== detailRequest || view !== requestedView || mode !== requestedMode) return false;
+  catch (error) { if (current()) detailFeedback(key, error); return false; }
+  if (!current()) return false;
+  const focus = Boolean(document.activeElement?.closest('#detail'));
+  $('#detail').dataset.state = 'ready';
   selected = result;
   const j = selected;
   detailContext = { source: 'queue', key: j.key, job: j };
@@ -532,7 +558,7 @@ async function detail(key) {
     ${j.status === '待提交' ? `<hr class="section-line"><h3>确认官网实际投递</h3><form id="submitted-form">${freshnessReview(j.materialFreshness)}<label>实际申请日期<input type="date" name="date" required></label><label>回执编号或成功页说明（可选）<input name="receipt" maxlength="1000"></label><label class="check"><input name="confirmed" type="checkbox" required>我已经在雇主网站完成了这次投递。</label><div class="form-actions"><button class="button primary">确认官网已投递</button></div></form>` : ''}
     ${['已投递', '面试中', '已结束'].includes(j.status) ? `<hr class="section-line"><h3>更新申请进展</h3><form id="progress-form"><div class="form-grid"><label>当前状态<select name="status"><option ${j.status === '面试中' ? 'selected' : ''}>面试中</option><option ${j.status === '已结束' ? 'selected' : ''}>已结束</option></select></label><label>下一步 / 结束原因<input name="nextStep" required value="${esc(j.nextStep)}"></label></div><div class="form-actions"><button class="button secondary">保存进展</button></div></form>` : ''}
     </div>`;
-  showDetailSurface();
+  showDetailSurface({ focus });
   return true;
 }
 const select = (name, label, options) => `<label>${label}<select name="${name}">${options.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>`;
@@ -551,6 +577,7 @@ function formJob() {
     sourceEvidence: importedSource?.sourceEvidence || '用户通过 Dashboard 输入或核对；未知字段保留待核实。' };
 }
 async function handle(action, button) {
+  if ($('#detail').dataset.saving && button.closest?.('#detail')) return;
   if (['detail', 'search-detail'].includes(action) && $('#detail').open && button.dataset.key === detailContext?.key && (action === 'detail' ? 'queue' : 'discovery') === detailContext?.source) {
     $('#detail-title').focus({ preventScroll: true }); return;
   }
@@ -561,6 +588,7 @@ async function handle(action, button) {
   if (['detail', 'search-detail'].includes(action)) { detailOpener = button; detailReturnY = window.scrollY; detailReturnView = view; }
   if (['discover', 'queue', 'applications', 'resumes', 'portal', 'mode', 'search'].includes(action)) detailRequest++;
 
+  if (action === 'retry-detail') return detail(button.dataset.key);
   if (action === 'recheck-availability') {
     const context = detailContext;
     if (!context) return;
@@ -723,9 +751,17 @@ async function base64(file) {
 }
 document.addEventListener('submit', async event => {
   event.preventDefault(); const form = event.target, button = event.submitter;
-  const detailForm = form.closest('dialog') === $('#detail');
+  const formDialog = form.closest('dialog');
+  const detailForm = formDialog === $('#detail');
   if (detailForm && $('#detail').dataset.saving) return;
-  if (detailForm) { $('#detail').dataset.saving = 'true'; $('#detail').inert = true; }
+  const lockedForms = detailForm ? [...$('#detail').querySelectorAll('form')] : [];
+  const buttonText = button?.textContent;
+  let saved = false;
+  if (detailForm) {
+    $('#detail').dataset.saving = 'true'; lockedForms.forEach(f => { f.inert = true; });
+    formFeedback(form, '正在保存，请稍候…', 'saving');
+    if (button) button.textContent = '正在保存…';
+  }
   if (button) button.disabled = true;
   try {
     if (form.classList.contains('base-upload')) {
@@ -751,8 +787,8 @@ document.addEventListener('submit', async event => {
         confirmed: form.elements.confirmed.checked, note: values.note,
         ...(eligibility ? { requirementId: form.dataset.requirementId, outcome: values.outcome } : { checkedAt: context.job.availabilityView?.checkedAt })
       });
-      await refreshAssessmentDetail(context, job);
-      feedback(eligibility ? '已保存本人资格核实；Match Score 保持独立。' : '已记录本人核实，可继续准备材料。'); return;
+      saved = true;
+      if (await refreshAssessmentDetail(context, job)) detailNotice(eligibility ? '已保存本人资格核实；Match Score 保持独立。' : '已记录本人核实，可继续准备材料。'); return;
     }
     if (form.getAttribute('id')?.startsWith('portal-')) {
       const action = { 'portal-link-form': 'link', 'portal-requirement-form': 'requirement', 'portal-submit-form': 'submitted', 'portal-unlink-form': 'unlink' }[form.getAttribute('id')];
@@ -760,7 +796,8 @@ document.addEventListener('submit', async event => {
       const key = selected.key;
       await api(`/api/jobs/${key}/portal`, { ...values, action, revision: selected.portalRevision,
         confirmed: form.elements.confirmed.checked, ...(action === 'link' ? { row: values } : {}) });
-      await refresh(); await detail(key); feedback('学校记录已保存；官网申请状态保持不变。'); return;
+      saved = true;
+      await refresh(); if (await detail(key)) detailNotice('学校记录已保存；官网申请状态保持不变。'); return;
     }
     if (form.id === 'job-form') {
       const preview = await api('/api/preview', { job: formJob() });
@@ -781,14 +818,40 @@ document.addEventListener('submit', async event => {
     if (form.id === 'progress-form') { action = 'progress'; body = values; }
     if (!action) return;
     await api(`/api/jobs/${selected.key}/${action}`, body);
+    saved = true;
     const key = selected.key;
+    if (action === 'notes') {
+      selected = { ...selected, ...values }; detailContext.job = selected;
+      jobs = jobs.map(j => j.key === key ? { ...j, ...values } : j);
+      delete form.dataset.dirty;
+      if (!$('#detail').querySelector('form[data-dirty="true"]')) delete $('#detail').dataset.dirty;
+      render(); renderSearch(); formFeedback(form, '备注已保存。'); return;
+    }
     if (['complete', 'submitted', 'progress'].includes(action)) view = 'applications';
-    await refresh(); await detail(key);
-    const box = document.createElement('div'); box.className = 'feedback'; box.textContent = '已保存。'; $('#detail .dialog-content').prepend(box);
-  } catch (error) { dialogError(form.closest('dialog'), error); }
+    await refresh();
+    if (await detail(key)) detailNotice('已保存。');
+  } catch (error) {
+    if (detailForm && form.isConnected) formFeedback(form, saved ? `已保存，但页面刷新失败：${error.message}。请重新读取职位核对，不要重复提交。` : `保存结果未确认：${error.message}。输入已保留，请核对后重试。`, 'error');
+    else dialogError(formDialog, error);
+  }
   finally {
-    if (detailForm) { delete $('#detail').dataset.saving; $('#detail').inert = false; }
+    if (detailForm) {
+      delete $('#detail').dataset.saving; lockedForms.forEach(f => { f.inert = false; });
+      if (saved && $('#detail').dataset.state === 'failed') {
+        detailNotice('更改已保存，但最新详情尚未读取成功。请重新读取详情，无需再次提交。');
+      }
+      if (saved && form.isConnected && form.id !== 'notes-form') {
+        // The write succeeded even if the subsequent read failed. Do not offer
+        // another state-changing submission from this stale form.
+        form.inert = true;
+        formFeedback(form, '已保存。请重新读取职位，核对最新状态后再操作。');
+        const reload = document.createElement('button'); reload.type = 'button'; reload.className = 'button secondary compact';
+        reload.dataset.action = 'retry-detail'; reload.dataset.key = detailContext.key; reload.textContent = '重新读取详情';
+        form.nextElementSibling.append(' ', reload);
+      }
+    }
     if (button) button.disabled = false;
+    if (detailForm && button?.isConnected) button.textContent = buttonText;
   }
 });
 render();

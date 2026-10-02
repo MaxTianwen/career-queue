@@ -69,3 +69,13 @@ dialog{background:var(--surface);color:var(--ink);border-color:var(--line);borde
 @media(max-width:600px){.automation-panel{grid-template-columns:1fr}.automation-diagnostics,.automation-history{grid-column:1/-1}}
 
 .saved-card.saved-highlight:not(.is-selected){background:#f5eddf;box-shadow:inset 3px 0 #bd8b56}
+
+/* Feedback stays beside the action in the split detail. */
+.detail-status{min-height:220px}.detail-status>p:first-child{font-size:18px;color:var(--ink)}
+.detail-status [role="alert"]{color:#8c3f29}.detail-status .button{margin-top:12px}
+.form-status{padding:12px 14px;border-left:3px solid #54735c;background:#edf2e9;color:#344f3e!important;line-height:1.7;overflow-wrap:anywhere}
+.form-status[data-state="saving"]{border-color:#a57a4b;background:#f5eddf;color:#6d5133!important}
+.form-status[data-state="error"]{border-color:#a8563c;background:#faeee7;color:#8c3f29!important}
+.form-status .button{margin-top:8px}
+.dialog-head>div{min-width:0}.dialog-head h2,.dialog-head .eyebrow{overflow-wrap:anywhere}
+.dialog-head>.close{flex-shrink:0}.jd,.file-link,.material-file strong{overflow-wrap:anywhere}
