@@ -5,21 +5,24 @@ import { runInNewContext } from 'node:vm';
 
 const app = await readFile(new URL('../web/app.js', import.meta.url), 'utf8');
 const submit = app.slice(app.indexOf("document.addEventListener('submit', async event => {"), app.indexOf('\nrender();', app.indexOf("document.addEventListener('submit', async event => {")));
-function fixture({ id = 'notes-form', anotherDirty = false, refreshFails = false, readFails = false } = {}) {
+const markSaved = app.slice(app.indexOf('function markDetailFormSaved('), app.indexOf('function deferDetailRefresh('));
+function fixture({ id = 'notes-form', anotherDirty = false, refreshFails = false, readFails = false, refreshPending = false, otherLocked = false } = {}) {
   let handler, writes = 0, refreshes = 0, reads = 0, otherFeedback = 0;
   const pending = [], messages = [], notices = [];
-  const other = { inert: false };
-  const dialog = { dataset: { dirty: 'true', state: 'ready' }, querySelectorAll: () => [form, other], querySelector: () => anotherDirty ? other : null };
+  const other = { inert: otherLocked };
+  const dialog = { dataset: { dirty: 'true', state: 'ready', ...(refreshPending ? {refreshPending:'true'} : {}) }, querySelectorAll: () => [form, other], querySelector: () => anotherDirty ? other : null };
   const form = { id, dataset: { dirty: 'true' }, inert: false, isConnected: true, elements: {}, classList: { contains: () => false }, closest: () => dialog, getAttribute: () => id, nextElementSibling: { append() {} } };
   const button = { textContent: '保存', disabled: false, isConnected: true };
   const context = { source: 'queue', key: 'job', job: { key: 'job' } };
   const document = { addEventListener: (_, fn) => { handler = fn; }, createElement: () => ({ dataset: {}, setAttribute() {} }) };
-  const state = runInNewContext(`let selected={key:'job'}, jobs=[{key:'job'}], detailContext=context, view='queue'; ${submit}; ({selected:()=>selected,jobs:()=>jobs})`, {
+  const state = runInNewContext(`let selected={key:'job'}, jobs=[{key:'job'}], detailContext=context, view='queue'; ${markSaved}${submit}; ({selected:()=>selected,jobs:()=>jobs})`, {
     document, context, FormData: class { *[Symbol.iterator]() { yield ['notes', 'kept input']; yield ['nextStep', 'follow up']; } },
     $: selector => selector === '#detail' ? dialog : { prepend: box => notices.push(box.textContent) },
     api: () => { writes++; return new Promise((resolve, reject) => pending.push({ resolve, reject })); },
     formFeedback: (_, message, kind) => messages.push({ message, kind }),
     detailNotice: message => notices.push(message),
+    deferDetailRefresh: () => { if (!dialog.dataset.dirty) return false; dialog.dataset.refreshPending='true'; return true; },
+    refreshAssessmentDetail: async () => { reads++; form.isConnected=false; delete dialog.dataset.refreshPending; },
     refresh: async () => { refreshes++; if (refreshFails) throw Error('read unavailable'); },
     detail: async () => { reads++; form.isConnected = false; dialog.dataset.state = readFails ? 'failed' : 'ready'; return !readFails; },
     render() {}, renderSearch() {}, dialogError: () => { otherFeedback++; }
@@ -38,6 +41,31 @@ test('notes save stays in the detail, updates the list and clears only its own d
   assert.equal(f.dialog.dataset.dirty, undefined); assert.equal(f.form.isConnected, true);
   assert.equal(f.form.inert, false); assert.equal(f.button.textContent, '保存');
   assert.deepEqual(f.counts(), { writes: 1, refreshes: 0, reads: 0, otherFeedback: 0 });
+});
+test('saving one section defers detail replacement while another has unsaved input', async () => {
+  const f=fixture({id:'progress-form',anotherDirty:true}), saving=f.save();
+  f.pending[0].resolve({}); await saving;
+  assert.equal(f.form.isConnected,true); assert.equal(f.counts().reads,0);
+  assert.equal(f.dialog.dataset.refreshPending,'true'); assert.equal(f.dialog.dataset.dirty,'true');
+  assert.equal(f.form.inert,true); assert.equal(f.other.inert,false); assert.equal(f.counts().writes,1);
+});
+test('saving the last dirty notes completes the deferred read without another write', async () => {
+  const f=fixture({refreshPending:true,otherLocked:true}),saving=f.save();
+  f.pending[0].resolve({}); await saving;
+  assert.equal(f.counts().reads,1); assert.equal(f.counts().writes,1);
+  assert.equal(f.dialog.dataset.refreshPending,undefined);
+});
+test('an unsuccessful last save preserves deferred input and never reloads it', async () => {
+  const f=fixture({refreshPending:true,otherLocked:true}),saving=f.save();
+  f.pending[0].reject(Error('offline')); await saving;
+  assert.equal(f.counts().reads,0); assert.equal(f.dialog.dataset.refreshPending,'true');
+  assert.equal(f.form.dataset.dirty,'true'); assert.equal(f.other.inert,true);
+});
+test('saving notes does not unlock an already-saved stale form while other edits remain', async () => {
+  const f=fixture({refreshPending:true,anotherDirty:true,otherLocked:true}),saving=f.save();
+  f.pending[0].resolve({}); await saving;
+  assert.equal(f.counts().reads,0); assert.equal(f.other.inert,true);
+  assert.equal(f.dialog.dataset.dirty,'true');
 });
 test('saving notes preserves protection for another edited form', async () => {
   const f = fixture({ anotherDirty: true }), saving = f.save(); f.pending[0].resolve({}); await saving;

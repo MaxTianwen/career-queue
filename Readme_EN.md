@@ -1,4 +1,4 @@
-# Career Queue v1.4.1
+# Career Queue v1.4.2
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.1` (release authorized by the user on 2026-10-02). Job details now show loading, inline retry and save feedback. Saving notes preserves reading position, and long titles wrap within the detail pane. All 235 regression tests pass. See [v1.4.1 verification](docs/releases/v1.4.1-verification.md) for interaction and responsive checks, including pending native zoom and screenshot verification. The B palette and A split layout remain. The previous release is `v1.4.0` (`4f93043`). Sustained sleep and sign-out/login remain waived and unverified. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.4.2` (release authorized by the user on 2026-10-02). Saving one section preserves unsaved inputs elsewhere and defers the detail refresh until those inputs are saved or explicitly discarded. It does not silently save notes. Returning after a save restores focus to the same visible job. All 253 regression tests pass. Native zoom, screenshot and native confirmation-dialog verification limits remain; see [v1.4.2 verification](docs/releases/v1.4.2-verification.md). The previous release is `v1.4.1` (`f45673f`). See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 

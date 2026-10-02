@@ -147,15 +147,34 @@ function detailNotice(message) {
   const box = document.createElement('p'); box.className = 'form-status'; box.setAttribute('role', 'status');
   box.textContent = message; $('#detail .dialog-content').prepend(box);
 }
+function markDetailFormSaved(form) {
+  delete form.dataset.dirty;
+  if (!$('#detail').querySelector('form[data-dirty="true"]')) delete $('#detail').dataset.dirty;
+}
+function deferDetailRefresh() {
+  const dialog = $('#detail');
+  if (!dialog.dataset.dirty) return false;
+  dialog.dataset.refreshPending = 'true';
+  if (!$('#detail-refresh-notice')) {
+    const box = document.createElement('div'); box.id = 'detail-refresh-notice'; box.className = 'form-status'; box.setAttribute('role', 'status');
+    box.innerHTML = '<p>有最新详情等待读取。其他未保存输入已保留；保存完成后会刷新，不会替你自动保存。</p><button type="button" class="button secondary compact" data-action="refresh-detail">放弃未保存修改并刷新</button>';
+    $('#detail .dialog-content').prepend(box);
+  }
+  return true;
+}
 $('#detail').addEventListener('close', () => {
   // A previous dialog close event may arrive after another job has opened.
   if ($('#detail').open) return;
+  const key = detailContext?.key;
   detailRequest++; detailContext = null;
   $('#detail').inert = false;
   delete $('#detail').dataset.dirty;
+  delete $('#detail').dataset.refreshPending;
   $('#browse-workspace').classList.remove('has-detail');
   syncDetailSelection();
-  if (detailOpener?.isConnected && detailOpener.getClientRects().length) detailOpener.focus({preventScroll:true});
+  const returnButton = detailOpener?.isConnected && detailOpener.getClientRects().length ? detailOpener :
+    [...document.querySelectorAll('#browse-list [data-action="detail"], #browse-list [data-action="search-detail"]')].find(button => button.dataset.key === key && button.getClientRects().length);
+  if (returnButton) returnButton.focus({preventScroll:true});
   else if (!$('#browse-workspace').hidden) $('#browse-list').focus({preventScroll:true});
   if (view === detailReturnView && !$('#browse-workspace').hidden && matchMedia('(max-width: 900px)').matches) window.scrollTo({top:detailReturnY,behavior:'instant'});
 });
@@ -480,11 +499,13 @@ function searchDetail(key, updated) {
   const saved = savedDiscoveryJob(j);
   detailContext = { source: 'discovery', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
+  delete $('#detail').dataset.refreshPending;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">自动发现 · ${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${j.fullJd ? '已读取官方完整 JD' : '公开来源记录 · 全文尚未取得'}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}<div class="meta"><span>入职季：${esc(j.term)}</span><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看官方岗位 ↗</a></div>${j.decision === 'REJECT' ? `<p class="card-alert">不满足当前筛选条件：${esc(j.reasons[0] || '')}</p>` : ''}<div class="form-actions">${searchState.state === 'running' ? '<p>搜索完成并去重后即可保存或生成材料。</p>' : j.identityConflict || j.decision === 'REJECT' ? '' : saved ? `<button class="button secondary" data-action="show-saved" data-key="${saved.key}">查看已保存职位 · ${esc(saved.status)}</button>` : j.fullJd ? `<button class="button primary" data-action="${connected && mode === 'live' ? 'search-save' : 'search-connect'}" data-key="${j.key}">${connected && mode === 'live' ? '保存到 Queue' : '连接 Notion 后保存'}</button>` : `<button class="button primary" data-action="search-fill" data-key="${j.key}">补充 JD 与核实信息</button>`}</div>${assessmentPanel(j)}${scoreDetails(j)}${resumeControls(j, 'discovery')}${j.fullJd ? `<h3>完整职位描述</h3>${jobDescription(j)}` : `<h3>全文状态</h3><p>${esc(j.fetchError || '该招聘系统暂不支持自动读取全文。基本信息已自动发现，可补充 JD 后入队。')}</p>`}<h3>来源与日期依据</h3><div class="hint">${esc(publicationText(j))}\n申请截止：${esc(deadlineDate(j.deadline))}\n${esc(j.deadlineEvidence || '')}\n索引收录时间：${esc(j.indexEvidence ? searchDate(j.indexEvidence.addedAt) : '此岗位由雇主列表发现')}\n索引标注批次：${esc(j.indexEvidence?.terms?.join(' / ') || '无索引批次')}\n${esc(j.indexEvidence?.note || '')}${j.sourceEvidence ? `\n官方读取时间：${esc(searchDate(j.sourceEvidence.retrievedAt))}\n${esc(j.sourceEvidence.note)}${j.sourceEvidence.publicationError ? `\n${esc(j.sourceEvidence.publicationError)}` : ''}` : ''}</div><p>此结果来自公开招聘信息；尚未生成材料或投递。</p></div>`;
   showDetailSurface();
 }
 async function refreshAssessmentDetail(context = detailContext, updated) {
   if (!context || !$('#detail').open || detailContext?.key !== context.key || detailContext?.source !== context.source) return false;
+  if (deferDetailRefresh()) return false;
   if (context.source === 'queue') {
     if (!await detail(context.key)) return false;
     if (detailContext?.key !== context.key || selected?.key !== context.key) return false;
@@ -492,6 +513,8 @@ async function refreshAssessmentDetail(context = detailContext, updated) {
   } else {
     const job = updated || await api(`/api/assessment?source=discovery&key=${context.key}`);
     if (!$('#detail').open || detailContext?.key !== context.key || detailContext?.source !== context.source) return false;
+    if (deferDetailRefresh()) return false;
+    delete $('#detail').dataset.refreshPending;
     if (searchState.report) searchState.report.results = searchState.report.results.map(j => j.key === job.key ? job : j);
     renderSearch(); searchDetail(context.key, job);
   }
@@ -513,17 +536,21 @@ async function syncGeneratedMaterials(key) {
   try {
     const result = await api(`/api/resume/files?key=${key}&source=queue`);
     if (!$('#material-panel') || selected?.key !== key) return;
+    if ($('#materials-form')?.dataset.dirty && deferDetailRefresh()) return;
     selected.generatedMaterial = result.generatedMaterial;
     if (result.assessment) selected.assessment = result.assessment;
     $('#material-panel').innerHTML = materialForm(selected);
   } catch (error) {
     if ($('#material-panel') && selected?.key === key) {
+      if ($('#materials-form')?.dataset.dirty && deferDetailRefresh()) return;
       selected.generatedMaterial = null;
       $('#material-panel').innerHTML = `<div class="hint">新版本已保存，但材料区刷新失败：${esc(error.message)}。请重新打开职位详情，再预览并确认材料。</div>`;
     }
   }
 }
 async function detail(key) {
+  if ($('#detail').open && detailContext?.key === key && deferDetailRefresh()) return false;
+  delete $('#detail').dataset.refreshPending;
   const requestId = ++detailRequest;
   const requestedView = view, requestedMode = mode;
   const current = () => requestId === detailRequest && view === requestedView && mode === requestedMode;
@@ -588,7 +615,11 @@ async function handle(action, button) {
   if (['detail', 'search-detail'].includes(action)) { detailOpener = button; detailReturnY = window.scrollY; detailReturnView = view; }
   if (['discover', 'queue', 'applications', 'resumes', 'portal', 'mode', 'search'].includes(action)) detailRequest++;
 
-  if (action === 'retry-detail') return detail(button.dataset.key);
+  if (action === 'refresh-detail' || action === 'retry-detail') {
+    if ($('#detail').dataset.dirty && !confirm('其他输入尚未保存，确定放弃这些修改并读取最新详情？')) return;
+    delete $('#detail').dataset.dirty;
+    return refreshAssessmentDetail();
+  }
   if (action === 'recheck-availability') {
     const context = detailContext;
     if (!context) return;
@@ -753,12 +784,12 @@ document.addEventListener('submit', async event => {
   event.preventDefault(); const form = event.target, button = event.submitter;
   const formDialog = form.closest('dialog');
   const detailForm = formDialog === $('#detail');
-  if (detailForm && $('#detail').dataset.saving) return;
-  const lockedForms = detailForm ? [...$('#detail').querySelectorAll('form')] : [];
+  if (detailForm && ($('#detail').dataset.saving || form.inert)) return;
+  const lockedForms = detailForm ? [...$('#detail').querySelectorAll('form')].map(form => ({form, inert: form.inert})) : [];
   const buttonText = button?.textContent;
   let saved = false;
   if (detailForm) {
-    $('#detail').dataset.saving = 'true'; lockedForms.forEach(f => { f.inert = true; });
+    $('#detail').dataset.saving = 'true'; lockedForms.forEach(({form}) => { form.inert = true; });
     formFeedback(form, '正在保存，请稍候…', 'saving');
     if (button) button.textContent = '正在保存…';
   }
@@ -788,6 +819,7 @@ document.addEventListener('submit', async event => {
         ...(eligibility ? { requirementId: form.dataset.requirementId, outcome: values.outcome } : { checkedAt: context.job.availabilityView?.checkedAt })
       });
       saved = true;
+      markDetailFormSaved(form);
       if (await refreshAssessmentDetail(context, job)) detailNotice(eligibility ? '已保存本人资格核实；Match Score 保持独立。' : '已记录本人核实，可继续准备材料。'); return;
     }
     if (form.getAttribute('id')?.startsWith('portal-')) {
@@ -797,7 +829,8 @@ document.addEventListener('submit', async event => {
       await api(`/api/jobs/${key}/portal`, { ...values, action, revision: selected.portalRevision,
         confirmed: form.elements.confirmed.checked, ...(action === 'link' ? { row: values } : {}) });
       saved = true;
-      await refresh(); if (await detail(key)) detailNotice('学校记录已保存；官网申请状态保持不变。'); return;
+      markDetailFormSaved(form);
+      await refresh(); if (!deferDetailRefresh() && await detail(key)) detailNotice('学校记录已保存；官网申请状态保持不变。'); return;
     }
     if (form.id === 'job-form') {
       const preview = await api('/api/preview', { job: formJob() });
@@ -819,24 +852,25 @@ document.addEventListener('submit', async event => {
     if (!action) return;
     await api(`/api/jobs/${selected.key}/${action}`, body);
     saved = true;
+    markDetailFormSaved(form);
     const key = selected.key;
     if (action === 'notes') {
       selected = { ...selected, ...values }; detailContext.job = selected;
       jobs = jobs.map(j => j.key === key ? { ...j, ...values } : j);
-      delete form.dataset.dirty;
-      if (!$('#detail').querySelector('form[data-dirty="true"]')) delete $('#detail').dataset.dirty;
-      render(); renderSearch(); formFeedback(form, '备注已保存。'); return;
+      render(); renderSearch(); formFeedback(form, '备注已保存。');
+      if ($('#detail').dataset.refreshPending && !$('#detail').dataset.dirty) await refreshAssessmentDetail();
+      return;
     }
     if (['complete', 'submitted', 'progress'].includes(action)) view = 'applications';
     await refresh();
-    if (await detail(key)) detailNotice('已保存。');
+    if (!deferDetailRefresh() && await detail(key)) detailNotice('已保存。');
   } catch (error) {
     if (detailForm && form.isConnected) formFeedback(form, saved ? `已保存，但页面刷新失败：${error.message}。请重新读取职位核对，不要重复提交。` : `保存结果未确认：${error.message}。输入已保留，请核对后重试。`, 'error');
     else dialogError(formDialog, error);
   }
   finally {
     if (detailForm) {
-      delete $('#detail').dataset.saving; lockedForms.forEach(f => { f.inert = false; });
+      delete $('#detail').dataset.saving; lockedForms.forEach(({form, inert}) => { form.inert = inert; });
       if (saved && $('#detail').dataset.state === 'failed') {
         detailNotice('更改已保存，但最新详情尚未读取成功。请重新读取详情，无需再次提交。');
       }
@@ -844,9 +878,9 @@ document.addEventListener('submit', async event => {
         // The write succeeded even if the subsequent read failed. Do not offer
         // another state-changing submission from this stale form.
         form.inert = true;
-        formFeedback(form, '已保存。请重新读取职位，核对最新状态后再操作。');
+        formFeedback(form, $('#detail').dataset.refreshPending ? '本区域已保存；其他输入仍未保存。处理完后会读取最新详情。' : '已保存。请重新读取职位，核对最新状态后再操作。');
         const reload = document.createElement('button'); reload.type = 'button'; reload.className = 'button secondary compact';
-        reload.dataset.action = 'retry-detail'; reload.dataset.key = detailContext.key; reload.textContent = '重新读取详情';
+        reload.dataset.action = 'refresh-detail'; reload.textContent = $('#detail').dataset.dirty ? '放弃未保存修改并刷新' : '重新读取详情';
         form.nextElementSibling.append(' ', reload);
       }
     }
