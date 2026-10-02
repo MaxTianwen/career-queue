@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Career Queue · 求职工作台</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/workbench.css"><script type="module" src="/app.js"></script></head>
 <body>
+<a class="skip-link" href="#browse-list">跳至职位列表</a>
 <aside class="sidebar">
-  <a class="brand" href="/"><span class="brand-mark">cq.</span><span>Career Queue<small>你的求职工作台</small></span></a>
+  <a class="brand" href="/"><span class="brand-mark">cq.</span><span>Career <em>Queue</em><small>个人求职工作台</small></span></a>
   <div class="nav-label">求职工作台</div>
   <nav aria-label="工作区"><button class="nav-item active" data-action="discover">发现职位</button><button class="nav-item" data-action="queue">已保存 <b id="queue-count">—</b></button><button class="nav-item" data-action="applications">申请记录 <b id="app-count">—</b></button><button class="nav-item" data-action="portal">学校待办</button><button class="nav-item" data-action="resumes">我的简历</button></nav>
   <button class="connection" data-action="settings"><span class="dot" id="connection-dot"></span><span id="connection-text">正在检查连接</span><span>↗</span></button>
@@ -33,6 +34,7 @@
       <div class="portal-tools"><label>查看范围<select id="portal-filter"><option value="pending">官网已投 · 学校待补</option><option value="unlinked">官网已投 · 尚未关联</option><option value="unknown">双渠道要求待确认</option><option value="expired">学校截止已过</option><option value="submitted">学校已交</option><option value="all">全部申请记录</option></select></label></div>
       <div id="portal-list" aria-live="polite"></div>
     </section>
+    <section id="browse-workspace" class="browse-workspace" aria-label="职位浏览工作区"><div id="browse-list" class="browse-list" tabindex="-1">
     <section id="discovery" class="list-card discovery">
       <div class="list-toolbar"><div><h2>发现职位</h2><span id="discovery-count" role="status" aria-live="polite">尚未搜索</span></div><span id="discovery-term" class="badge ready">全部入职季 · 2027</span></div>
       <div class="discovery-intro">搜索公开实习岗位，查看职位详情后，选择保存到 Queue。</div>
@@ -49,10 +51,11 @@
       <div id="list-pagination" class="list-pagination"></div>
       <footer class="table-footer"><span id="list-footer">每次处理一个职位</span><span>材料准备完成 → 待提交 → 你确认投递</span></footer>
     </section>
+</div><aside id="detail-column" class="detail-column" aria-label="职位详情"><div class="detail-empty"><span class="empty-number">01 / 02</span><h2>从一份职位开始。</h2><p>选择左侧职位，在这里查看要求与匹配依据。<br>找到合适的机会，再准备材料。</p></div><dialog id="detail" class="drawer" aria-labelledby="detail-title"><div id="detail-body"></div></dialog></aside></section>
     <p class="workspace-note">不确定的信息会保留并标注。申请日期只在确认实际投递后填写。</p>
   </div>
 </main>
-<dialog id="detail" class="drawer" aria-labelledby="detail-title"><div id="detail-body"></div></dialog>
+
 <dialog id="modal" aria-labelledby="modal-title"><div id="modal-body"></div></dialog>
 <dialog id="preview" class="preview-dialog" aria-labelledby="preview-title"><div class="dialog-head"><div><span class="eyebrow">DOCUMENT PREVIEW</span><h2 id="preview-title">简历预览</h2><p id="preview-caption"></p></div><button class="close" data-action="close" aria-label="关闭预览">×</button></div><div id="preview-body" class="dialog-content"></div></dialog>
 <dialog id="resume-editor" class="editor-dialog" aria-labelledby="editor-title"><div class="dialog-head"><div><span class="eyebrow">RESUME EDITOR</span><h2 id="editor-title">编辑简历文字</h2><p>保留原格式 · 另存新版本 · 保存后检查一页限制</p></div><button class="close" data-action="close" aria-label="关闭编辑器">×</button></div><div id="editor-body" class="dialog-content"></div></dialog>

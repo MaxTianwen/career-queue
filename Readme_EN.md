@@ -1,4 +1,4 @@
-# Career Queue v1.3.3
+# Career Queue v1.4.0
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current local version: `v1.3.3` (not pushed; user confirmation required before release). Background refresh preserves panel changes made while requests are pending, and late responses cannot overwrite newer schedule state. The current Dashboard passed 39 browser checks (live read-only and isolated fault cases); successful runs cover three dates (including catch-up), and process recovery plus real offline/reconnect preservation and deduplication are verified. Acceptance is complete within the agreed scope; sustained sleep and sign-out/login tests were explicitly waived by the user and remain unverified; see [verification](docs/releases/v1.3.3-verification.md), [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.4.0` (release authorized by the user on 2026-10-02). The selected B palette and A split layout are now used by the Dashboard: warm paper surfaces, terracotta accents, side navigation, a job list beside its detail, single-pane navigation on narrow screens, and wide document preview/review/edit workspaces. All 226 regression tests pass; see [v1.4.0 verification](docs/releases/v1.4.0-verification.md) for live read-only and isolated UI checks. `v1.3.3` was pushed to main and its tag (`762a12b`), with 128 release files hash-verified. Sustained sleep and sign-out/login remain explicitly waived and unverified. See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 

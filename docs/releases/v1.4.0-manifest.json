@@ -1,0 +1,548 @@
+{
+  "version": "1.4.0",
+  "date": "2026-10-02",
+  "status": "authorized-release",
+  "scope": "B palette and A split-layout Dashboard, responsive list/detail navigation and wide document workspaces. Hashes use staged Git blobs, excluding this manifest.",
+  "previousRelease": {
+    "version": "1.3.3",
+    "commit": "762a12bc6e7c771252226d8ee34b2291ff393256",
+    "remoteMainAndTagVerified": true
+  },
+  "tests": {
+    "passed": 226,
+    "failed": 0,
+    "skipped": 0,
+    "browserChecks": 35
+  },
+  "verificationLimits": [
+    "Browser writes used isolated synthetic data; production Dashboard and existing PDF/editor/evidence were read-only.",
+    "No production Notion material upload or actual application submission was tested.",
+    "Sustained sleep and sign-out/login remain waived by user, not verified."
+  ],
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "1d1927012f2ccd53a02bd7ec4b29569c05694deec493a32510194dcfe7eda54c"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "4a347f52bf990ad9f26635dcb057e94ad090c3c4fd3d0e4671a5f574e1f0ec9f"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "b7187e5dc4b79ee8d925272ece09e0ba9979646c5a3e7def5c9acee095ccda89"
+    },
+    {
+      "path": "PROJECT_SPEC.md",
+      "sha256": "810e33f2de5eb9ad3be0a8e511dbde7144c505471588d21db5be3f8a0b43cf01"
+    },
+    {
+      "path": "README.md",
+      "sha256": "fd9bf1a48f41797b470c21a2688718f8a68f278cffe8f21005d3160a530950bc"
+    },
+    {
+      "path": "ROADMAP.md",
+      "sha256": "d09d247cdb05c05f49500f53f8fba935a6762c614c20fbef63df4ca476f0b627"
+    },
+    {
+      "path": "Readme_EN.md",
+      "sha256": "2c6946be1692ebd5005a1b5d9ff4ee19f51f8cf75c34f3d6b2d705847c4abf86"
+    },
+    {
+      "path": "design/v1.4/README.md",
+      "sha256": "b96424c41d1ef7028fca9f4c04989586809360dd739733a4576deef94edfb4a4"
+    },
+    {
+      "path": "design/v1.4/demo-data.js",
+      "sha256": "b0ce5600a34aeef815ba3dec21805f2368c77caa74ae26ad685f73f687673a91"
+    },
+    {
+      "path": "design/v1.4/index.html",
+      "sha256": "c34452d654ff473be4c9590312dafa3fd3ff69c3439897b404839faac8046abc"
+    },
+    {
+      "path": "design/v1.4/option-a.css",
+      "sha256": "66170f78c7463cfbf1807cf775dd84980ae85adf5f9c4ac6f661bd7c1961510c"
+    },
+    {
+      "path": "design/v1.4/option-a.html",
+      "sha256": "59f4e67feac859b3c0e8ca512d049f6a2f90c34c410bf4644420b459ec7664e3"
+    },
+    {
+      "path": "design/v1.4/option-a.js",
+      "sha256": "99aeb7b864a4df925df76db7d0d002b9d2e1317729b6f35813c339dfc1ce5ccd"
+    },
+    {
+      "path": "design/v1.4/option-b.css",
+      "sha256": "4bd6ffaa3f81e041677b717c317a4bc08a2d2be5dd2f2b43929ce7aa844c92e1"
+    },
+    {
+      "path": "design/v1.4/option-b.html",
+      "sha256": "81b4d3781e2ce97cac3cb80571ca6072e3eaba9d0a4ba442c416dc36ae630c36"
+    },
+    {
+      "path": "design/v1.4/option-b.js",
+      "sha256": "29ef016e411b4f18431aba8c58e74b53c6ab43e2bd6df7fcc65e17d1393e0558"
+    },
+    {
+      "path": "design/v1.4/selected.css",
+      "sha256": "8c2744a378ff431a9ce7bb7c7fd855ebc22160f45aab2dcdea23be72100dda31"
+    },
+    {
+      "path": "design/v1.4/selected.html",
+      "sha256": "6095ddc956d0fe4ba7b2fc1dd8d9687b9c8a5f3ac33ffd0c36621ec394f6ab74"
+    },
+    {
+      "path": "design/v1.4/serve.mjs",
+      "sha256": "c44dd44892cd31cfed4e3b2b08b1711af96c49b67f2e724288b250a2d8981d27"
+    },
+    {
+      "path": "docs/DATA_SOURCES.md",
+      "sha256": "f7edd3706d63a206783e7c578069ae0239486730c630bcce88c1186b9f5639f5"
+    },
+    {
+      "path": "docs/releases/v1.0.0-manifest.json",
+      "sha256": "24a5783762b35db9e6ca5d4544d48be2c62547a097a590e34334dfae39455a7e"
+    },
+    {
+      "path": "docs/releases/v1.0.1-manifest.json",
+      "sha256": "2f97480ce591365e532a144b83aeb3c1cee756fc2e00d0aec830cac6eb555371"
+    },
+    {
+      "path": "docs/releases/v1.0.2-manifest.json",
+      "sha256": "1d8ec2e9a0a5100c05e5949d02eaa0440c66ada74f05c563d33bd31e7910e20d"
+    },
+    {
+      "path": "docs/releases/v1.1.1-manifest.json",
+      "sha256": "b327ebfbae39d402a4b6e016d4c7ae730e27a19e2023cb8ea73ea702d3f228ef"
+    },
+    {
+      "path": "docs/releases/v1.1.3-manifest.json",
+      "sha256": "ec01c725641b366f82cc8cb3f226dd726a9359b8efcdb325b7e84e12a9514e05"
+    },
+    {
+      "path": "docs/releases/v1.2.0-manifest.json",
+      "sha256": "824305eb45273c3e266c984f1bd8114eb4969e6738db469c24eac9d8af682a12"
+    },
+    {
+      "path": "docs/releases/v1.2.1-manifest.json",
+      "sha256": "5bc05c30331385f35ef85f660d3c88914aee4aab6dca57a159bec96c692bed49"
+    },
+    {
+      "path": "docs/releases/v1.2.2-manifest.json",
+      "sha256": "e022324d2b8b5288acd4fbd0dee1d93518ffe44925952941cf5f16aa3edf4549"
+    },
+    {
+      "path": "docs/releases/v1.3.0-manifest.json",
+      "sha256": "d1af5536dd49f1b72515e70be071a226149ae420ce2d16441bfe9585a5dca7f5"
+    },
+    {
+      "path": "docs/releases/v1.3.0-verification.md",
+      "sha256": "8e591fe6791501ce5a0b23dfeb1155fdf16f98e3e9e1e9bd5891e431f6cd25b8"
+    },
+    {
+      "path": "docs/releases/v1.3.1-manifest.json",
+      "sha256": "da6d3376609e916548630a59e60fd9bdca0014209b0a12113c0bfc0b01a09b22"
+    },
+    {
+      "path": "docs/releases/v1.3.1-verification.md",
+      "sha256": "9cd9f69e9dc9090976d674ac2b0189a41732cc3befd836acb0cdbe510c9838a4"
+    },
+    {
+      "path": "docs/releases/v1.3.2-manifest.json",
+      "sha256": "a6b880b09c0e6b34ba4b9161a763dcc57674c033e4165623cb26567c2d217cf5"
+    },
+    {
+      "path": "docs/releases/v1.3.2-verification.md",
+      "sha256": "73128e1b979286cfd2999404e2591538e5c72ea36de01b18e95068eaea9141b1"
+    },
+    {
+      "path": "docs/releases/v1.3.3-manifest.json",
+      "sha256": "77f0ca530fcadccf8f7e32f27607ea320e62e22466107c1f716b583912d61b06"
+    },
+    {
+      "path": "docs/releases/v1.3.3-verification.md",
+      "sha256": "0111a8149dbf2730ebf73980eab02c1e0851a661470525307cacc185e00b5ca6"
+    },
+    {
+      "path": "docs/releases/v1.4.0-verification.md",
+      "sha256": "e9bbfccaeea189014f00c486e1e6af6796dbe2ced4ce251c31741dc8b8ba9630"
+    },
+    {
+      "path": "examples/jobs.example.json",
+      "sha256": "897e09dbe166562b1b8c36330fd19d9afc44aff51128722d4b3017016b5e647c"
+    },
+    {
+      "path": "package.json",
+      "sha256": "79a601279505e0ae268d9109a7c594968658d51be9452f12bbfea3836aace0f7"
+    },
+    {
+      "path": "scripts/background.mjs",
+      "sha256": "03be41da922638149f09fbe698fc5ab2e702e00f0886d7d104bb49ca0f477152"
+    },
+    {
+      "path": "scripts/export-resume.ps1",
+      "sha256": "16be07f9b46bcf9e958baf794ecbb0395ad1005d28ae4c8c0a7be578661c238a"
+    },
+    {
+      "path": "scripts/hide-background-windows.cjs",
+      "sha256": "7cf7a74150853a24a2c82ff4aee0294437e31d9d2fb117afb37ae3dc27030a6f"
+    },
+    {
+      "path": "scripts/preview_pdf.py",
+      "sha256": "640915df16c9e7c855655419b619a4a8c35c117aee8e435378811e146dd90e95"
+    },
+    {
+      "path": "scripts/resume_base.py",
+      "sha256": "1b5064d440d182edce2cd804b3b6f83fc673c28ef083c7b8602978ccdf20d465"
+    },
+    {
+      "path": "scripts/resume_document.py",
+      "sha256": "919778662099d2f06bf51279e852cea53a7866b58b757f6f53d860b706ac4fb0"
+    },
+    {
+      "path": "scripts/run-background.vbs",
+      "sha256": "7f042d31d648d44188ab9cadbed6b5988a2e3d265e118c4f8414d79c9c3a532d"
+    },
+    {
+      "path": "scripts/setup-automation.mjs",
+      "sha256": "895653d2e70ea96d4bd2ec40f4a053aeed31f84b7d28dc81d07d7cb040f92a12"
+    },
+    {
+      "path": "scripts/start-background.ps1",
+      "sha256": "da8d4071fcc13ea1aae1b8960fd99429f2ed1baf60cd88d5d4f904f2d9c57523"
+    },
+    {
+      "path": "src/assessment.mjs",
+      "sha256": "e3634d8f387b85474a9ba05f35f4bf75908ce12993a5a31b04e60b1e42113de4"
+    },
+    {
+      "path": "src/automation-client.mjs",
+      "sha256": "f638a668ce5a27544db534ea42a143a4a7ba1fb0b45477343a95c2f9b2401a41"
+    },
+    {
+      "path": "src/automation.mjs",
+      "sha256": "c4806171a3b3e7b5f59ecbe23cd23f1570073ef5d073110b81074483765c5432"
+    },
+    {
+      "path": "src/availability.mjs",
+      "sha256": "7dc7d7e31bf89113c707beff98c91e7db8e0207e74d8828c4b30d9d631e5ef79"
+    },
+    {
+      "path": "src/background-services.mjs",
+      "sha256": "b321eae14b0b847cee2026bc9ad5ce606ffa3bf68a76d9641a0d29721f743e10"
+    },
+    {
+      "path": "src/cli.mjs",
+      "sha256": "f2ca9410a9fd20ba9643f3b156e3a1bb0835b75f9af95da65cf86c3ddfa76e15"
+    },
+    {
+      "path": "src/core.mjs",
+      "sha256": "3469f8603a5051bf9b0e6afe30c2a157643508c1af20e3f8767209b017d9bd93"
+    },
+    {
+      "path": "src/dashboard.mjs",
+      "sha256": "fcb9efa443b41b1d841627e0374254b8870d7bd9ce73633d0e8b9257c6ed0f55"
+    },
+    {
+      "path": "src/deadlines.mjs",
+      "sha256": "299780606776e0432079504890b6b68dd9679f251710080ab5ddfbb85bc0c89a"
+    },
+    {
+      "path": "src/demo-store.mjs",
+      "sha256": "96e443af36ed4e900fdaeb20febe252a1fec6e4a93fe6a7f076fb78078ec8bdc"
+    },
+    {
+      "path": "src/discovery-metrics.mjs",
+      "sha256": "4df575bfdb756fb7cd161a2b9781c61867851ce2480ee539000be05e47b490cb"
+    },
+    {
+      "path": "src/discovery-records.mjs",
+      "sha256": "40bad23c289a71b51a9ce1a12d2a33d4be885bbdb6ea50bb028af317dbafe649"
+    },
+    {
+      "path": "src/discovery-runner.mjs",
+      "sha256": "a65647093d58761d055292aed1fd7dd06156975e66adec5eca0d31c9c02595ab"
+    },
+    {
+      "path": "src/discovery-sources.mjs",
+      "sha256": "ac9c49f69cafd21e3cdc2e49453cce9d126e77ee26bf8fab9574f2ab720c4c00"
+    },
+    {
+      "path": "src/discovery.mjs",
+      "sha256": "9e4c044bffa22fe97e2907796139b4e5d79920e19ffb62eee9afbfc5b924a0df"
+    },
+    {
+      "path": "src/eligibility.mjs",
+      "sha256": "41a6810932664936b9ea1e9acdede6175718e8bdc50508dc8244af98c05011ec"
+    },
+    {
+      "path": "src/greenhouse.mjs",
+      "sha256": "bd9f1d4dc3bf6a213dcab6e194e7dd669b7b1a01231d99f498aa953bd2ccc2c8"
+    },
+    {
+      "path": "src/job-field-evidence.mjs",
+      "sha256": "b57120359f3e9766a4f20613dde3ecba31a96b10d84100b9e81f4cbeafbb06f4"
+    },
+    {
+      "path": "src/matching.mjs",
+      "sha256": "383f5e7bf88f8799bb3913e2e9355b7110891aba16faf564286275d8150bad1a"
+    },
+    {
+      "path": "src/notion.mjs",
+      "sha256": "0356101aaccb4aa9d9ad0ff15af2bf57e05316f71bba98dfd0665b3cc14f60ab"
+    },
+    {
+      "path": "src/pdf-preview.mjs",
+      "sha256": "fd0fccf8b406c2b2df25f2cf0e4a51ef8d9828b5b327768321d03e6e9528894e"
+    },
+    {
+      "path": "src/pipeline.mjs",
+      "sha256": "681bbb9b8e7174cedc8bfe9774fc42e57c990721c1e118c54c92cbab684c9bb7"
+    },
+    {
+      "path": "src/portal-paste.mjs",
+      "sha256": "62eaba516680ac8db57fc0aa09911947c8a190eecdc1f6885358dafa8ef52f23"
+    },
+    {
+      "path": "src/portal.mjs",
+      "sha256": "d36abcc8ec9f0836ea9e023f409e06854b5d88203b123ab4bd083eb20028f269"
+    },
+    {
+      "path": "src/posting-metadata.mjs",
+      "sha256": "ab07f408e00ba4affd2afa108031e0b5b0320414d85084ac09d42cf6a4aef159"
+    },
+    {
+      "path": "src/resume-bases.mjs",
+      "sha256": "5f53243eb652c507688b2e602bcefe710b20b2117e6abc461c1fee80411408cc"
+    },
+    {
+      "path": "src/resume-profile.mjs",
+      "sha256": "c448d6b990f3c3b4b5a45e2cdc4b33ede5023d3a58a005a3934171e809d6266b"
+    },
+    {
+      "path": "src/resume-review.mjs",
+      "sha256": "26a038ae3a6feae5dc222ed4f5168cb09f503bdee793202578a4eb45b24388ae"
+    },
+    {
+      "path": "src/resume-track.mjs",
+      "sha256": "fbfae09fc56e03f2b2501f3c76a139d45adc888ffb45373632644702ebd0f964"
+    },
+    {
+      "path": "src/resume.mjs",
+      "sha256": "0b87d67f008a3b63c0c4dab7701d2b9490119eefe039f039ca8b75d5bdb0dffe"
+    },
+    {
+      "path": "src/workday.mjs",
+      "sha256": "ebd9dc259e94a1aa2850f269951deb2a76f27b069bc1b7a77e3422a6aa48913e"
+    },
+    {
+      "path": "test/assessment.test.mjs",
+      "sha256": "e86c9a78fb296c50115a53f44137ba1f5359301d1afbae83334b405cc1bed254"
+    },
+    {
+      "path": "test/automation-client.test.mjs",
+      "sha256": "6cb4caba6aac50dbdb534a695056c9616fce2bf85b97cb4f15b8ced81b53e6bc"
+    },
+    {
+      "path": "test/automation-poll.test.mjs",
+      "sha256": "b4a88a290cd41e049c2b8d16b6c4b5f1bc7210693df1515f3379226a6e44a3de"
+    },
+    {
+      "path": "test/automation.test.mjs",
+      "sha256": "64762f67a400d18d86a0da356fa5a3707a70d374b2e683b099c02fbe63621629"
+    },
+    {
+      "path": "test/availability.test.mjs",
+      "sha256": "c7a65efbfa53a38ff55a3ed548156be18e5d1a7285d21f0fa265435cfbb070c8"
+    },
+    {
+      "path": "test/background-launcher.test.mjs",
+      "sha256": "cea616d39fa117c010613db9adb23b8cf10308fac47f511de8d7d9617cf09c9e"
+    },
+    {
+      "path": "test/background-services.test.mjs",
+      "sha256": "9f375fc87ecc4f1634622baf3a3e84a7ae0056e47f7cf6f422c97f327398f45c"
+    },
+    {
+      "path": "test/background-windows.test.mjs",
+      "sha256": "5dea7627059087c29a4948f7e23839b4b9b115c3244f3c7553b49068e2078e2b"
+    },
+    {
+      "path": "test/core.test.mjs",
+      "sha256": "f9db1ed97e221277e0be601c38409fb121d54cb913ef29cec74612602724cfdd"
+    },
+    {
+      "path": "test/dashboard.test.mjs",
+      "sha256": "f1172a9e397180677edfb6713e517df4682fdd4b5b54855a500f94cc95ad7c20"
+    },
+    {
+      "path": "test/deadlines.test.mjs",
+      "sha256": "84d3ce4f5d671159863e645b3de91c0be5846afd9433463491006288474ed125"
+    },
+    {
+      "path": "test/detail-navigation.test.mjs",
+      "sha256": "856213a6ddd5fda2d82ee9d6a6e49507190ceb49460a1ec2caf566737c502987"
+    },
+    {
+      "path": "test/discovery-records.test.mjs",
+      "sha256": "3f6150b1396e24fa48980b3e4d2206845ac993e53a0fe6dc12c6606b1d0b15ae"
+    },
+    {
+      "path": "test/discovery-sources.test.mjs",
+      "sha256": "af6c6758480bc10ee3124b50ebf7dcdaeb3658a6323946499171bdc6d84ddc03"
+    },
+    {
+      "path": "test/discovery.test.mjs",
+      "sha256": "5afc14459eee655c4929319c127e619e46bb4931fa7405a9f26ca3bb1efd7c62"
+    },
+    {
+      "path": "test/eligibility.test.mjs",
+      "sha256": "73d33fe5309d2361d3942107fb8c4210e1d5ac28b0563d70c3e2bc7c34906db7"
+    },
+    {
+      "path": "test/greenhouse.test.mjs",
+      "sha256": "282f24a945f25b5fd25545021195d60b97d6209fefccd7947b23e4b7f6d7273e"
+    },
+    {
+      "path": "test/helpers/resume-review-fixture.mjs",
+      "sha256": "3e7b672136fd93610744ebf02d3459cf1debc43e5d9eb1cb18ceda82f3d254d9"
+    },
+    {
+      "path": "test/job-description.test.mjs",
+      "sha256": "e14205d787e64404123acbdb52db62945ea7fe5350d4858106f3a7cd5df29ab6"
+    },
+    {
+      "path": "test/job-view.test.mjs",
+      "sha256": "a5272de29698de2f5be9816b4843e896a2344ad2237b9e0715d4fb59d350f644"
+    },
+    {
+      "path": "test/matching.test.mjs",
+      "sha256": "de8ee3855b55d029943d5e74bda59ef104d5be21aa65fb58547d08aab4a202af"
+    },
+    {
+      "path": "test/notion.test.mjs",
+      "sha256": "b9f04f75301d718650c58ef00093c54f2bede690ea706e7101608f6a92b5d5dd"
+    },
+    {
+      "path": "test/pdf-preview.test.mjs",
+      "sha256": "f52a350d81c4ab8428e8431cfe5cf86c97b65d05f1e454991a0fb78d280efffb"
+    },
+    {
+      "path": "test/pipeline.test.mjs",
+      "sha256": "063586fde2a10bb8a4fa9d2bfe4d83c7de47801bb40c0491a9e7e0d2c57fde79"
+    },
+    {
+      "path": "test/portal-paste.test.mjs",
+      "sha256": "21c454b5f22e8a9a8be923d48ffe5910f5a821b55ca13870f90846cf3a1e1733"
+    },
+    {
+      "path": "test/portal.test.mjs",
+      "sha256": "7c60d828a25e8556227f985d0eeb5b08e1f18b6aaf4f3fad014b626ac7e1e988"
+    },
+    {
+      "path": "test/posting-metadata.test.mjs",
+      "sha256": "79973b5ff76a4c469d221ce712f20cde83bacbf85368a8facfbeb5fc5c06fd07"
+    },
+    {
+      "path": "test/recovery-acceptance.test.mjs",
+      "sha256": "6a492baff10b48d3d8c534514288449943509fe25d15f9bef487e0af14ce18b8"
+    },
+    {
+      "path": "test/resume-bases.test.mjs",
+      "sha256": "5af971f899e5ef077d1ab872f5328d61046411abc751fe05ac605e0b455ee4f3"
+    },
+    {
+      "path": "test/resume-document.test.mjs",
+      "sha256": "ef9ef3d2e71fa823cbccd250d9563d0dc24d27583179742f8355f7695a207716"
+    },
+    {
+      "path": "test/resume-materials.test.mjs",
+      "sha256": "a7f515920cdd892eccfad7bd1664525a4a3f0b107284dd78c179fd1e9a03626c"
+    },
+    {
+      "path": "test/resume-profile.test.mjs",
+      "sha256": "56055110db0129a4127c9b5c13614a8cc7090c5eca42718d32c5c8536e625202"
+    },
+    {
+      "path": "test/resume-review-integration.test.mjs",
+      "sha256": "b66005795a30ec16e4ffa0802a4bacc6dadb138cccf62bbd26d5d03c39df174b"
+    },
+    {
+      "path": "test/resume-review.test.mjs",
+      "sha256": "da7dddf065e500e0464748f17567d001dab6a06453fba154c459390f071b3ac1"
+    },
+    {
+      "path": "test/resume-track.test.mjs",
+      "sha256": "9315de425aa3bf183b2fd333c92a855830e11158afe4009c5d9d006d79e3eac6"
+    },
+    {
+      "path": "test/resume.test.mjs",
+      "sha256": "961260924d0789d9d399a2282b5726a45cd1a30fa029189de3519b7f8f234b3a"
+    },
+    {
+      "path": "test/resume_base_test.py",
+      "sha256": "401ce6f6ab084e31285be98bf08cf21d6b1123d3aa5ecdcf862f46de33bbb823"
+    },
+    {
+      "path": "test/resume_document_test.py",
+      "sha256": "0812acca2678676710aea170fe70563eaeb5d7ccb3d12d00a9a9cf8deff7a03c"
+    },
+    {
+      "path": "test/workday.test.mjs",
+      "sha256": "bc51bd7702bdd9ac0eaa5108e1dc8e9cdbd7002dc5e8da7dc5554592feefca97"
+    },
+    {
+      "path": "web/app.js",
+      "sha256": "119ee16e9761474a659be25e5c5553c38a3e64f0ebfad8df13232716540e47f0"
+    },
+    {
+      "path": "web/assessment-view.js",
+      "sha256": "a750c8a4238681340baff3a0fbe868244be2be01a99442c55ef235adc078d5aa"
+    },
+    {
+      "path": "web/automation-view.js",
+      "sha256": "a6ee7e960eed12426954e71f1843bc766c8093ae6b7878ac572da73a2aa9a748"
+    },
+    {
+      "path": "web/discovery-sources-view.js",
+      "sha256": "d95633e6cb338bcfaf08a7ae796d3a9a7967320858acedc45242bb3258b27336"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "658fcefba3d1e863892e528b376a7aa67e782ba0f6385b127fb7641f1950e3b4"
+    },
+    {
+      "path": "web/job-description.js",
+      "sha256": "7b5cf4d8c520a8708ba76d989f308dea560743dd64c1a6d98c674bbd0c675204"
+    },
+    {
+      "path": "web/job-facts.js",
+      "sha256": "fe6d7399072d03e7a6d9e4811e6b0e040cfb519e0d02ffa2fa7b6eb72e516a9b"
+    },
+    {
+      "path": "web/job-summary.js",
+      "sha256": "6b1bd77ab3f732dd1f37f07acbb195f14fcc774cac013a245c31991020842526"
+    },
+    {
+      "path": "web/job-view.js",
+      "sha256": "71302b44acbd08739acd39cdf779aff306e7d0b2cabf634f51f1f4b6b71891bd"
+    },
+    {
+      "path": "web/portal-import.js",
+      "sha256": "89ee7e2c7e9d5278ffb567c3af43f3a75c06177b5b30a5ad2d161805284bd89d"
+    },
+    {
+      "path": "web/resume-review-view.js",
+      "sha256": "b87bffe7adb9d78bfa7d6e2e093f4cd48c5ec3ca8ceb31783aeedc27848aa8e9"
+    },
+    {
+      "path": "web/style.css",
+      "sha256": "012711744d50211ad41c633d1e6858a0230036eea525ee0e7db50d472000a673"
+    },
+    {
+      "path": "web/workbench.css",
+      "sha256": "13e7bfc00222b0d0a350d509cc4dd31bdff1967a8998eeaacc60a6bba6d79855"
+    }
+  ]
+}

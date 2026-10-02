@@ -15,6 +15,8 @@ let portalJobs = [], portalLoad = 0;
 let automationState = null;
 let automationPollId = 0;
 let detailContext = null;
+let detailRequest = 0, detailOpener = null;
+let detailReturnY = 0, detailReturnView = '';
 let highlightedKey = '', loadingJobs = true, listPage = 0, pageSize = 20;
 let searchState = { state: 'idle', report: null }, searchPage = 0, searchTimer, importedSource = null;
 const applyView = rows => sortJobs(rows.filter(j => matchesFilters(j, { term: $('#term-filter').value, track: $('#track-filter').value, duration: $('#duration-filter').value,
@@ -43,6 +45,7 @@ function renderBanner() {
 function render() {
   const isQueue = view === 'queue', isDiscover = view === 'discover';
   document.body.dataset.view = view;
+  $('#browse-workspace').hidden = ['resumes', 'portal'].includes(view);
   $('#resume-library').hidden = view !== 'resumes';
   $('#portal-workspace').hidden = view !== 'portal';
   $('.filter-panel').hidden = ['resumes', 'portal'].includes(view);
@@ -51,15 +54,15 @@ function render() {
   $('#automation').hidden = !isDiscover || mode === 'demo';
   $('#workspace-list').hidden = isDiscover || ['resumes', 'portal'].includes(view);
   $('#breadcrumb').textContent = isDiscover ? '发现职位' : isQueue ? '已保存 Queue' : '申请记录';
-  $('#page-title').textContent = isDiscover ? '找到值得投入的下一站。' : isQueue ? '你选中的机会，都在这里。' : '让每一次申请都有进展。';
+  $('#page-title').textContent = isDiscover ? '发现职位' : isQueue ? '已保存的机会' : '申请进展';
   $('#page-subtitle').textContent = isDiscover ? '发现职位 → 保存到 Queue → 定制简历 → 跟进申请' : isQueue ? '从发现页保存的职位。选择一份，查看详情、生成简历并准备申请。' : '集中查看待提交材料、真实投递日期和后续进展。';
   if (view === 'resumes') {
-    $('#page-title').textContent = '好机会，从最新的你开始。';
+    $('#page-title').textContent = '我的简历';
     $('#page-subtitle').textContent = '分别维护 CS 与 Data 简历。上传后持续使用，重启或下次打开也会保留。';
     $('#breadcrumb').textContent = '我的简历';
   }
   if (view === 'portal') {
-    $('#page-title').textContent = '官网已投，学校还有哪些待办？';
+    $('#page-title').textContent = '学校待办';
     $('#page-subtitle').textContent = '关联学校职位，分别追踪两边的截止日期、提交记录和材料版本。';
     $('#breadcrumb').textContent = '学校待办';
   }
@@ -75,12 +78,72 @@ function render() {
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   listPage = Math.max(0, Math.min(listPage, pages - 1));
   $('#list-pagination').innerHTML = connected && !loadingJobs ? paginationControls(rows.length, listPage, pages, 'list') : '';
-  if (loadingJobs) { $('#job-list').innerHTML = '<div class="empty"><h3>正在读取已保存职位…</h3><p>正在连接工作区，请稍候。</p></div>'; return; }
+  if (loadingJobs) { $('#job-list').innerHTML = '<div class="empty"><h3>正在读取已保存职位…</h3><p>正在连接工作区，请稍候。</p></div>'; syncDetailSelection(); return; }
   if (!connected || !rows.length) {
-    $('#job-list').innerHTML = `<div class="empty"><div class="empty-icon">${connected ? '▤' : '↗'}</div><h3>${!connected ? '连接你的求职工作区' : hasFilters ? '当前筛选下没有职位' : isQueue ? '为下一次机会留个位置' : '第一份申请，从 Queue 开始'}</h3><p>${!connected ? esc(listError) : hasFilters ? '已保存的职位可能被筛选条件隐藏。清除条件即可查看全部。' : isQueue ? '在“发现职位”中点击“保存到 Queue”，职位就会出现在这里。' : '材料准备、检查并上传成功后，职位会出现在这里，状态为“待提交”。'}</p>${!connected ? '<button class="button primary" data-action="mode">体验演示工作区</button> <button class="button secondary" data-action="settings">连接 Notion</button>' : hasFilters ? '<button class="button secondary" data-action="reset-filters">清除筛选</button>' : isQueue ? '<button class="button primary" data-action="discover">去发现职位 →</button>' : ''}</div>`; return;
+    $('#job-list').innerHTML = `<div class="empty"><div class="empty-icon">${connected ? '▤' : '↗'}</div><h3>${!connected ? '连接你的求职工作区' : hasFilters ? '当前筛选下没有职位' : isQueue ? '为下一次机会留个位置' : '第一份申请，从 Queue 开始'}</h3><p>${!connected ? esc(listError) : hasFilters ? '已保存的职位可能被筛选条件隐藏。清除条件即可查看全部。' : isQueue ? '在“发现职位”中点击“保存到 Queue”，职位就会出现在这里。' : '材料准备、检查并上传成功后，职位会出现在这里，状态为“待提交”。'}</p>${!connected ? '<button class="button primary" data-action="mode">体验演示工作区</button> <button class="button secondary" data-action="settings">连接 Notion</button>' : hasFilters ? '<button class="button secondary" data-action="reset-filters">清除筛选</button>' : isQueue ? '<button class="button primary" data-action="discover">去发现职位 →</button>' : ''}</div>`; syncDetailSelection(); return;
   }
-  $('#job-list').innerHTML = `<table class="workspace-table"><thead><tr><th>公司</th><th>职位</th>${isQueue ? '<th class="term-cell">入职时间</th><th class="duration-cell">工作时长</th>' : ''}<th>Match Score</th>${isQueue ? '<th>地点</th><th>薪资</th><th>备注</th>' : '<th>申请日期</th><th>状态</th><th>下一步</th>'}<th class="row-action">操作</th></tr></thead><tbody>${rows.slice(listPage * pageSize, (listPage + 1) * pageSize).map(j => `<tr data-job-key="${j.key}" class="${j.key === highlightedKey ? 'saved-highlight' : ''}"><td><div class="company"><span class="company-icon">${esc(j.company.replace('示例公司 · ', '').slice(0, 1))}</span><span>${esc(j.company)}</span></div></td><td><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button>${directionBadge(j)}<span class="job-sub">${isQueue ? '' : `${esc(termText(j))} · ${esc(durationText(j))} · `}${fieldTag(modeText(j), 'mode', !['remote', 'onsite', 'hybrid'].includes(j.workMode))}</span><span class="job-sub publication-note">${esc(publicationText(j))}</span></td>${isQueue ? `<td class="term-cell">${fieldTag(termText(j), 'term', !j.term || j.term === 'Unknown')}</td><td class="duration-cell">${fieldTag(durationText(j), 'duration', durationText(j).includes('待核实'))}</td>` : ''}<td>${scoreBadge(j)}${eligibilityBadge(j)}</td>${isQueue ? `<td>${fieldTag(j.location || '地点待核实', 'location', !j.location || /未知|待核实|unknown/i.test(j.location))}</td><td>${fieldTag(j.salary || '薪资未披露', 'salary', !j.salary || /未披露|待核实|unknown|not disclosed/i.test(j.salary))}</td><td>${j.notes ? esc(j.notes.slice(0, 40)) : j.decision === 'REVIEW' ? '<span class="badge">有信息待核实</span>' : '—'}</td>` : `<td>${esc(j.applicationDate || '尚未投递')}</td><td><span class="badge ${j.status === '待提交' ? 'ready' : 'done'}">${esc(j.status)}</span></td><td>${esc(j.nextStep)}</td>`}<td class="row-action"><button class="button secondary compact" data-action="detail" data-key="${j.key}">查看 →</button></td></tr>`).join('')}</tbody></table>`;
+  $('#job-list').innerHTML = rows.slice(listPage * pageSize, (listPage + 1) * pageSize).map(j => savedCard(j, isQueue)).join('');
+  syncDetailSelection();
 }
+function savedCard(j, isQueue) {
+  return `<article data-job-key="${j.key}" class="discovery-card saved-card ${j.key === highlightedKey ? 'saved-highlight' : ''}">
+    <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0,1))}</span><strong>${esc(j.company)}</strong><span class="badge">${esc(j.status)}</span></div>
+    <div class="card-title-row"><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score">${scoreBadge(j)}</div></div>
+    <div class="card-tags">${directionBadge(j)}${eligibilityBadge(j)}</div>
+    <dl class="card-facts"><div><dt>入职时间</dt><dd>${fieldTag(termText(j),'term', !j.term || j.term === 'Unknown')}</dd></div><div><dt>工作时长</dt><dd>${fieldTag(durationText(j),'duration', durationText(j).includes('待核实'))}</dd></div><div><dt>地点 / 方式</dt><dd>${esc(j.location || '待核实')} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(j.salary || '未披露')}</dd></div></dl>
+    <p class="card-dates">${isQueue ? esc(publicationText(j)) : '申请日期：' + esc(j.applicationDate || '尚未投递')}</p>
+    ${j.notes || j.nextStep ? '<p class="card-note">' + esc(isQueue ? j.notes || j.nextStep : j.nextStep || j.notes) + '</p>' : ''}
+    <div class="card-actions"><button class="button secondary compact" data-action="detail" data-key="${j.key}">查看与处理 →</button></div></article>`;
+}
+function syncDetailSelection() {
+  const dialog = $('#detail');
+  const key = dialog.open ? detailContext?.key : null;
+  let visible = false;
+  for (const row of document.querySelectorAll('#browse-list [data-job-key]')) {
+    const active = row.dataset.jobKey === key;
+    row.classList.toggle('is-selected', active);
+    if (active && row.closest('section')?.hidden !== true) visible = true;
+    for (const button of row.querySelectorAll('[data-action="detail"], [data-action="search-detail"]')) button.setAttribute('aria-current', active ? 'true' : 'false');
+  }
+  const note = $('#detail-selection-note');
+  if (note) note.hidden = visible || dialog.dataset.layout !== 'split';
+}
+function showDetailSurface() {
+  const dialog = $('#detail'), split = ['discover','queue','applications'].includes(view);
+  dialog.inert = false;
+  if (!split) {
+    document.body.append(dialog); dialog.dataset.layout = 'overlay';
+    if (!dialog.open) dialog.showModal();
+  } else {
+    $('#detail-column').append(dialog); dialog.dataset.layout = 'split';
+    if (!dialog.open) dialog.show();
+    $('#browse-workspace').classList.add('has-detail');
+  }
+  $('#detail-title').tabIndex = -1;
+  const close = $('#detail [data-action="close"]');
+  close.textContent = split ? '← 返回' : '×'; close.setAttribute('aria-label', split ? '返回职位列表' : '关闭详情'); close.classList.toggle('detail-back', split);
+  $('#detail-body').insertAdjacentHTML('afterbegin', '<p id="detail-selection-note" class="selection-note" hidden>所选职位不在当前筛选或分页中，详情仍为上次所选职位。</p>');
+  dialog.scrollTop = 0; syncDetailSelection();
+  $('#detail-title').focus({ preventScroll: true });
+  if (split && matchMedia('(max-width: 900px)').matches) $('#browse-workspace').scrollIntoView({block:'start'});
+}
+$('#detail').addEventListener('close', () => {
+  // A previous dialog close event may arrive after another job has opened.
+  if ($('#detail').open) return;
+  detailRequest++; detailContext = null;
+  $('#detail').inert = false;
+  delete $('#detail').dataset.dirty;
+  $('#browse-workspace').classList.remove('has-detail');
+  syncDetailSelection();
+  if (detailOpener?.isConnected && detailOpener.getClientRects().length) detailOpener.focus({preventScroll:true});
+  else if (!$('#browse-workspace').hidden) $('#browse-list').focus({preventScroll:true});
+  if (view === detailReturnView && !$('#browse-workspace').hidden && matchMedia('(max-width: 900px)').matches) window.scrollTo({top:detailReturnY,behavior:'instant'});
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && $('#detail').open && $('#detail').dataset.layout === 'split' && !document.querySelector('dialog:modal')) {
+    event.preventDefault(); requestClose($('#detail'));
+  }
+});
 function fieldTag(text, kind, pending = false) {
   return `<span class="field-tag field-${pending ? 'pending' : kind}">${esc(text)}</span>`;
 }
@@ -270,7 +333,7 @@ async function revealSaved(key, newlySaved = false) {
     feedback(`此职位已有记录，当前${job.expired ? '申请已截止' : '已归档'}，未重新加入 Queue。`);
     await detail(key); return;
   }
-  feedback(`${newlySaved ? '已保存' : '已定位已有记录'}：${job.title}。位于${view === 'queue' ? '顶部「已保存」' : '顶部「申请记录」'}${mode === 'live' ? '，同步到 Notion Career Queue' : '（演示）'}。已清除筛选，方便找到该职位。`);
+  feedback(`${newlySaved ? '已保存' : '已定位已有记录'}：${job.title}。位于${view === 'queue' ? '「已保存」' : '「申请记录」'}${mode === 'live' ? '，同步到 Notion Career Queue' : '（演示）'}。已清除筛选，方便找到该职位。`);
   const row = document.querySelector(`[data-job-key="${key}"]`);
   row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   row?.querySelector('.job-title')?.focus({ preventScroll: true });
@@ -283,6 +346,7 @@ function requestClose(dialog) {
     return;
   }
   if (dialog.dataset.dirty && !confirm('有未保存的修改，确定关闭？')) return;
+  if (dialog.id === 'detail') detailRequest++;
   dialog.close();
 }
 for (const dialog of document.querySelectorAll('dialog')) {
@@ -328,7 +392,7 @@ function discoveryCard(j) {
   const saved = Boolean(savedDiscoveryJob(j));
   const skills = (j.match?.matched || []).filter(s => s.kind === 'skill');
   const term = j.term === 'Unknown' ? '入职季待核实' : j.term;
-  return `<article class="discovery-card ${saved ? 'card-saved' : ''}">
+  return `<article data-job-key="${j.key}" class="discovery-card ${saved ? 'card-saved' : ''}">
     <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0, 1))}</span><strong>${esc(j.company)}</strong><span class="card-state">${saved ? '已保存 ✓' : j.decision === 'REJECT' ? '不符合条件' : j.fullJd ? '完整 JD' : '待补全文'}</span></div>
     <div class="card-title-row"><button class="job-title" data-action="search-detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score" title="当前简历覆盖分，不代表录取概率">${scoreBadge(j)}<span>${j.match?.score == null ? '待核实' : `${esc(j.match.source?.track?.toUpperCase() || '')} · ${j.match.evidenceCount} 项`}</span></div></div>
     <div class="card-tags">${directionBadge(j)}<span>${esc(term)}</span>${eligibilityBadge(j)}</div>
@@ -357,13 +421,14 @@ function renderSearch() {
     $('#search-progress').innerHTML = `<details class="search-log" ${expanded ? 'open' : ''}><summary>搜索记录与来源覆盖 <span>全部来源结果 · ${esc(searchDate(report.finishedAt))}</span></summary>${content}</details>`;
     $('#search-progress details').addEventListener('toggle', event => { $('#search-progress').dataset.expanded = String(event.target.open); });
   }
-  if (!report) { $('#search-results').innerHTML = ''; return; }
+  if (!report) { $('#search-results').innerHTML = ''; syncDetailSelection(); return; }
   const query = $('#search-filter').value.trim().toLowerCase(), kind = $('#search-kind').value;
   const filtered = applyView(results.filter(j => (kind === 'rejected' ? j.decision === 'REJECT' : kind === 'ready' ? j.fullJd && j.decision !== 'REJECT' : kind === 'recent' ? recent(j) : j.decision !== 'REJECT') && `${j.company} ${j.title} ${j.location} ${j.term} ${(j.indexEvidence?.terms ?? []).join(' ')}`.toLowerCase().includes(query)));
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize)); searchPage = Math.min(searchPage, pages - 1);
   $('#discovery-count').textContent = `${filtered.length} 个结果${running ? ' · 搜索中' : ''}`;
   $('#search-results').innerHTML = filtered.length ? `<div class="discovery-grid">${filtered.slice(searchPage * pageSize, (searchPage + 1) * pageSize).map(discoveryCard).join('')}</div>` : `<div class="search-empty"><h3>${running ? '正在读取…' : kind === 'recent' ? '暂未找到可核实最近 24 小时发布的岗位' : '此筛选下没有结果'}</h3><p>${kind === 'recent' ? '可切换到“候选 · 不限发布日期”；只有日期或未提供日期的岗位仍会保留。' : '可以调整关键词或查看其他结果类型。'}</p></div>`;
   $('#search-pagination').innerHTML = paginationControls(filtered.length, searchPage, pages, 'search');
+  syncDetailSelection();
 }
 async function pollAutomation() {
   const requestId = ++automationPollId;
@@ -389,17 +454,19 @@ async function pollSearch() {
   searchTimer = setTimeout(pollSearch, searchState.state === 'running' ? 1200 : 30000);
 }
 function searchDetail(key, updated) {
+  detailRequest++;
   const j = updated || searchState.report?.results.find(x => x.key === key); if (!j) throw new Error('搜索结果已更新，请重新选择');
   const saved = savedDiscoveryJob(j);
   detailContext = { source: 'discovery', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">自动发现 · ${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${j.fullJd ? '已读取官方完整 JD' : '公开来源记录 · 全文尚未取得'}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}<div class="meta"><span>入职季：${esc(j.term)}</span><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看官方岗位 ↗</a></div>${j.decision === 'REJECT' ? `<p class="card-alert">不满足当前筛选条件：${esc(j.reasons[0] || '')}</p>` : ''}<div class="form-actions">${searchState.state === 'running' ? '<p>搜索完成并去重后即可保存或生成材料。</p>' : j.identityConflict || j.decision === 'REJECT' ? '' : saved ? `<button class="button secondary" data-action="show-saved" data-key="${saved.key}">查看已保存职位 · ${esc(saved.status)}</button>` : j.fullJd ? `<button class="button primary" data-action="${connected && mode === 'live' ? 'search-save' : 'search-connect'}" data-key="${j.key}">${connected && mode === 'live' ? '保存到 Queue' : '连接 Notion 后保存'}</button>` : `<button class="button primary" data-action="search-fill" data-key="${j.key}">补充 JD 与核实信息</button>`}</div>${assessmentPanel(j)}${scoreDetails(j)}${resumeControls(j, 'discovery')}${j.fullJd ? `<h3>完整职位描述</h3>${jobDescription(j)}` : `<h3>全文状态</h3><p>${esc(j.fetchError || '该招聘系统暂不支持自动读取全文。基本信息已自动发现，可补充 JD 后入队。')}</p>`}<h3>来源与日期依据</h3><div class="hint">${esc(publicationText(j))}\n申请截止：${esc(deadlineDate(j.deadline))}\n${esc(j.deadlineEvidence || '')}\n索引收录时间：${esc(j.indexEvidence ? searchDate(j.indexEvidence.addedAt) : '此岗位由雇主列表发现')}\n索引标注批次：${esc(j.indexEvidence?.terms?.join(' / ') || '无索引批次')}\n${esc(j.indexEvidence?.note || '')}${j.sourceEvidence ? `\n官方读取时间：${esc(searchDate(j.sourceEvidence.retrievedAt))}\n${esc(j.sourceEvidence.note)}${j.sourceEvidence.publicationError ? `\n${esc(j.sourceEvidence.publicationError)}` : ''}` : ''}</div><p>此结果来自公开招聘信息；尚未生成材料或投递。</p></div>`;
-  if (!$('#detail').open) $('#detail').showModal();
+  showDetailSurface();
 }
 async function refreshAssessmentDetail(context = detailContext, updated) {
   if (!context || !$('#detail').open || detailContext?.key !== context.key || detailContext?.source !== context.source) return false;
   if (context.source === 'queue') {
-    await detail(context.key);
+    if (!await detail(context.key)) return false;
+    if (detailContext?.key !== context.key || selected?.key !== context.key) return false;
     jobs = jobs.map(j => j.key === selected.key ? selected : j); render();
   } else {
     const job = updated || await api(`/api/assessment?source=discovery&key=${context.key}`);
@@ -436,7 +503,14 @@ async function syncGeneratedMaterials(key) {
   }
 }
 async function detail(key) {
-  selected = await api(`/api/jobs/${key}`);
+  const requestId = ++detailRequest;
+  const requestedView = view, requestedMode = mode;
+  let result;
+  $('#detail').inert = true;
+  try { result = await api(`/api/jobs/${key}`); }
+  finally { if (requestId === detailRequest) $('#detail').inert = false; }
+  if (requestId !== detailRequest || view !== requestedView || mode !== requestedMode) return false;
+  selected = result;
   const j = selected;
   detailContext = { source: 'queue', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
@@ -458,7 +532,8 @@ async function detail(key) {
     ${j.status === '待提交' ? `<hr class="section-line"><h3>确认官网实际投递</h3><form id="submitted-form">${freshnessReview(j.materialFreshness)}<label>实际申请日期<input type="date" name="date" required></label><label>回执编号或成功页说明（可选）<input name="receipt" maxlength="1000"></label><label class="check"><input name="confirmed" type="checkbox" required>我已经在雇主网站完成了这次投递。</label><div class="form-actions"><button class="button primary">确认官网已投递</button></div></form>` : ''}
     ${['已投递', '面试中', '已结束'].includes(j.status) ? `<hr class="section-line"><h3>更新申请进展</h3><form id="progress-form"><div class="form-grid"><label>当前状态<select name="status"><option ${j.status === '面试中' ? 'selected' : ''}>面试中</option><option ${j.status === '已结束' ? 'selected' : ''}>已结束</option></select></label><label>下一步 / 结束原因<input name="nextStep" required value="${esc(j.nextStep)}"></label></div><div class="form-actions"><button class="button secondary">保存进展</button></div></form>` : ''}
     </div>`;
-  if (!$('#detail').open) $('#detail').showModal();
+  showDetailSurface();
+  return true;
 }
 const select = (name, label, options) => `<label>${label}<select name="${name}">${options.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>`;
 function add() {
@@ -476,6 +551,16 @@ function formJob() {
     sourceEvidence: importedSource?.sourceEvidence || '用户通过 Dashboard 输入或核对；未知字段保留待核实。' };
 }
 async function handle(action, button) {
+  if (['detail', 'search-detail'].includes(action) && $('#detail').open && button.dataset.key === detailContext?.key && (action === 'detail' ? 'queue' : 'discovery') === detailContext?.source) {
+    $('#detail-title').focus({ preventScroll: true }); return;
+  }
+  const leavingDetail = ['discover', 'queue', 'applications', 'resumes', 'portal', 'mode', 'search'].includes(action) ||
+    ['detail', 'search-detail', 'show-saved'].includes(action);
+  if (leavingDetail && $('#detail').dataset.saving) return;
+  if (leavingDetail && $('#detail').dataset.dirty && !confirm('职位中有未保存的修改，确定离开？')) return;
+  if (['detail', 'search-detail'].includes(action)) { detailOpener = button; detailReturnY = window.scrollY; detailReturnView = view; }
+  if (['discover', 'queue', 'applications', 'resumes', 'portal', 'mode', 'search'].includes(action)) detailRequest++;
+
   if (action === 'recheck-availability') {
     const context = detailContext;
     if (!context) return;
@@ -541,7 +626,7 @@ async function handle(action, button) {
   if (action === 'preview-file') return previewFile({ url: button.dataset.url, name: button.dataset.name, version: button.dataset.version });
   if (action === 'show-saved') return revealSaved(button.dataset.key);
   if (['discover', 'queue', 'applications', 'resumes', 'portal'].includes(action)) { if (['discover', 'resumes'].includes(action) && mode === 'demo') { mode = 'live'; await refresh(); } view = action; listPage = 0; history.replaceState(null, '', `#${view}`); $('#filter').value = ''; $('#detail').close(); render(); renderSearch(); window.scrollTo(0, 0); if (view === 'resumes') await loadResumeLibrary(); if (view === 'portal') await loadPortal(); return; }
-  if (action === 'mode') { mode = mode === 'demo' ? 'live' : 'demo'; selected = null; $('#feedback').hidden = true; view = 'queue'; await refresh(); return; }
+  if (action === 'mode') { $('#detail').close(); mode = mode === 'demo' ? 'live' : 'demo'; selected = null; $('#feedback').hidden = true; view = 'queue'; await refresh(); return; }
   if (action === 'refresh') { await refresh(); return; }
   if (action === 'detail') return detail(button.dataset.key);
   if (action === 'settings') {
@@ -553,6 +638,7 @@ async function handle(action, button) {
     await pollAutomation(); return;
   }
   if (action === 'search') {
+    $('#detail').close();
     mode = 'live'; view = 'discover'; history.replaceState(null, '', '#discover'); await refresh(); searchPage = 0;
     searchState = await api('/api/discovery', {}); renderSearch();
     $('#discovery').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -637,6 +723,9 @@ async function base64(file) {
 }
 document.addEventListener('submit', async event => {
   event.preventDefault(); const form = event.target, button = event.submitter;
+  const detailForm = form.closest('dialog') === $('#detail');
+  if (detailForm && $('#detail').dataset.saving) return;
+  if (detailForm) { $('#detail').dataset.saving = 'true'; $('#detail').inert = true; }
   if (button) button.disabled = true;
   try {
     if (form.classList.contains('base-upload')) {
@@ -697,7 +786,10 @@ document.addEventListener('submit', async event => {
     await refresh(); await detail(key);
     const box = document.createElement('div'); box.className = 'feedback'; box.textContent = '已保存。'; $('#detail .dialog-content').prepend(box);
   } catch (error) { dialogError(form.closest('dialog'), error); }
-  finally { if (button) button.disabled = false; }
+  finally {
+    if (detailForm) { delete $('#detail').dataset.saving; $('#detail').inert = false; }
+    if (button) button.disabled = false;
+  }
 });
 render();
 Promise.all([refresh(), pollSearch()]).then(async () => {
