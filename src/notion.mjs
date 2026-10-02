@@ -149,6 +149,16 @@ export class NotionStore {
     return record;
   }
 
+  async updateJob(record) {
+    await this.request('PATCH', `/pages/${uuid(record.pageId)}`, { properties: {
+      Position: { title: richText(record.title) }, Company: textProp(record.company), Location: textProp(record.location),
+      Salary: textProp(record.salary), URL: { url: record.url }, Term: textProp(record.term),
+      'Next step': textProp(record.nextStep), 'System notes': textProp(record.reasons.join('\n')),
+      Payload: textProp(JSON.stringify(record))
+    } });
+    return record;
+  }
+
   async recordFailure(record, message) {
     await this.request('PATCH', `/pages/${uuid(record.pageId)}`, { properties: { 'System notes': textProp(message) } });
   }

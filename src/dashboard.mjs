@@ -12,7 +12,8 @@ import { fetchGreenhouse } from './greenhouse.mjs';
 import { DiscoveryRunner } from './discovery-runner.mjs';
 import { automationAdapter, networkAvailable } from './automation.mjs';
 import { workspaceId } from './background-services.mjs';
-import { discover, extractFacts } from './discovery.mjs';
+import { discover, extractFacts, officialJob } from './discovery.mjs';
+import { schoolCandidate, completeSchoolCandidate } from './school-candidates.mjs';
 import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
 import { currentResumeProfiles } from './resume-profile.mjs';
@@ -44,7 +45,7 @@ async function jsonBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw fail('请求内容不是有效 JSON'); }
 }
 
-export function dashboardServer({ root = projectRoot, storeOverride, discoverImpl = discover, availabilityImpl = checkAvailability, profilesImpl = currentResumeProfiles, automationImpl, clock, onlineImpl = networkAvailable } = {}) {
+export function dashboardServer({ root = projectRoot, storeOverride, discoverImpl = discover, officialJobImpl = officialJob, availabilityImpl = checkAvailability, profilesImpl = currentResumeProfiles, automationImpl, clock, onlineImpl = networkAvailable } = {}) {
   const csrf = randomBytes(32).toString('hex');
   const demo = new DemoStore();
   let busy = false;
@@ -70,7 +71,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         inGta: extracted.inGta,
         workMode: record.workMode && record.workMode !== 'unknown' ? record.workMode : extracted.workMode };
       const evaluation = evaluateJob(job);
-      if (record.fullJd === false) evaluation.reasons.unshift(record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
+      if (record.fullJd === false) evaluation.reasons.unshift(record.schoolCandidate ? '学校列表尚无正文，请补齐官网链接与完整 JD' : record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
       const assessed = assessJob(job, profiles);
       const availability = availabilityState(job);
       if (availability.status === 'closed' || assessed.eligibility?.summary.hardConflict) {
@@ -254,7 +255,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
         return send(await editableResume(root, url.searchParams.get('key'), url.searchParams.get('version')));
       }
-      const match = url.pathname.match(/^\/api\/jobs\/([a-f0-9]{24})(?:\/(\w+))?$/);
+      const match = url.pathname.match(/^\/api\/jobs\/([a-f0-9]{24})(?:\/([\w-]+))?$/);
       if (req.method === 'GET' && match && !match[2]) {
         const record = await getRecord(await storeFor(mode), match[1]);
         const job = (await presentJobs([record], mode))[0];
@@ -306,6 +307,12 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         const store = await storeFor(mode), records = await store.list();
         const keys = new Set(), ids = new Set();
         const plan = body.selections.map(selection => {
+          if (selection.key === '__new__') {
+            const item = preview.rows[selection.index];
+            if (!Number.isInteger(selection.index) || item?.category !== 'unmatched' || ids.has(item.row.id)) throw fail('只能将本次未匹配的学校岗位保存为新候选');
+            ids.add(item.row.id);
+            return { record: schoolCandidate(item.row, records), create: true, row: item.row };
+          }
           const item = preview.rows[selection.index], record = records.find(j => j.key === selection.key);
           if (!Number.isInteger(selection.index) || !item?.row || !record) throw fail('选择的学校岗位或申请不存在，请重新预览');
           if (keys.has(record.key) || ids.has(item.row.id)) throw fail('同一申请或学校职位本次只能关联一次');
@@ -315,9 +322,14 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         });
         portalPreviews.delete(body.token);
         const saved = [], errors = [];
-        for (const { record, next } of plan) {
+        for (const { record, next, create, row } of plan) {
           try {
             const fresh = await store.list();
+            if (create) {
+              const candidate = schoolCandidate(row, fresh);
+              if (!fresh.some(j => j.key === candidate.key)) await store.create(candidate);
+              saved.push(candidate.key); continue;
+            }
             const current = fresh.find(j => j.key === record.key);
             if (!current || portalRevision(current) !== portalRevision(record)) throw fail('申请记录已变化，请重新预览');
             linkPortal(current, next.portal, fresh, { confirmed: true });
@@ -325,7 +337,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
             saved.push(record.key);
           } catch (e) { errors.push({ key: record.key, error: e.message }); break; }
         }
-        return send({ saved, errors, remaining: plan.length - saved.length, message: errors.length ? '部分关联未完成；已保存结果保留，请重新预览后继续' : '关联已保存，学校提交要求请在详情确认' });
+        return send({ saved, errors, remaining: plan.length - saved.length, message: errors.length ? '部分记录未完成；已保存结果保留，请重新预览后继续' : '候选可在待处理职位中查看；学校提交要求请在详情确认' });
       }
       if (url.pathname === '/api/resume-base' || url.pathname === '/api/resume-base/activate') {
         if (mode !== 'live') throw fail('演示模式不使用私人简历');
@@ -409,6 +421,17 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (!match || !match[2]) throw fail('未找到', 404);
       const store = await storeFor(mode), key = match[1], action = match[2];
       const record = await getRecord(store, key);
+      if (action === 'school-details') {
+        if (body.confirmed !== true) throw fail('请确认官网链接与 JD 对应当前学校岗位');
+        if (body.revision !== portalRevision(record) || body.jdHash !== jobInputHash(record)) throw fail('岗位已变化，请重新打开后补齐', 409);
+        const url = text(body.url, 2000), jd = text(body.jd || '', 100000).trim();
+        const details = jd ? { url, jd } : await officialJobImpl({ url, company: record.company, title: record.title, location: record.location, term: record.term });
+        if (!details?.jd?.trim()) throw fail('此链接暂不支持读取，请粘贴官网完整 JD 后保存');
+        const current = await getRecord(store, key);
+        if (portalRevision(current) !== body.revision || jobInputHash(current) !== body.jdHash) throw fail('读取期间岗位已变化，请重新打开', 409);
+        return send(await store.updateJob(completeSchoolCandidate(current, details, await store.list())));
+      }
+      if (['prepare', 'complete'].includes(action) && record.fullJd === false) throw fail('请先补齐完整 JD，再准备材料');
       if (action === 'portal') {
         if (body.revision !== portalRevision(record)) throw fail('申请记录已变化，请重新打开详情后操作', 409);
         const next = body.action === 'link' ? linkPortal(record, body.row, await store.list(), body) : updatePortal(record, body);

@@ -50,6 +50,7 @@ export function availabilityState(job, now = new Date()) {
 }
 
 export function requireAvailable(job, now = new Date()) {
+  if (job.fullJd === false || !job.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   const state = availabilityState(job, now);
   if (state.status === 'closed') throw new Error('岗位已关闭或截止，不能生成新的申请材料；历史材料继续保留');
   if (!state.recent || (state.status !== 'open' && !state.manual)) throw new Error('岗位开放状态暂无法确认，请先复查官网；仍无法读取时可由本人核实后继续');

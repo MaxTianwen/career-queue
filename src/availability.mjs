@@ -1,9 +1,12 @@
 import { officialJob } from './discovery.mjs';
 import { deadlineExpired, extractDeadline } from './deadlines.mjs';
 import { workdayUrl } from './workday.mjs';
+import { pinpointUrl } from './discovery-sources.mjs';
 
 // An allowlist for the existing public readers, never a general URL fetcher.
 function source(value) {
+  const pinpoint = pinpointUrl(value);
+  if (pinpoint) return { url: pinpoint, allowed: new Set([pinpoint]) };
   const u = new URL(value);
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
   let match;

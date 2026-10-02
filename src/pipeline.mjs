@@ -41,6 +41,7 @@ export async function getRecord(store, key) {
 
 export async function prepare(store, key, knowledgePath, outputRoot, { resumeTrack = 'auto', evaluationSnapshot = null } = {}) {
   const record = await getRecord(store, key);
+  if (record.fullJd === false || !record.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   if (!['Queue', '待提交'].includes(record.status)) throw new Error('当前状态不能准备材料');
   const knowledge = await readFile(knowledgePath, 'utf8');
   if (!knowledge.trim()) throw new Error('知识库为空，不能编造经历');
@@ -67,6 +68,7 @@ async function validateFile(path, extensions) {
 
 export async function complete(store, key, paths, checked, materialVersion = null) {
   const record = await getRecord(store, key);
+  if (record.fullJd === false || !record.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   if (!checked) throw new Error('需要先检查事实依据和版面，再使用 --checked');
   const inputsChanged = job => materialVersion?.assessment && (materialVersion.assessment.jdHash !== jobInputHash(job) || materialVersion.assessment.confirmationHash !== evidenceFingerprint(job));
   if (inputsChanged(record)) throw new Error('JD 或核实结果已变化，请重新核对材料');

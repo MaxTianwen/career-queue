@@ -55,7 +55,7 @@ function render() {
   $('#workspace-list').hidden = isDiscover || ['resumes', 'portal'].includes(view);
   $('#breadcrumb').textContent = isDiscover ? '发现职位' : isQueue ? '已保存 Queue' : '申请记录';
   $('#page-title').textContent = isDiscover ? '发现职位' : isQueue ? '已保存的机会' : '申请进展';
-  $('#page-subtitle').textContent = isDiscover ? '发现职位 → 保存到 Queue → 定制简历 → 跟进申请' : isQueue ? '从发现页保存的职位。选择一份，查看详情、生成简历并准备申请。' : '集中查看待提交材料、真实投递日期和后续进展。';
+  $('#page-subtitle').textContent = isDiscover ? '发现职位 → 保存到 Queue → 定制简历 → 跟进申请' : isQueue ? '从发现页、手动添加或学校列表保存的职位。选择一份，补齐信息并准备申请。' : '集中查看待提交材料、真实投递日期和后续进展。';
   if (view === 'resumes') {
     $('#page-title').textContent = '我的简历';
     $('#page-subtitle').textContent = '分别维护 CS 与 Data 简历。上传后持续使用，重启或下次打开也会保留。';
@@ -87,7 +87,7 @@ function render() {
 }
 function savedCard(j, isQueue) {
   return `<article data-job-key="${j.key}" class="discovery-card saved-card ${j.key === highlightedKey ? 'saved-highlight' : ''}">
-    <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0,1))}</span><strong>${esc(j.company)}</strong><span class="badge">${esc(j.status)}</span></div>
+    <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0,1))}</span><strong>${esc(j.company)}</strong><span class="badge">${esc(j.schoolCandidate ? '学校候选 · 待补 JD' : j.status)}</span></div>
     <div class="card-title-row"><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score">${scoreBadge(j)}</div></div>
     <div class="card-tags">${directionBadge(j)}${eligibilityBadge(j)}</div>
     <dl class="card-facts"><div><dt>入职时间</dt><dd>${fieldTag(termText(j),'term', !j.term || j.term === 'Unknown')}</dd></div><div><dt>工作时长</dt><dd>${fieldTag(durationText(j),'duration', durationText(j).includes('待核实'))}</dd></div><div><dt>地点 / 方式</dt><dd>${esc(j.location || '待核实')} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(j.salary || '未披露')}</dd></div></dl>
@@ -267,6 +267,7 @@ async function previewFile(file) {
   $('#preview-caption').textContent = `${file.name} · ${file.version || '本次生成'} · 本机查看，未上传外部服务`;
   $('#preview-body').innerHTML = `<div class="preview-actions"><span id="preview-page">正在读取 PDF…</span>${editable ? '<button class="button primary compact" data-action="edit-resume">编辑文字</button><button class="button secondary compact" data-action="resume-review-history">查看修改依据</button>' : ''}<button class="button secondary compact" data-action="preview-prev" disabled>上一页</button><button class="button secondary compact" data-action="preview-next" disabled>下一页</button><button class="button secondary compact" data-action="preview-zoom" aria-pressed="false">放大</button><a class="button secondary compact" href="${esc(url.pathname + url.search)}" target="_blank" rel="noopener">打开 PDF ↗</a><a class="button secondary compact" href="${esc(file.url)}">下载</a></div><div class="pdf-page" id="preview-page-body" role="status">正在本机渲染实际 PDF 页面…</div><p>预览由实际 PDF 渲染，原文档不变。请核对版式与事实内容。</p>`;
   if (!$('#preview').open) $('#preview').showModal();
+  else if (!document.activeElement?.closest('#preview')) $('#preview .close').focus();
   await loadPreviewPage();
 }
 async function loadPreviewPage() {
@@ -311,11 +312,16 @@ async function loadResumeLibrary() {
 }
 async function saveResumeEditor(form) {
   const editor = $('#resume-editor');
+  if (editor.dataset.saving || form.inert) return;
   editor.dataset.saving = 'true';
+  const controls = [...form.querySelectorAll('input, select, textarea, button')].map(field => ({ field, disabled: field.disabled }));
+  controls.forEach(({ field }) => { field.disabled = true; });
   $('#edit-status').textContent = '正在保存并检查一页与格式，请稍候…';
+  let published = false;
   try {
     const edits = Array.from(form.querySelectorAll('textarea')).map(field => ({ paragraph: Number(field.dataset.paragraph), text: field.value }));
     const result = await api('/api/resume/edit', { key: resumeEdit.key, version: resumeEdit.version, sourceHash: resumeEdit.sourceHash, edits });
+    published = true;
     delete editor.dataset.dirty;
     editor.close();
     const box = $('#generate-result');
@@ -323,8 +329,9 @@ async function saveResumeEditor(form) {
     await syncGeneratedMaterials(resumeEdit.key);
     await previewFile({ ...result.files.find(f => f.name === 'resume.pdf'), version: result.version });
   } catch (error) {
-    $('#edit-status').textContent = `未发布新版本：${error.message}。输入仍保留，可调整后重试。`;
-  } finally { delete editor.dataset.saving; }
+    if (published) alert('新版本已保存。自动关联或预览未完成，请重新打开该职位查看最新材料，无需再次保存：' + error.message);
+    else $('#edit-status').textContent = `未发布新版本：${error.message}。输入仍保留，可调整后重试。`;
+  } finally { delete editor.dataset.saving; controls.forEach(({ field, disabled }) => { field.disabled = disabled; }); }
 }
 
 $('#resume-review').addEventListener('change', () => { $('#resume-review').dataset.dirty = 'true'; });
@@ -335,7 +342,8 @@ $('#resume-review').addEventListener('submit', async event => {
   if (dialog.dataset.saving) return;
   const context = { ...resumeProposal };
   dialog.dataset.saving = 'true';
-  const submit = form.querySelector('button[type="submit"]'); submit.disabled = true;
+  const controls = [...form.querySelectorAll('input, select, textarea, button')].map(field => ({ field, disabled: field.disabled }));
+  controls.forEach(({ field }) => { field.disabled = true; });
   $('#review-status').textContent = '正在按选择生成，并检查原格式与一页限制…';
   let published = false;
   try {
@@ -351,7 +359,7 @@ $('#resume-review').addEventListener('submit', async event => {
   } catch (error) {
     if (published) alert('材料已生成。自动关联或预览未完成，请重新打开该职位查看最新材料：' + error.message);
     else $('#review-status').textContent = '未发布新版本：' + error.message + '。审阅选择仍保留，可重试；若输入已变化，请关闭后重新准备。';
-  } finally { delete dialog.dataset.saving; submit.disabled = false; }
+  } finally { delete dialog.dataset.saving; controls.forEach(({ field, disabled }) => { field.disabled = disabled; }); }
 });
 
 function clearViewFilters() {
@@ -527,6 +535,7 @@ function showModal(title, subtitle, content) {
   $('#modal').showModal();
 }
 function materialForm(j) {
+  if (j.fullJd === false) return '<p>补齐完整 JD 后，可以评分和准备申请材料。</p>';
   if (!['Queue', '待提交'].includes(j.status)) return '';
   const generated = j.generatedMaterial?.version ? j.generatedMaterial : null;
   return `<h3>申请材料</h3><form id="materials-form"><div class="hint">${generated ? `已自动关联最新 PDF · ${esc(generated.track.toUpperCase())}<br>${esc(generated.version)}<br>基准：${esc(generated.baseline?.name || '初始模板')}<br>生成或在线编辑后会更新此处，并重新要求确认审阅。` : esc(j.generatedMaterial?.error || '尚无通过检查的定制版本；生成后会自动关联，也可上传自己的 PDF。')}</div>${generated ? `<div class="form-actions"><button type="button" class="button secondary" data-action="preview-file" data-url="${esc(generated.url)}" data-name="resume.pdf" data-version="${generated.version}">预览已关联 PDF</button></div><label>简历来源<select name="materialSource" id="material-source"><option value="generated">使用已关联的定制 PDF</option><option value="upload">改用本机 PDF</option></select></label>` : ''}${generated ? freshnessReview(generated.freshness, { id: 'stale-material-review' }) : ''}<label id="manual-resume-field" ${generated ? 'hidden' : ''}>简历 PDF<input name="resume" type="file" accept=".pdf" ${generated ? '' : 'required'}></label><details class="cover-letter-upload" ${j.coverLetterRequired ? 'open' : ''}><summary>Cover Letter ${j.coverLetterRequired ? '（此岗位必需）' : '（可选）'}</summary><label>Cover Letter PDF<input name="coverLetter" type="file" accept=".pdf" ${j.coverLetterRequired ? 'required' : ''}></label></details><label class="check material-check"><input name="checked" type="checkbox" required>我已预览并检查这份材料的事实与排版，确认用于本职位。</label><p>只提交简历 PDF 和选定的 Cover Letter；DOCX 与修改说明留在本机。${mode === 'demo' ? '演示操作仅保存在本机。' : '确认后保存到 Notion，成功才进入待提交。'}</p><button class="button primary">确认材料，设为待提交</button></form>`;
@@ -568,7 +577,8 @@ async function detail(key) {
   detailContext = { source: 'queue', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${esc(j.term)} · ${esc(j.status)}${mode === 'demo' ? ' · 演示职位' : ''}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">
-    ${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>
+    ${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}${j.url ? `<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>` : '<p class="badge">学校候选 · 待补 JD</p>'}
+    ${j.schoolCandidate && j.status === 'Queue' ? `<form id="school-details-form"><h3>补齐职位正文</h3><label>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="留空时尝试读取受支持的官网；读取失败后可粘贴完整正文。"></textarea></label><label class="check"><input type="checkbox" name="confirmed" required>我已核对链接及正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>` : ''}
     <p>${esc(publicationText(j))} · ${esc(modeText(j))}</p>
     ${assessmentPanel(j)}
     ${scoreDetails(j)}
@@ -576,9 +586,9 @@ async function detail(key) {
     ${j.expired ? '<div class="hint">申请已截止，保留已有申请记录供追踪。</div>' : ''}
     ${portalPanel(j)}
     ${j.reasons?.length ? `<div class="hint">${esc(j.reasons.join('\n'))}</div>` : ''}
-    <div class="form-actions">${['Queue', '待提交'].includes(j.status) ? `<label>原始简历方向<select id="resume-track"><option value="auto">自动：${esc(j.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><button class="button primary" data-action="prepare">准备定制任务</button>` : ''}${j.status === 'Queue' ? '<button class="button danger" data-action="archive">不投 · 归档</button>' : ''}</div>
-    ${['Queue', '待提交'].includes(j.status) ? '<p>“准备定制任务”另行导出上下文，供助手做进一步审阅或修改；定制请使用上方“准备简历修改对照”，审阅后生成。</p>' : ''}
-    <div id="archive-question"></div><div id="prepare-result"></div><h3>完整职位描述</h3>${jobDescription(j)}
+    <div class="form-actions">${j.fullJd !== false && ['Queue', '待提交'].includes(j.status) ? `<label>原始简历方向<select id="resume-track"><option value="auto">自动：${esc(j.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><button class="button primary" data-action="prepare">准备定制任务</button>` : ''}${j.status === 'Queue' ? '<button class="button danger" data-action="archive">不投 · 归档</button>' : ''}</div>
+    ${j.fullJd !== false && ['Queue', '待提交'].includes(j.status) ? '<p>“准备定制任务”另行导出上下文，供助手做进一步审阅或修改；定制请使用上方“准备简历修改对照”，审阅后生成。</p>' : ''}
+    <div id="archive-question"></div><div id="prepare-result"></div>${j.fullJd === false ? '' : `<h3>完整职位描述</h3>${jobDescription(j)}`}
     <h3>我的备注与下一步</h3><form id="notes-form"><div class="form-grid"><label class="wide">备注<textarea name="notes" maxlength="5000">${esc(j.notes)}</textarea></label><label class="wide">下一步<input name="nextStep" value="${esc(j.nextStep)}" maxlength="5000"></label></div><div class="form-actions"><button class="button secondary">保存备注</button></div></form>
     <hr class="section-line"><h3>材料与版本</h3><div id="files">${j.localFiles.length || j.attachments?.length ? `${fileLinks(j.localFiles)}${(j.attachments ?? []).filter(f => f.url).map(f => `<a class="file-link" href="${safeUrl(f.url)}" target="_blank" rel="noopener noreferrer">↗ Notion · ${esc(f.name)}</a>`).join('')}` : '<p>尚无材料。处理任务文件和上传的简历会按版本保存在这里。</p>'}</div>
     <div id="material-panel">${materialForm(j)}</div>
@@ -629,7 +639,7 @@ async function handle(action, button) {
     return;
   }
   if (action === 'portal-refresh') return loadPortal();
-  if (action === 'portal-import') return openPortalImport({ api, esc, showModal, onSaved: async () => { $('#portal-filter').value = 'all'; await loadPortal(); } });
+  if (action === 'portal-import') return openPortalImport({ api, esc, showModal, onSaved: async () => { $('#portal-filter').value = 'all'; await refresh(); await loadPortal(); } });
   if (action === 'activate-base') {
     await api('/api/resume-base/activate', { version: button.dataset.version });
     status = await api('/api/status'); csrf = status.csrf;
@@ -784,7 +794,7 @@ document.addEventListener('submit', async event => {
   event.preventDefault(); const form = event.target, button = event.submitter;
   const formDialog = form.closest('dialog');
   const detailForm = formDialog === $('#detail');
-  if (detailForm && ($('#detail').dataset.saving || form.inert)) return;
+  if ((detailForm || form.id === 'resume-edit-form') && (formDialog.dataset.saving || form.inert)) return;
   const lockedForms = detailForm ? [...$('#detail').querySelectorAll('form')].map(form => ({form, inert: form.inert})) : [];
   const buttonText = button?.textContent;
   let saved = false;
@@ -838,6 +848,7 @@ document.addEventListener('submit', async event => {
       $('[data-action="import"]').hidden = preview.decision === 'REJECT'; return;
     }
     let action, body;
+    if (form.id === 'school-details-form') { action = 'school-details'; body = { ...values, confirmed: form.elements.confirmed.checked, revision: selected.portalRevision, jdHash: selected.assessment.jdHash }; }
     if (form.id === 'notes-form') { action = 'notes'; body = values; }
     if (form.id === 'materials-form') {
       const files = {}; let total = 0;

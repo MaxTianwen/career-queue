@@ -3,7 +3,7 @@ import { fetchGreenhouse } from './greenhouse.mjs';
 import { fetchWorkday } from './workday.mjs';
 import { extractDeadline } from './deadlines.mjs';
 import { postingMetadata } from './posting-metadata.mjs';
-import { EMPLOYER_SOURCES, readEmployerBoard, readPublicJson, boardPosting } from './discovery-sources.mjs';
+import { EMPLOYER_SOURCES, readEmployerBoard, readPublicJson, boardPosting, pinpointUrl, fetchPinpoint } from './discovery-sources.mjs';
 import { enrichFields } from './job-field-evidence.mjs';
 import { discoveryMetrics } from './discovery-metrics.mjs';
 import { locationRegion } from '../web/job-facts.js';
@@ -23,6 +23,7 @@ const readJson = readPublicJson;
 export async function officialJob(candidate, fetchImpl = fetch, boards = new Map()) {
   const u = new URL(candidate.url);
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
+  if (pinpointUrl(candidate.url)) return fetchPinpoint(candidate, fetchImpl);
   if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) return fetchWorkday(candidate, fetchImpl);
   if (['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(u.hostname) && /^\/[\w-]+\/jobs\/\d+\/?$/.test(u.pathname)) {
     return fetchGreenhouse(u.href, candidate.company, fetchImpl);
@@ -88,7 +89,7 @@ export function extractFacts(job) {
   const ambiguousDuration = /\b\d{1,2}\s*(?:or|to|[-–/])\s*\d{1,2}[\s-]+months?\b/i.test(`${job.title}\n${body}`);
   const duration = ambiguousDuration ? [] : [...new Set(durations)];
   let workMode = job.workMode || 'unknown';
-  if (workMode === 'unknown') {
+  if (workMode === 'unknown' && job.fieldEvidence?.workMode?.status !== 'ambiguous') {
     const modes = [...new Set([...`${job.location || ''}\n${body}`.matchAll(/(?:work(?:place)? (?:type|mode|arrangement|model)|this (?:role|position) is)\s*:?\s*(?:an?\s+)?(hybrid|remote|on[ -]?site)\b/gi)].map(m => /^on/i.test(m[1]) ? 'onsite' : m[1].toLowerCase()))];
     if (!modes.length && /\bremote\b/i.test(job.location || '') && !/\bhybrid\b/i.test(job.location || '')) modes.push('remote');
     if (modes.length === 1) workMode = modes[0];
@@ -161,6 +162,7 @@ export async function discover({ fetchImpl = fetch, now = new Date(), onProgress
           const meta = await postingMetadata(job.url, job.title, fetchImpl);
           job = { ...job, postedAt: meta.postedAt, deadline: meta.deadline, sourceEvidence: { ...job.sourceEvidence, publicationError: meta.error, postedAtField: meta.postedAt ? 'JobPosting.datePosted' : null } };
         }
+        if (readMethod === 'inline' && sourceName(job) === 'Pinpoint') job = await fetchPinpoint(job, fetchImpl);
       } catch (e) { fetchError = e.message; readMethod = 'failed'; }
       job = extractFacts(job);
       const result = { ...job, ...evaluateJob(job, now), key: normalizeJob({ ...job, jd: job.jd || 'identity only' }).key,

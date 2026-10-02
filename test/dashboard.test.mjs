@@ -21,7 +21,7 @@ async function listenForTest(server) {
   }
 }
 
-async function setup(t, storeOverride, discoverImpl, cachedReport) {
+async function setup(t, storeOverride, discoverImpl, cachedReport, officialJobImpl) {
   const root = resolve('output/test-runs', randomUUID());
   await mkdir(root, { recursive: true });
   await writeFile(resolve(root, 'career_knowledge_base.md'), '# Synthetic knowledge\nNo real personal information.');
@@ -29,7 +29,7 @@ async function setup(t, storeOverride, discoverImpl, cachedReport) {
     await mkdir(resolve(root, 'output/discovery'), { recursive: true });
     await writeFile(resolve(root, 'output/discovery/latest.json'), JSON.stringify(cachedReport));
   }
-  const server = dashboardServer({ root, storeOverride, discoverImpl });
+  const server = dashboardServer({ root, storeOverride, discoverImpl, officialJobImpl });
   const { url, status } = await listenForTest(server);
   t.after(() => new Promise(r => server.close(r)));
   async function request(path, body, mode = 'demo') {
@@ -428,4 +428,57 @@ test('expired cached discoveries and Queue records are hidden without deleting a
   assert.ok((await request('/api/jobs', undefined, 'live')).data.jobs.some(x => x.key === expired.key && x.status === '已投递'));
   await writeFile(resolve(root, 'career_knowledge_base.md'), '# Missing skill evidence');
   assert.equal((await request('/api/discovery', undefined, 'live')).data.report.results[0].match.score, null);
+});
+
+
+test('unmatched school rows persist only when selected, reimport reuses Queue, JD completion is guarded and preserves notes', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  let reads = 0;
+  const { request: send } = await setup(t, store, undefined, undefined, async job => {
+    reads++; if (reads === 1) throw new Error('Synthetic read failure');
+    return { ...job, jd: 'Python required. Duration: 8 months. Work mode: hybrid.' };
+  });
+  const request = (path, body) => send(path, body, 'live');
+  const row = { id: 'S9001', company: 'Synthetic New Employer', title: 'Software Developer Co-op', term: 'Summer 2027', location: 'Toronto', deadline: '2026-10-05' };
+  const preview = (await request('/api/portal/preview', { rows: [row] })).data;
+  assert.equal(preview.rows[0].category, 'unmatched'); assert.equal((await store.list()).length, 0);
+  const payload = { token: preview.token, confirmed: true, selections: [{ index: 0, key: '__new__' }] };
+  assert.equal((await request('/api/portal/link', { ...payload, confirmed: false })).status, 400);
+  const saved = await request('/api/portal/link', payload);
+  assert.equal(saved.data.errors.length, 0); assert.equal(saved.data.saved.length, 1);
+  const key = saved.data.saved[0];
+  let job = (await request('/api/jobs/' + key)).data;
+  assert.equal(job.match.score, null); assert.equal(job.fullJd, false); assert.equal(job.portal.deadline, '2026-10-05');
+  assert.equal((await request('/api/jobs')).data.jobs.length, 1);
+  assert.equal((await request('/api/jobs/' + key + '/prepare', {})).status, 400);
+  const repeat = (await request('/api/portal/preview', { rows: [row] })).data;
+  assert.equal(repeat.rows[0].category, 'linked'); assert.equal(repeat.rows[0].suggestedKey, key);
+  await request('/api/portal/link', { token: repeat.token, confirmed: true, selections: [{ index: 0, key }] });
+  assert.equal((await store.list()).length, 1);
+  await request('/api/jobs/' + key + '/notes', { notes: 'Keep me', nextStep: 'Read JD' });
+  job = (await request('/api/jobs/' + key)).data;
+  const details = { url: 'https://example.com/jobs/123', jd: '', revision: job.portalRevision, jdHash: job.assessment.jdHash, confirmed: true };
+  assert.equal((await request('/api/jobs/' + key + '/school-details', { ...details, confirmed: false })).status, 400);
+  assert.equal((await request('/api/jobs/' + key + '/school-details', details)).status, 400);
+  assert.equal((await store.find(key)).fullJd, false);
+  const completed = await request('/api/jobs/' + key + '/school-details', details);
+  assert.equal(completed.status, 200, completed.data.error); assert.equal(completed.data.fullJd, true);
+  assert.equal(completed.data.notes, 'Keep me'); assert.equal(completed.data.key, key); assert.equal(completed.data.deadline, null);
+  assert.equal(completed.data.portal.deadline, '2026-10-05'); assert.equal(completed.data.status, 'Queue');
+  assert.equal((await request('/api/jobs/' + key + '/school-details', details)).status, 409);
+});
+
+test('two school previews cannot create duplicate candidates, matched rows cannot bypass association', async t => {
+  const store = new DemoStore(); store.rows.clear(); const { request: send } = await setup(t, store);
+  const request = (path, body) => send(path, body, 'live');
+  const row = { id: 'S9002', company: 'Synthetic New Employer', title: 'Software Developer Co-op', term: 'Summer 2027' };
+  const a = (await request('/api/portal/preview', { rows: [row] })).data;
+  const b = (await request('/api/portal/preview', { rows: [row] })).data;
+  for (const preview of [a,b]) {
+    const result = await request('/api/portal/link', { token: preview.token, confirmed: true, selections: [{ index: 0, key: '__new__' }] });
+    assert.equal(result.data.errors.length, 0);
+  }
+  assert.equal((await store.list()).length, 1);
+  const linked = (await request('/api/portal/preview', { rows: [row] })).data;
+  assert.equal((await request('/api/portal/link', { token: linked.token, confirmed: true, selections: [{ index: 0, key: '__new__' }] })).status, 400);
 });

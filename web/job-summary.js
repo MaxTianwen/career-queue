@@ -12,7 +12,7 @@ export function jobHighlights(job) {
     ['薪资', job.salary || '未披露', false],
     ['工作方式', work, job.workMode === 'remote']
   ];
-  return `<dl class="job-facts" aria-label="岗位关键信息">${facts.map(([label, value, preferred]) => `<div class="job-fact${preferred ? ' preferred' : ''}"><dt>${label}</dt><dd>${esc(value)}</dd>${label === '工作地点' && preferred ? `<small>${region === 'toronto' ? 'Toronto 市内' : 'GTA 地区'}</small>` : ''}</div>`).join('')}</dl>${job.fullJd === false ? '<p class="fact-caveat">索引信息 · 全文未取得，任期和资格待核实</p>' : ''}${job.workMode === 'remote' ? '<p class="fact-caveat">Remote 不代表允许从加拿大办公，请核实工作资格。</p>' : ''}`;
+  return `<dl class="job-facts" aria-label="岗位关键信息">${facts.map(([label, value, preferred]) => `<div class="job-fact${preferred ? ' preferred' : ''}"><dt>${label}</dt><dd>${esc(value)}</dd>${label === '工作地点' && preferred ? `<small>${region === 'toronto' ? 'Toronto 市内' : 'GTA 地区'}</small>` : ''}</div>`).join('')}</dl>${job.fullJd === false ? '<p class="fact-caveat">来源摘要 · 全文未取得，任期和资格待核实</p>' : ''}${job.workMode === 'remote' ? '<p class="fact-caveat">Remote 不代表允许从加拿大办公，请核实工作资格。</p>' : ''}`;
 }
 
 export function skillHighlights(job) {

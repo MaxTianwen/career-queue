@@ -1,4 +1,4 @@
-# Career Queue v1.4.2
+# Career Queue v1.4.3
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.2` (release authorized by the user on 2026-10-02). Saving one section preserves unsaved inputs elsewhere and defers the detail refresh until those inputs are saved or explicitly discarded. It does not silently save notes. Returning after a save restores focus to the same visible job. All 253 regression tests pass. Native zoom, screenshot and native confirmation-dialog verification limits remain; see [v1.4.2 verification](docs/releases/v1.4.2-verification.md). The previous release is `v1.4.1` (`f45673f`). See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.4.3` (2026-10-02 release). Editing and review controls are locked while saving; failures preserve inputs and allow retry. Duplicate editor submissions are blocked, and a successful save is distinguished from a subsequent preview failure. Returning to the preview restores keyboard focus. Selected unmatched school candidates can now be saved to Queue, and Vena / Pinpoint discovery and JD reading are supported. 274 regression tests pass. Native zoom, screenshot and confirmation-dialog verification limits remain; see [v1.4.3 verification](docs/releases/v1.4.3-verification.md). The previous published version is `v1.4.2` (`3fe687f`). See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
 
 ## Start and verify
 
@@ -68,7 +68,7 @@ Dashboard 4317, supervisor lock 4318 and token-authenticated Gateway 18791 bind 
 
 ### v1.2.1 public employer discovery
 
-- Searches the existing index plus the public Tenstorrent University, Cohere and Telesat boards. These are three named employers, not all employers on three ATS platforms.
+- Searches the existing index plus the public Tenstorrent University, Cohere, Telesat and Vena Solutions boards. These are four named employers, not all employers on those ATS platforms.
 - Partial failures retain other results. Discovery metrics distinguish raw rows, scoped candidates, incremental verified / pending results, deduplication, inline descriptions and actual detail requests.
 - Grouped sources keep separate JD text and evidence. Salary currency and period, duration ranges and workplace evidence remain explicit; missing values are not guessed.
 - The read-only live run found three incremental candidates requiring review, including two Cohere Winter 2027 postings. None passed every rule without review. See [source audit](docs/DATA_SOURCES.md).
@@ -162,3 +162,9 @@ Filter Queue by Status = Queue. Filter Applications by 待提交 (ready to submi
 - Local feature verification is not a complete live application acceptance test. The full workflow using real materials, from upload through ready to submit and confirmed submission, has not yet been validated.
 
 See [ROADMAP](ROADMAP.md): v1.2.1 is published. v1.2.2 local comparison and review are published; semantic rewriting is deferred. v1.3 now provides local OpenClaw discovery. Semi-automatic applications move into v2.0 alongside the multi-user CS / Data pilot, in stages: establish accounts and data isolation, then trial assistance on selected sites, with the user clicking final Submit in the recommended first pilot. Sites, models, costs and data-transfer scope need decisions before implementation. v1.3 local scheduled discovery is implemented; the v2.0 features remain unstarted.
+
+### School-only candidates
+
+Paste the portal list under School tasks, preview matches, select “新增到 Queue（待补 JD）” for unmatched rows and confirm the selected items. They appear in Saved / Queue. Reimporting the same school ID reuses its record.
+
+Add the corresponding employer URL in the candidate details. Leave JD blank to try a supported public reader, or paste the complete JD yourself. No scoring or material preparation is allowed before completion. School and employer deadlines stay separate. If the employer job already exists, unlink the candidate’s school ID, associate the existing application, then archive the candidate. Vena uses a verified public Pinpoint board and matching job pages; this is not global Pinpoint coverage.
