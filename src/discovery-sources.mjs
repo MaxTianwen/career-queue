@@ -1,8 +1,10 @@
+import { readAmazonBoard } from './amazon.mjs';
 import { readGenesysBoard } from './genesys-board.mjs';
 import { readCelesticaBoard } from './celestica.mjs';
 
 // Fixed public employer boards, not a global ATS search or an arbitrary URL reader.
 export const EMPLOYER_SOURCES = [
+  { id: 'amazon', name: 'Amazon', type: 'amazon', board: 'canada-internships', url: 'https://www.amazon.jobs/en/search?base_query=intern&country=CAN' },
   { id: 'tenstorrent', name: 'Tenstorrent', type: 'greenhouse', board: 'tenstorrentuniversity', url: 'https://job-boards.greenhouse.io/tenstorrentuniversity' },
   { id: 'cohere', name: 'Cohere', type: 'ashby', board: 'cohere', url: 'https://jobs.ashbyhq.com/cohere' },
   { id: 'telesat', name: 'Telesat', type: 'lever', board: 'telesat', url: 'https://jobs.lever.co/telesat' },
@@ -69,6 +71,7 @@ export function boardPosting(source, j, api) {
 }
 
 export async function readEmployerBoard(source, fetchImpl = fetch) {
+  if (source.id === 'amazon' && source.type === 'amazon' && source.board === 'canada-internships') return readAmazonBoard(source, fetchImpl);
   if (source.id === 'celestica' && source.type === 'celestica' && source.board === 'students') return readCelesticaBoard(source, fetchImpl);
   if (source.id === 'genesys' && source.type === 'workday' && source.board === 'Genesys') return readGenesysBoard(source, fetchImpl);
   if (!/^[a-z0-9_-]+$/i.test(source.board) || !['greenhouse', 'ashby', 'lever', 'pinpoint'].includes(source.type) || source.type === 'pinpoint' && source.board !== 'vena') throw new Error('不支持的公开来源配置');

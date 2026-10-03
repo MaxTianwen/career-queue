@@ -1,3 +1,4 @@
+import { amazonUrl } from './amazon.mjs';
 import { createHash } from 'node:crypto';
 import { canonicalUrl, normalizeJob } from './core.mjs';
 import { deadlineExpired } from './deadlines.mjs';
@@ -11,6 +12,7 @@ const snapshots = jobs => [...new Map(jobs.flatMap(j => j.groupedSources || [{ k
 const normalized = value => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 export function postingUrl(value) {
+  if (amazonUrl(value)) return amazonUrl(value);
   if (celesticaUrl(value)) return celesticaUrl(value);
   if (pinpointUrl(value)) return pinpointUrl(value);
   const url = new URL(canonicalUrl(value));
@@ -26,6 +28,7 @@ export function postingUrl(value) {
 }
 
 export function sourceName(job) {
+  if (amazonUrl(job.url)) return 'Amazon Jobs';
   if (job.schoolCandidate) return '学校列表 · 待补 JD';
   if (celesticaUrl(job.url)) return 'Celestica';
   if (pinpointUrl(job.url)) return 'Pinpoint';
@@ -45,7 +48,9 @@ export function mergeDiscoveryJobs(jobs, stats = {}) {
   let duplicates = 0;
   for (const input of jobs) {
     const job = { ...input, sourceLinks: [...new Set([...(input.sourceLinks || []), input.url])] };
-    const term = normalized(job.term && job.term !== 'Unknown' ? job.term : [...(job.indexEvidence?.terms || [])].sort().join('|'));
+    // Amazon's verified ID identifies one official posting with multiple start
+    // options; an index's single-season hint must not create a duplicate card.
+    const term = normalized(amazonUrl(job.url) && job.requisitionId ? job.term : job.term && job.term !== 'Unknown' ? job.term : [...(job.indexEvidence?.terms || [])].sort().join('|'));
     const keys = [`url:${postingUrl(job.url)}|${term}`];
     if (job.company && job.requisitionId && ['requisition_id', 'JobPosting.identifier'].includes(job.sourceEvidence?.requisitionIdField)) {
       keys.push(`req:${normalized(job.company)}|${normalized(job.requisitionId)}|${term}`);

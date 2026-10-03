@@ -1,3 +1,4 @@
+import { amazonUrl, fetchAmazon } from './amazon.mjs';
 import { normalizeJob, evaluateJob, comparePreference, TARGET_TERMS } from './core.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import { fetchWorkday } from './workday.mjs';
@@ -24,6 +25,7 @@ const readJson = readPublicJson;
 export async function officialJob(candidate, fetchImpl = fetch, boards = new Map()) {
   const u = new URL(candidate.url);
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
+  if (amazonUrl(candidate.url)) return fetchAmazon(candidate, fetchImpl);
   if (celesticaUrl(candidate.url)) return fetchCelestica(candidate, fetchImpl);
   if (pinpointUrl(candidate.url)) return fetchPinpoint(candidate, fetchImpl);
   if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) return fetchWorkday(candidate, fetchImpl);
@@ -100,7 +102,7 @@ export function extractFacts(job) {
     if (modes.length === 1) workMode = modes[0];
   }
   const region = locationRegion({ location: job.location, inGta: job.inGta });
-  const result = { ...job, ...extractDeadline(job), term: terms.length === 1 ? terms[0] : terms.length === 2 && terms.includes('Summer 2027') && terms.includes('Fall 2027') ? 'Summer/Fall 2027' : 'Unknown',
+  const result = { ...job, ...extractDeadline(job), term: ['ambiguous', 'options'].includes(job.fieldEvidence?.term?.status) ? 'Unknown' : terms.length === 1 ? terms[0] : terms.length === 2 && terms.includes('Summer 2027') && terms.includes('Fall 2027') ? 'Summer/Fall 2027' : 'Unknown',
     workMode, durationMonths: duration.length === 1 ? duration[0] : null,
     inGta: ['toronto', 'gta'].includes(region) ? true : region === 'outside' ? false : null,
     isIntern: /\b(intern(?:ship)?|co[ -]?op)\b/i.test(job.title) ? true : null,

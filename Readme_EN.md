@@ -1,4 +1,4 @@
-# Career Queue v1.4.8
+# Career Queue v1.4.9
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.8` (released 2026-10-02). Match Score now explains recognized requirements, resume evidence, basic exposure and missing evidence separately. Location/work-mode notices expand to show source wording and links. Scores, weights and ordering are unchanged. See [verification](docs/releases/v1.4.8-verification.md). Published on GitHub main / v1.4.8.
+Current version: `v1.4.9` (released to GitHub main / v1.4.9 on 2026-10-03). Adds bounded Amazon Canada intern / co-op discovery, deduplication with existing sources, full descriptions, official posting dates, school requisition comparisons and availability rechecks. Multiple start options retain their source text rather than selecting one season.
 
 ## Start and verify
 
