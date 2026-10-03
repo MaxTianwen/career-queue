@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { currentResumeProfiles } from './resume-profile.mjs';
-import { assessJob, assessmentSnapshot } from './assessment.mjs';
+import { assessJob, assessmentSnapshot, isSchoolOnly, requireAvailable } from './assessment.mjs';
 import { selectResumeTrack } from './resume-track.mjs';
 import { buildProfile, matchJob } from './matching.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
@@ -172,6 +172,7 @@ export function buildResumePlan(job, knowledge, config, requested = 'auto') {
 
 export async function prepareResumeDraft(root, job, requested = 'auto', evaluationSnapshot = null) {
   if (!keyPattern.test(job.key || '')) throw new Error('职位标识无效');
+  if (isSchoolOnly(job)) requireAvailable(job);
   if (job.status && !['Queue', '待提交'].includes(job.status)) throw new Error('该申请状态不允许生成新材料');
   if (!job.jd?.trim() || job.fullJd === false) throw new Error('需要完整 JD 才能定制简历');
   if (deadlineExpired(extractDeadline(job).deadline)) throw new Error('申请已截止，不能生成申请材料');

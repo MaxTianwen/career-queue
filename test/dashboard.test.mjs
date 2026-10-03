@@ -9,6 +9,7 @@ import { dashboardServer } from '../src/dashboard.mjs';
 import { DemoStore } from '../src/demo-store.mjs';
 import { schoolCandidate, completeSchoolCandidate } from '../src/school-candidates.mjs';
 import { normalizeJob, newRecord } from '../src/core.mjs';
+import { schoolInputHash } from '../src/assessment.mjs';
 
 test('school completion previews an existing application; interrupted transfer blocks unlink and resumes', async t => {
   const store = new DemoStore(); store.rows.clear();
@@ -663,4 +664,37 @@ test('completed school JD association keeps history and blocks unlink during int
   assert.equal(archived.status, '已归档'); assert.deepEqual(archived.schoolJd, source.schoolJd);
   assert.equal(linked.notes, target.notes); assert.equal(linked.status, 'Queue'); assert.equal(linked.portal.id, source.portal.id);
   assert.equal((await store.list()).length, 2);
+});
+
+
+test('school confirmation persists separately, retries after failure and rejects stale input without official requests', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const job = completeSchoolCandidate(schoolCandidate({ id: 'S-MATERIAL-15', company: 'Synthetic School', title: 'Software Intern', term: 'Summer 2027', location: 'Toronto', deadline: '2027-01-10' }, []), { jdSource: 'school', jd: 'Required: Python. Duration: 8 months. Work mode: hybrid.' }, []);
+  job.notes = 'Keep'; await store.create(job);
+  const { request: send } = await setup(t, store);
+  const request = (p,b) => send(p,b,'live'), path = '/api/jobs/' + job.key;
+  const current = (await request(path)).data;
+  const input = { source: 'queue', key: job.key, assessmentId: current.assessment.id, inputHash: current.schoolAvailabilityView.inputHash, confirmed: true, note: 'School Apply entry checked' };
+  for (const changed of [{ confirmed: false }, { note: '' }, { inputHash: 'stale' }, { assessmentId: 'stale' }]) assert.ok((await request('/api/assessment/school-confirm', { ...input, ...changed })).status >= 400);
+  const update = store.updateState.bind(store); let fail = true;
+  store.updateState = async record => { if (fail) throw Error('Synthetic persistence failure'); return update(record); };
+  assert.equal((await request('/api/assessment/school-confirm', input)).status, 400);
+  assert.equal((await store.find(job.key)).schoolAvailability, undefined);
+  fail = false;
+  const saved = await request('/api/assessment/school-confirm', input);
+  assert.equal(saved.status, 200, saved.data.error); assert.equal(saved.data.schoolAvailabilityView.recent, true);
+  assert.equal(saved.data.availabilityView.status, 'unknown'); assert.equal(saved.data.notes, 'Keep'); assert.equal(saved.data.status, 'Queue');
+  assert.deepEqual(saved.data.portal, job.portal);
+  for (const action of ['prepare','complete','submitted']) assert.equal((await request(path + '/' + action, { confirmed: true })).status, 400);
+  // An eligible confirmation passes the availability gate and reaches the absent test Word baseline.
+  const proposal = await request('/api/resume/proposal', { source: 'queue', key: job.key, assessmentId: saved.data.assessment.id, resumeTrack: 'cs' });
+  assert.equal(proposal.status, 400); assert.doesNotMatch(proposal.data.error, /学校来源|无法复查官网/);
+  const changed = { ...await store.find(job.key), portal: { ...job.portal, deadline: '2027-01-11' } };
+  await update(changed);
+  assert.equal((await request('/api/assessment/school-confirm', input)).status, 409);
+  assert.equal((await request(path)).data.schoolAvailabilityView.recent, false);
+  const expired = { ...changed, portal: { ...changed.portal, deadline: '2001-01-01' } }; await update(expired);
+  const after = (await request(path)).data;
+  const denied = await request('/api/assessment/school-confirm', { ...input, assessmentId: after.assessment.id, inputHash: schoolInputHash(expired) });
+  assert.equal(denied.status, 400); assert.match(denied.data.error, /截止/);
 });

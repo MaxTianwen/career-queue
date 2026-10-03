@@ -20,7 +20,7 @@ import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
 import { currentResumeProfiles } from './resume-profile.mjs';
 import { selectResumeTrack } from './resume-track.mjs';
-import { assessJob, assessmentSnapshot, materialFreshness, jobInputHash, availabilityState, requireAvailable } from './assessment.mjs';
+import { assessJob, assessmentSnapshot, materialFreshness, jobInputHash, availabilityState, requireAvailable, isSchoolOnly, schoolInputHash, schoolAvailabilityState, confirmSchoolAvailability } from './assessment.mjs';
 import { checkAvailability } from './availability.mjs';
 import { resumeStatus, prepareResumeDraft, generateResume, editableResume, saveManualResume, latestResume, validatedResume } from './resume.mjs';
 import { publicReviewDraft } from './resume-review.mjs';
@@ -85,6 +85,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         evaluation.decision = 'REJECT'; evaluation.reasons.unshift(availability.status === 'closed' ? '官方岗位已关闭或截止' : '本人已确认与必需资格冲突');
       }
       return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), ...assessed, availabilityView: availability, materialFreshness: materialFreshness(record.materialVersion, assessed.assessment),
+        ...(isSchoolOnly(job) ? { schoolAvailabilityView: schoolAvailabilityState(job) } : {}),
         portalRevision: portalRevision(record), portalSummary: portalSummary(record) };
     });
   }
@@ -119,6 +120,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
   async function saveJobEvidence(source, before, changes, mode) {
     const current = await selectedJob(source, before.key, mode);
     if (jobInputHash(current) !== jobInputHash(before)) throw fail('JD 已变化，请重新打开详情后操作', 409);
+    if (changes.schoolAvailability && schoolInputHash(current) !== schoolInputHash(before)) throw fail('学校信息已变化，请重新打开详情后操作', 409);
     const next = { ...current, ...changes };
     if (source === 'queue') await (await storeFor(mode)).updateState(next);
     else {
@@ -279,6 +281,14 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (busy) throw Object.assign(fail('另一个操作正在进行，请稍后再试', 409), { code: 'OPERATION_BUSY' });
       busy = true; ownsLock = true;
       const body = await jsonBody(req);
+      if (url.pathname === '/api/assessment/school-confirm') {
+        if (mode !== 'live' || body.source !== 'queue') throw fail('请在真实工作区选择已保存的学校岗位');
+        const job = await selectedJob(body.source, body.key, mode);
+        const assessed = await evaluated(job, mode);
+        if (body.assessmentId !== assessed.assessment.id) throw fail('简历或学校信息已变化，请重新打开详情核对', 409);
+        const schoolAvailability = confirmSchoolAvailability(job, body);
+        return send(await evaluated(await saveJobEvidence(body.source, job, { schoolAvailability }, mode), mode));
+      }
       if (url.pathname === '/api/assessment/recheck' || url.pathname === '/api/assessment/confirm' || url.pathname === '/api/assessment/eligibility') {
         let job = await selectedJob(body.source, body.key, mode);
         if (url.pathname.endsWith('/recheck')) job = await recheckJob(body.source, job, mode);
@@ -378,8 +388,9 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         } else throw fail('职位来源无效');
         // Check only the selected official posting. A failed read requires a separate human confirmation.
         job = await selectedJob(body.source, body.key, mode);
-        if (!availabilityState(job).recent) job = await recheckJob(body.source, job, mode);
+        if (!isSchoolOnly(job) && !availabilityState(job).recent) job = await recheckJob(body.source, job, mode);
         requireAvailable(job);
+        if (isSchoolOnly(job) && evaluateJob(job).decision === 'REJECT') throw fail('此学校岗位不符合现有筛选条件，不能生成材料');
         const assessed = await evaluated(job, mode);
         if (assessed.eligibility?.summary.hardConflict) throw fail('本人已确认与岗位必需条件冲突，不能生成');
         if (body.assessmentId !== assessed.assessment.id) throw fail('简历或官方 JD 已变化，请重新打开详情核对后生成', 409);

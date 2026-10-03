@@ -250,10 +250,10 @@ function scoreDetails(job) {
   return `<p><b>简历方向：${esc(job.resumeClassification?.label || '待确认')}</b> · ${esc(job.resumeClassification?.basis || '待分析')}判断，可在准备任务时切换。</p>${matchingDetails(job)}`;
 }
 function resumeControls(job, source) {
-  if (job.jdSource === 'school' && !job.url) return '';
-  if (mode !== 'demo' && (job.availabilityView?.status === 'closed' || job.eligibility?.summary.hardConflict || job.expired)) return `<section class="resume-controls"><h3>已有简历版本</h3><p>停止生成新材料，历史版本仍可预览或下载。</p><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button><div id="generate-result" role="status"></div></section>`;
+  const school = job.jdSource === 'school' && !job.url;
+  if (mode !== 'demo' && (job.availabilityView?.status === 'closed' || job.eligibility?.summary.hardConflict || job.expired || school && (job.schoolAvailabilityView?.expired || job.decision === 'REJECT'))) return `<section class="resume-controls"><h3>已有简历版本</h3><p>停止生成新材料，历史版本仍可预览或下载。</p><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button><div id="generate-result" role="status"></div></section>`;
   if ((source === 'discovery' && searchState.state === 'running') || mode === 'demo' || job.identityConflict || job.expired || job.fullJd === false || (source === 'discovery' && job.decision === 'REJECT') || (job.status && !['Queue', '待提交'].includes(job.status))) return '';
-  return `<section class="resume-controls"><h3>定制一页简历</h3><p>${esc(status.resume?.ready ? status.resume.note : status.resume?.reason || '模板尚未就绪')}</p><div class="baseline-summary">${['cs', 'data'].map(track => { const t = status.resume?.tracks?.[track]; return `<p><b>${track.toUpperCase()} 基准</b> · ${esc(t?.name || '未配置')}<small>${esc(t?.version || '最初固定模板')}${t?.ready === false ? ` · ${esc(t.reason)}` : ''}</small></p>`; }).join('')}<button class="text-button" data-action="resumes">管理 / 上传简历 →</button></div><label>生成使用的原始简历<select id="generate-track"><option value="auto">自动：${esc(job.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><div class="form-actions"><button class="button primary" data-action="generate-resume" data-key="${job.key}" data-source="${source}" ${status.resume?.ready ? '' : 'disabled'}>准备简历修改对照</button><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button></div><p>原稿只读；新版本保存到本项目。通过原格式与一页检查后提供 DOCX / PDF，申请状态保持不变。</p><div id="generate-result" role="status"></div></section>`;
+  return `<section class="resume-controls"><h3>定制一页简历</h3>${school ? '<p>学校来源材料仅在本机生成、预览与编辑。准备及生成时会检查学校核实是否仍有效。</p>' : ''}<p>${esc(status.resume?.ready ? status.resume.note : status.resume?.reason || '模板尚未就绪')}</p><div class="baseline-summary">${['cs', 'data'].map(track => { const t = status.resume?.tracks?.[track]; return `<p><b>${track.toUpperCase()} 基准</b> · ${esc(t?.name || '未配置')}<small>${esc(t?.version || '最初固定模板')}${t?.ready === false ? ` · ${esc(t.reason)}` : ''}</small></p>`; }).join('')}<button class="text-button" data-action="resumes">管理 / 上传简历 →</button></div><label>生成使用的原始简历<select id="generate-track"><option value="auto">自动：${esc(job.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><div class="form-actions"><button class="button primary" data-action="generate-resume" data-key="${job.key}" data-source="${source}" ${status.resume?.ready ? '' : 'disabled'}>准备简历修改对照</button><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button></div><p>原稿只读；新版本保存到本项目。通过原格式与一页检查后提供 DOCX / PDF，申请状态保持不变。</p><div id="generate-result" role="status"></div></section>`;
 }
 function fileLinks(files) {
   return files.map(f => `<div class="material-file"><div><strong>${esc(f.name)}</strong><small>${esc(f.version || (f.modified ? new Date(f.modified).toLocaleString('zh-CN') : '本次生成'))}</small></div><div class="file-actions">${f.name.endsWith('.pdf') ? `<button class="button secondary compact" data-action="preview-file" data-url="${esc(f.url)}" data-name="${esc(f.name)}" data-version="${esc(f.version || '')}">预览 PDF</button>` : ''}<a class="button secondary compact" href="${esc(f.url)}">下载</a></div></div>`).join('');
@@ -538,11 +538,11 @@ function showModal(title, subtitle, content) {
 }
 function schoolDetailsForm(j) {
   if (!(j.schoolCandidate || j.jdSource === 'school' && !j.url) || j.status !== 'Queue') return '';
-  const form = `<form id="school-details-form"><h3>${j.fullJd ? '补充官网链接' : '补齐职位正文'}</h3>${j.fullJd ? '' : '<label>正文来源<select name="jdSource"><option value="official">官网链接 / 官网 JD</option><option value="school">学校 JD · 无官网链接</option></select></label>'}<label data-school-url>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.pendingSchoolUrl || j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="官网链接模式可留空自动读取；学校来源须粘贴完整正文。"></textarea></label><p data-school-note hidden>保存后可阅读和查看匹配；无官网链接时暂不准备材料，也不改变学校与官网投递状态。</p><label class="check"><input type="checkbox" name="confirmed" required>我已核对所提供的链接或正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>`;
+  const form = `<form id="school-details-form"><h3>${j.fullJd ? '补充官网链接' : '补齐职位正文'}</h3>${j.fullJd ? '' : '<label>正文来源<select name="jdSource"><option value="official">官网链接 / 官网 JD</option><option value="school">学校 JD · 无官网链接</option></select></label>'}<label data-school-url>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.pendingSchoolUrl || j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="官网链接模式可留空自动读取；学校来源须粘贴完整正文。"></textarea></label><p data-school-note hidden>保存后可阅读和查看匹配；无官网链接时，需本人核实学校仍接受申请后才能生成简历；学校与官网投递状态不变。</p><label class="check"><input type="checkbox" name="confirmed" required>我已核对所提供的链接或正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>`;
   return j.fullJd ? `<details><summary>补充官网链接（可选）</summary>${form}</details>` : form;
 }
 function materialForm(j) {
-  if (j.jdSource === 'school' && !j.url) return '<p>学校来源尚无官网链接，本版暂不准备或上传申请材料。学校与官网投递状态保持不变。</p>';
+  if (j.jdSource === 'school' && !j.url) return '<p>学校来源材料可在上方生成、预览与编辑；本版暂不上传至 Notion 或设为待提交。学校与官网投递状态保持不变。</p>';
   if (j.fullJd === false) return '<p>补齐完整 JD 后，可以评分和准备申请材料。</p>';
   if (!['Queue', '待提交'].includes(j.status)) return '';
   const generated = j.generatedMaterial?.version ? j.generatedMaterial : null;
@@ -845,13 +845,13 @@ document.addEventListener('submit', async event => {
     if (form.id === 'resume-edit-form') { await saveResumeEditor(form); return; }
     if (form.id === 'resume-review-form') return;
     const values = Object.fromEntries(new FormData(form));
-    if (form.id === 'availability-confirm-form' || form.classList.contains('eligibility-form')) {
-      const context = detailContext, eligibility = form.classList.contains('eligibility-form');
+    if (['availability-confirm-form', 'school-availability-confirm-form'].includes(form.id) || form.classList.contains('eligibility-form')) {
+      const context = detailContext, eligibility = form.classList.contains('eligibility-form'), school = form.id === 'school-availability-confirm-form';
       if (!context) return;
-      const job = await api(`/api/assessment/${eligibility ? 'eligibility' : 'confirm'}`, {
+      const job = await api(`/api/assessment/${eligibility ? 'eligibility' : school ? 'school-confirm' : 'confirm'}`, {
         source: context.source, key: context.key, assessmentId: context.job.assessment?.id,
         confirmed: form.elements.confirmed.checked, note: values.note,
-        ...(eligibility ? { requirementId: form.dataset.requirementId, outcome: values.outcome } : { checkedAt: context.job.availabilityView?.checkedAt })
+        ...(eligibility ? { requirementId: form.dataset.requirementId, outcome: values.outcome } : school ? { inputHash: context.job.schoolAvailabilityView?.inputHash } : { checkedAt: context.job.availabilityView?.checkedAt })
       });
       saved = true;
       markDetailFormSaved(form);

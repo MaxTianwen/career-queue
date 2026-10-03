@@ -10,11 +10,27 @@ import { dashboardServer } from '../src/dashboard.mjs';
 import { automationAdapter } from '../src/automation.mjs';
 import { automationView } from '../web/automation-view.js';
 
+async function listenForTest(server) {
+  // Windows may allocate a Fetch-reserved ephemeral port (observed: 6666).
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/health`);
+      await response.arrayBuffer();
+      return;
+    } catch (error) {
+      const port = server.address().port;
+      await new Promise(r => server.close(r));
+      if (error.cause?.message !== 'bad port' || attempt === 9) throw new Error(`Test server port ${port}: ${error.message}`, { cause: error });
+    }
+  }
+}
+
 test('readiness requires the correct application, workspace and ready response, not just an open port', async t => {
   const root = resolve('output/test-runs', randomUUID());
   let body = { service: 'another-app', workspaceId: workspaceId(root), ready: true };
   const foreign = createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); });
-  await new Promise(r => foreign.listen(0, '127.0.0.1', r));
+  await listenForTest(foreign);
   t.after(() => new Promise(r => foreign.close(r)));
   const port = foreign.address().port;
   assert.equal(await portListening(port), true);
@@ -26,7 +42,7 @@ test('readiness requires the correct application, workspace and ready response, 
   body.ready = true;
   assert.equal(await dashboardReady(root, port), true);
   const app = dashboardServer({ root });
-  await new Promise(r => app.listen(0, '127.0.0.1', r));
+  await listenForTest(app);
   t.after(() => new Promise(r => app.close(r)));
   assert.equal(await dashboardReady(root, app.address().port), true);
 });
