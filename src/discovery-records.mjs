@@ -3,6 +3,7 @@ import { canonicalUrl, normalizeJob } from './core.mjs';
 import { deadlineExpired } from './deadlines.mjs';
 import { durationRange, publication, workModes } from '../web/job-facts.js';
 import { pinpointUrl } from './discovery-sources.mjs';
+import { celesticaUrl } from './celestica.mjs';
 
 const known = value => value != null && !['', 'unknown', '未披露'].includes(String(value).trim().toLowerCase());
 const lineage = jobs => [...new Map(jobs.flatMap(j => j.discoverySources || []).map(s => [s.id, s])).values()];
@@ -10,6 +11,7 @@ const snapshots = jobs => [...new Map(jobs.flatMap(j => j.groupedSources || [{ k
 const normalized = value => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 export function postingUrl(value) {
+  if (celesticaUrl(value)) return celesticaUrl(value);
   if (pinpointUrl(value)) return pinpointUrl(value);
   const url = new URL(canonicalUrl(value));
   if (['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(url.hostname) && /^\/[\w-]+\/jobs\/\d+(?:\/(?:apply|application))?$/.test(url.pathname)) {
@@ -25,6 +27,7 @@ export function postingUrl(value) {
 
 export function sourceName(job) {
   if (job.schoolCandidate) return '学校列表 · 待补 JD';
+  if (celesticaUrl(job.url)) return 'Celestica';
   if (pinpointUrl(job.url)) return 'Pinpoint';
   let host;
   try { host = new URL(job.url).hostname; } catch { return '来源待核实'; }

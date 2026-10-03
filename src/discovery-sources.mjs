@@ -1,4 +1,5 @@
 import { readGenesysBoard } from './genesys-board.mjs';
+import { readCelesticaBoard } from './celestica.mjs';
 
 // Fixed public employer boards, not a global ATS search or an arbitrary URL reader.
 export const EMPLOYER_SOURCES = [
@@ -6,7 +7,9 @@ export const EMPLOYER_SOURCES = [
   { id: 'cohere', name: 'Cohere', type: 'ashby', board: 'cohere', url: 'https://jobs.ashbyhq.com/cohere' },
   { id: 'telesat', name: 'Telesat', type: 'lever', board: 'telesat', url: 'https://jobs.lever.co/telesat' },
   { id: 'vena', name: 'Vena Solutions', type: 'pinpoint', board: 'vena', url: 'https://www.lifeatvena.com/en' },
-  { id: 'genesys', name: 'Genesys', type: 'workday', board: 'Genesys', url: 'https://genesys.wd1.myworkdayjobs.com/en-US/Genesys' }
+  { id: 'genesys', name: 'Genesys', type: 'workday', board: 'Genesys', url: 'https://genesys.wd1.myworkdayjobs.com/en-US/Genesys' },
+  { id: 'celestica', name: 'Celestica', type: 'celestica', board: 'students', url: 'https://careers.celestica.com/go/Students-and-Interns/8944801/' },
+  { id: 'veeva', name: 'Veeva Systems', type: 'lever', board: 'veeva', url: 'https://jobs.lever.co/veeva' }
 ];
 
 export async function readPublicJson(url, fetchImpl) {
@@ -66,6 +69,7 @@ export function boardPosting(source, j, api) {
 }
 
 export async function readEmployerBoard(source, fetchImpl = fetch) {
+  if (source.id === 'celestica' && source.type === 'celestica' && source.board === 'students') return readCelesticaBoard(source, fetchImpl);
   if (source.id === 'genesys' && source.type === 'workday' && source.board === 'Genesys') return readGenesysBoard(source, fetchImpl);
   if (!/^[a-z0-9_-]+$/i.test(source.board) || !['greenhouse', 'ashby', 'lever', 'pinpoint'].includes(source.type) || source.type === 'pinpoint' && source.board !== 'vena') throw new Error('不支持的公开来源配置');
   const api = source.type === 'pinpoint' ? 'https://www.lifeatvena.com/en/postings.json' : source.type === 'greenhouse' ? `https://boards-api.greenhouse.io/v1/boards/${source.board}/jobs?content=true` : source.type === 'ashby' ? `https://api.ashbyhq.com/posting-api/job-board/${source.board}?includeCompensation=true` : `https://api.lever.co/v0/postings/${source.board}?mode=json`;

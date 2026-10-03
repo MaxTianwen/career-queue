@@ -2,9 +2,12 @@ import { officialJob } from './discovery.mjs';
 import { deadlineExpired, extractDeadline } from './deadlines.mjs';
 import { workdayUrl } from './workday.mjs';
 import { pinpointUrl } from './discovery-sources.mjs';
+import { celesticaUrl } from './celestica.mjs';
 
 // An allowlist for the existing public readers, never a general URL fetcher.
 function source(value) {
+  const celestica = celesticaUrl(value);
+  if (celestica) return { url: celestica, allowed: new Set([celestica]) };
   const pinpoint = pinpointUrl(value);
   if (pinpoint) return { url: pinpoint, allowed: new Set([pinpoint]) };
   const u = new URL(value);

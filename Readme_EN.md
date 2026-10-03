@@ -1,4 +1,4 @@
-# Career Queue v1.4.5
+# Career Queue v1.4.6
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.5` (authorized release). Adds Genesys discovery, multiline portal paste support, and a read-only comparison against discovered and prefiltered postings. Users explicitly adopt a posting URL before previewing and saving. Grouped requisitions retain their own links. See [verification](docs/releases/v1.4.5-verification.md). Publication of v1.4.5 is authorized; v1.4.6 will require separate approval.
+Current version: `v1.4.6` (2026-10-02 release). Adds the Celestica student board, full job descriptions and availability checks, plus Veeva discovery through its public Lever board. Complete list retrieval does not imply every school posting is available. See [verification](docs/releases/v1.4.6-verification.md). Release target: main and v1.4.6 in the existing private repository.
 
 ## Start and verify
 
@@ -68,7 +68,7 @@ Dashboard 4317, supervisor lock 4318 and token-authenticated Gateway 18791 bind 
 
 ### v1.2.1 public employer discovery
 
-- Searches the existing index plus the public Tenstorrent University, Cohere, Telesat, Vena Solutions and Genesys boards. These are five named employers, not all employers on those ATS platforms.
+- Searches the existing index plus the public Tenstorrent University, Cohere, Telesat, Vena Solutions, Genesys, Celestica and Veeva Systems boards. These are seven named employers, not all employers on those ATS platforms.
 - Partial failures retain other results. Discovery metrics distinguish raw rows, scoped candidates, incremental verified / pending results, deduplication, inline descriptions and actual detail requests.
 - Grouped sources keep separate JD text and evidence. Salary currency and period, duration ranges and workplace evidence remain explicit; missing values are not guessed.
 - The read-only live run found three incremental candidates requiring review, including two Cohere Winter 2027 postings. None passed every rule without review. See [source audit](docs/DATA_SOURCES.md).

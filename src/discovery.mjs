@@ -1,6 +1,7 @@
 import { normalizeJob, evaluateJob, comparePreference, TARGET_TERMS } from './core.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import { fetchWorkday } from './workday.mjs';
+import { celesticaUrl, fetchCelestica } from './celestica.mjs';
 import { extractDeadline } from './deadlines.mjs';
 import { postingMetadata } from './posting-metadata.mjs';
 import { EMPLOYER_SOURCES, readEmployerBoard, readPublicJson, boardPosting, pinpointUrl, fetchPinpoint } from './discovery-sources.mjs';
@@ -14,7 +15,7 @@ export const SOURCE = {
   url: 'https://github.com/SimplifyJobs/Summer2027-Internships',
   dataUrl: 'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json'
 };
-const geography = /\b(canada|toronto|north york|scarborough|markham|vaughan|waterloo|vancouver|montreal|montréal|ottawa|calgary|edmonton|remote)\b/i;
+const geography = /\b(canada|toronto|north york|scarborough|markham|vaughan|newmarket|waterloo|vancouver|montreal|montréal|ottawa|calgary|edmonton|remote)\b/i;
 const role = /\b(software|developer|programmer|data|analytics|analyst|machine learning|AI|ML|QA|quality assurance|test|SRE|DevOps|cloud|platform|IT|information (systems|technology)|cyber|security|firmware|embedded|full.stack|front.end|back.end)\b/i;
 
 const readJson = readPublicJson;
@@ -23,6 +24,7 @@ const readJson = readPublicJson;
 export async function officialJob(candidate, fetchImpl = fetch, boards = new Map()) {
   const u = new URL(candidate.url);
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
+  if (celesticaUrl(candidate.url)) return fetchCelestica(candidate, fetchImpl);
   if (pinpointUrl(candidate.url)) return fetchPinpoint(candidate, fetchImpl);
   if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) return fetchWorkday(candidate, fetchImpl);
   if (['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(u.hostname) && /^\/[\w-]+\/jobs\/\d+\/?$/.test(u.pathname)) {

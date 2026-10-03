@@ -1,4 +1,4 @@
-# Career Queue v1.4.5
+# Career Queue v1.4.6
 
 **中文** | [English](Readme_EN.md)
 
@@ -6,7 +6,7 @@
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 确认材料并保存为待提交 → 本人确认已投递。**
 
-当前版本：`v1.4.5`（2026-10-02 已授权发布）。接入 Genesys 主动发现，学校复制列表支持多行表头，匹配页新增官网发现对照与明确采用链接。搜索保留预筛原因，归组职位仍按各自招聘编号提供链接。详见 [验收记录](docs/releases/v1.4.5-verification.md)。本版已获用户发布授权，后续 v1.4.6 的推送另行确认。
+当前版本：`v1.4.6`（2026-10-02 发布）。新增 Celestica 学生职位主动发现、正文与开放状态读取；Veeva 复用 Lever 公开列表加入搜索。列表完整读取与实际发现相关岗位分别统计，不承诺所有学校职位都有公开结果。详见 [验收记录](docs/releases/v1.4.6-verification.md)。发布目标为既有私密仓库 main / v1.4.6。
 
 ## 启动与验证
 
@@ -66,7 +66,7 @@ Dashboard 4317、后台单实例锁 4318、需令牌认证的 Gateway 18791 均�
 
 ### v1.2.1 多来源发现
 
-- 搜索同次读取 Simplify / Pitt CSC 索引与 Tenstorrent University、Cohere、Telesat、Vena Solutions、Genesys 的公开列表；这是五个指定雇主，并非 ATS 全量搜索。
+- 搜索同次读取 Simplify / Pitt CSC 索引与 Tenstorrent University、Cohere、Telesat、Vena Solutions、Genesys、Celestica、Veeva Systems 的公开列表；这是七个指定雇主，并非 ATS 全量搜索。
 - 来源失败仍保留其他结果；来源统计分开展示原始条目、范围内候选、独立新增 / 待核实、重复归组、实际全文读取与字段取得数量。
 - 合并保留完整来源 JD 与链接，不拼接冲突要求；薪资保留币种 / 周期原文、任期范围和办公方式保留依据，不猜缺失值。
 - 本次真实只读搜索新增 3 条待核实候选（其中 Cohere 两条 Winter 2027）；明确通过全部规则的新增为 0。抽查及覆盖边界见 [数据来源](docs/DATA_SOURCES.md)。
