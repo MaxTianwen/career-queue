@@ -21,6 +21,7 @@ test('school confirmation lasts 15 minutes without claiming official availabilit
   assert.equal(assessment.availabilityState(saved, now).status, 'unknown');
   assert.equal(assessment.schoolAvailabilityState(saved, now).recent, true);
   assert.equal(saved.status, original.status); assert.deepEqual(saved.portal, original.portal);
+  assert.throws(() => assessment.requireAvailable({ ...saved, portal: { ...saved.portal, channel: 'school-only', status: 'submitted' } }, now), /申请已完成/);
 });
 
 test('school confirmation cannot be reused for a changed identity, JD, deadline or incomplete posting', () => {

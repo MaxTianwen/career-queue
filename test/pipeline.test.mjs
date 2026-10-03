@@ -29,7 +29,7 @@ test('saving a discovery keeps job evidence but excludes computed resume quotati
   const store = new MemoryStore();
   const result = await ingest(store, [{ ...job, assessment: { id: 'derived' }, eligibility: { quote: 'Private resume excerpt' },
     eligibilityComparisons: [{ quote: 'Private resume excerpt' }], match: { score: 100 }, jdHighlights: ['Private resume excerpt'],
-    availability: { status: 'unknown' }, eligibilityConfirmations: [] }], now);
+    schoolMaterialFreshness: { status: 'derived' }, availability: { status: 'unknown' }, eligibilityConfirmations: [] }], now);
   const saved = await store.find(result.inserted[0].key);
   assert.doesNotMatch(JSON.stringify(saved), /Private resume excerpt|derived/);
   assert.equal(saved.match, undefined);

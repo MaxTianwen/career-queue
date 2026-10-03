@@ -8,7 +8,7 @@ import { jobInputHash } from './assessment.mjs';
 export const schoolRevision = record => createHash('sha256').update(JSON.stringify([portalRevision(record), jobInputHash(record),
   record.notes, record.nextStep, record.schoolCandidate, record.fullJd, record.schoolAssociationTransfer, record.transferredTo])).digest('hex');
 const norm = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-const hasMaterials = job => Boolean(job.materialVersion || Object.keys(job.materials || {}).length || job.attachments?.length);
+const hasMaterials = job => Boolean(job.materialVersion || job.portal?.preparedMaterials || Object.keys(job.materials || {}).length || job.attachments?.length);
 
 export function schoolAssociation(record, url, records) {
   if (!url) return null;

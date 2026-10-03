@@ -12,7 +12,7 @@ export async function ingest(store, inputs, now = new Date()) {
     try {
       // Display-only resume evidence is recomputed locally, not copied into Notion's job payload.
       const { assessment, eligibility, eligibilityComparisons, match, jdHighlights, resumeClassification,
-        availabilityView, materialFreshness, portalRevision, portalSummary, ...sourceJob } = input;
+        availabilityView, materialFreshness, schoolMaterialFreshness, portalRevision, portalSummary, ...sourceJob } = input;
       const job = normalizeJob(sourceJob);
       const existing = new Map();
       for (const candidate of [job, ...(job.groupedSources || [])]) {

@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { portalRevision } from './portal.mjs';
+import { schoolInputHash } from './assessment.mjs';
 
 export const richText = text => {
   const value = String(text ?? '');
@@ -144,9 +146,34 @@ export class NotionStore {
   async updateState(record, files) {
     const properties = { Status: { select: { name: record.status } }, 'Application date': { date: record.applicationDate ? { start: record.applicationDate } : null },
       'Next step': textProp(record.nextStep), Payload: textProp(JSON.stringify(record)) };
-    if (files) properties.Materials = { files };
+    if (files) properties.Materials = { files: record.portal?.preparedMaterials || record.portalHistory?.some(h => h.portal?.preparedMaterials)
+      ? this.appendFiles(await this.request('GET', `/pages/${uuid(record.pageId)}`), files) : files };
     await this.request('PATCH', `/pages/${uuid(record.pageId)}`, { properties });
     return record;
+  }
+
+  appendFiles(page, files) {
+    const existing = (page.properties.Materials?.files || []).map(file => {
+      if (file.type === 'file' && file.file?.url) return { name: file.name, type: 'file', file: { url: file.file.url } };
+      if (file.type === 'external' && file.external?.url) return { name: file.name, type: 'external', external: { url: file.external.url } };
+      throw new Error('已有附件格式无法保留，停止保存；原附件不变');
+    });
+    if (existing.length + files.length > 100) throw new Error('附件已达上限，请保留历史并联系维护');
+    return [...existing, ...files];
+  }
+
+  async updatePortalState(record, revision, files) {
+    const page = await this.request('GET', `/pages/${uuid(record.pageId)}`);
+    const current = this.decode(page);
+    if (portalRevision(current) !== revision) throw new Error('学校记录已变化，请重新打开后核对');
+    if (files && record.portal?.preparedMaterials?.inputHash !== schoolInputHash(current)) throw new Error('学校 JD 已变化，请重新核对材料');
+    // Read hosted file references afresh; do not persist their temporary URLs in Payload.
+    const next = { ...current, portal: record.portal, portalHistory: record.portalHistory };
+    const { attachments, ...payload } = next;
+    const properties = { Payload: textProp(JSON.stringify(payload)) };
+    if (files) properties.Materials = { files: this.appendFiles(page, files) };
+    await this.request('PATCH', `/pages/${uuid(record.pageId)}`, { properties });
+    return next;
   }
 
   async updateJob(record) {
@@ -170,14 +197,14 @@ export class NotionStore {
     return { ...record, notes, nextStep };
   }
 
-  async upload(path, contentType) {
+  async upload(path, contentType, filename = basename(path)) {
     const data = await readFile(path);
     if (!data.length || data.length > 20 * 1024 * 1024) throw new Error('材料必须为非空且不超过 20MB 的文件');
-    const upload = await this.request('POST', '/file_uploads', { mode: 'single_part', filename: basename(path), content_type: contentType });
+    const upload = await this.request('POST', '/file_uploads', { mode: 'single_part', filename, content_type: contentType });
     const form = new FormData();
-    form.append('file', new Blob([data], { type: contentType }), basename(path));
+    form.append('file', new Blob([data], { type: contentType }), filename);
     const sent = await this.request('POST', `/file_uploads/${uuid(upload.id)}/send`, form);
     if (sent.status !== 'uploaded') throw new Error('Notion 材料上传尚未完成；记录状态保持不变');
-    return { name: basename(path), type: 'file_upload', file_upload: { id: upload.id } };
+    return { name: filename, type: 'file_upload', file_upload: { id: upload.id } };
   }
 }

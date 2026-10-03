@@ -23,6 +23,7 @@ export class DemoStore {
   async create(record) { this.rows.set(record.key, structuredClone(record)); return record; }
   async touch(record, now) { this.rows.get(record.key).lastSeen = now.toISOString(); }
   async updateState(record) { return this.create(record); }
+  async updatePortalState(record) { return this.updateState(record); }
   async updateJob(record) { return this.create(record); }
   async updateNotes(record, notes, nextStep) { return this.create({ ...record, notes, nextStep }); }
   async upload() { return { demo: true }; }

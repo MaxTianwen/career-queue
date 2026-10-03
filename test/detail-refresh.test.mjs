@@ -1,3 +1,4 @@
+import { inQueue, schoolMaterialsForm } from '../web/school-materials-view.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -28,10 +29,10 @@ test('clean deferred discovery refresh clears the pending flag and renders lates
  f.pending[0]({key:'job'});assert.equal(await read,true);assert.equal(f.dialog.dataset.refreshPending,undefined);assert.equal(f.renders(),2);
 });
 const syncSource=app.slice(app.indexOf('async function syncGeneratedMaterials('),app.indexOf('async function detail(key)'));
-function materialFixture({dirty=false,fails=false}={}){
+function materialFixture({dirty=false,fails=false,school=false}={}){
  const panel={innerHTML:'existing upload inputs'},form={dataset:{...(dirty?{dirty:'true'}:{})}},dialog={dataset:{}},selected={key:'job',generatedMaterial:{version:'old'}};
  const run=runInNewContext(`${syncSource};syncGeneratedMaterials`,{
-  selected,$:s=>s==='#material-panel'?panel:s==='#materials-form'?form:dialog,
+  selected,schoolMaterialsForm,$:s=>s==='#material-panel'?panel:s===(school?'#school-materials-form':'#materials-form')?form:dialog,
   api:async()=>{if(fails)throw Error('offline');return{generatedMaterial:{version:'new'}};},
   deferDetailRefresh:()=>{dialog.dataset.refreshPending='true';return true;},materialForm:()=> 'new material form',esc:String
  });
@@ -43,4 +44,9 @@ for(const fails of [false,true])test(`material ${fails?'failed':'successful'} re
 });
 test('material refresh updates an unedited form normally',async()=>{
  const f=materialFixture({});await f.run();assert.equal(f.panel.innerHTML,'new material form');assert.equal(f.selected.generatedMaterial.version,'new');
+});
+
+for(const fails of [false,true])test(`school material ${fails?'failed':'successful'} refresh preserves its unsaved review`,async()=>{
+ const f=materialFixture({dirty:true,fails,school:true});await f.run();
+ assert.equal(f.panel.innerHTML,'existing upload inputs');assert.equal(f.selected.generatedMaterial.version,'old');assert.equal(f.dialog.dataset.refreshPending,'true');
 });

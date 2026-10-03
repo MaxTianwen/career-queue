@@ -1,4 +1,4 @@
-# Career Queue v1.4.15
+# Career Queue v1.4.16
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.15` (authorized for release to GitHub main / v1.4.15 on 2026-10-03). For a saved school JD without an employer URL, personally confirm that the school is still accepting applications, then prepare a comparison, generate a one-page PDF from the current Word resume, preview it and edit its text. Confirmation lasts 15 minutes and becomes invalid when the school JD or deadline changes. Employer availability remains unknown; upload and submission states are unchanged. See the [verification record](docs/releases/v1.4.15-verification.md).
+Current version: `v1.4.16` (authorized for release to GitHub main / v1.4.16 on 2026-10-03). Explicitly select unknown, employer + school, or school-only for each linked job. Preview and review the latest generated or edited PDF, then save it directly as independent school material without downloading and re-uploading. Personally submit through the school portal and confirm the date, actual materials and required attachments. Completed school-only jobs appear in Applications; employer status and date remain unchanged. See the [verification record](docs/releases/v1.4.16-verification.md).
 
 For a saved school candidate with a corresponding Veeva link, enter the official job URL, leave the JD empty, confirm the match and save the completed JD. This requires an explicit save; the audited examples were not imported into live Notion or marked as submitted. For a JD without an employer URL, choose the school-source option, paste the full text and confirm saving. Add an employer link later through the optional section; the original school text and identity remain available. Do not substitute an unrelated company homepage.
 

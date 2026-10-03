@@ -37,10 +37,11 @@ export function portalSummary(record, now = new Date()) {
   const portal = record.portal;
   const submitted = externalSubmitted(record);
   const expired = deadlineExpired(portal?.deadline, now);
+  const schoolOnlyCompleted = portal?.channel === 'school-only' && portal.status === 'submitted';
   const category = !portal ? 'unlinked' : portal.status === 'submitted' ? 'submitted'
     : portal.requirement === 'not-required' ? 'not-required' : expired ? 'expired'
-      : portal.requirement !== 'required' ? 'unknown' : submitted ? 'pending' : 'external-pending';
-  return { category, externalSubmitted: submitted, schoolExpired: expired, employerDeadline: record.deadline || null,
+      : portal.requirement !== 'required' ? 'unknown' : submitted || portal.channel === 'school-only' ? 'pending' : 'external-pending';
+  return { category, schoolOnlyCompleted, externalSubmitted: submitted, schoolExpired: expired, employerDeadline: record.deadline || null,
     schoolDeadline: portal?.deadline || null, label: { unlinked: '未关联学校岗位', submitted: '学校已交', 'not-required': '无需学校提交',
       expired: '学校截止已过', unknown: '双渠道要求待确认', pending: '学校待补交', 'external-pending': '官网尚未确认投递' }[category] };
 }
@@ -158,7 +159,7 @@ export function linkPortal(record, input, records, { confirmed, requirement = 'u
     if (JSON.stringify(row) === JSON.stringify(normalizePortalRow(record.portal))) return record;
     throw new Error('学校已提交的来源快照不可覆盖；如关联有误，请解除后重新关联');
   }
-  const portal = { ...row, requirement: record.portal?.requirement || requirement,
+  const portal = { ...record.portal, ...row, requirement: record.portal?.requirement || requirement,
     status: record.portal?.status || 'unknown', linkedAt: record.portal?.linkedAt || now.toISOString() };
   if (record.portal && JSON.stringify(portal) === JSON.stringify(record.portal)) return record;
   return { ...record, portal, portalHistory: history(record, record.portal ? 'refresh-source' : 'link', now) };
@@ -169,15 +170,28 @@ export function updatePortal(record, input, now = new Date()) {
   if (input.confirmed !== true) throw new Error('需要本人明确确认');
   if (input.action === 'unlink') return { ...record, portal: null, portalHistory: history(record, 'unlink', now) };
   if (record.portal.status === 'submitted') throw new Error('学校提交记录已冻结；如关联有误，可解除并保留历史');
+  if (input.action === 'channel') {
+    if (!['unknown', 'both', 'school-only'].includes(input.channel)) throw new Error('申请渠道无效');
+    if (record.portal.channel === input.channel) return record;
+    return { ...record, portal: { ...record.portal, channel: input.channel,
+      requirement: input.channel === 'unknown' ? 'unknown' : 'required' }, portalHistory: history(record, 'channel', now) };
+  }
   if (input.action === 'requirement') {
     if (!['unknown', 'required', 'not-required'].includes(input.requirement)) throw new Error('学校提交要求无效');
-    return { ...record, portal: { ...record.portal, requirement: input.requirement }, portalHistory: history(record, 'requirement', now) };
+    return { ...record, portal: { ...record.portal, requirement: input.requirement,
+      ...(input.requirement !== 'required' ? { channel: 'unknown' } : {}) }, portalHistory: history(record, 'requirement', now) };
   }
   if (input.action !== 'submitted') throw new Error('未知学校操作');
   if (record.portal.requirement !== 'required') throw new Error('请先确认此岗位需要学校提交');
+  if (input.attachmentsConfirmed !== true) throw new Error('请确认学校要求的全部附件已实际上传');
+  if (!['both', 'school-only'].includes(record.portal.channel)) throw new Error('请先确认申请渠道，缺少官网链接不代表仅学校提交');
   validateApplicationDate(input.date, now);
   let materials;
-  if (input.materialSource === 'external') {
+  if (input.materialSource === 'school-reviewed') {
+    const prepared = record.portal.preparedMaterials;
+    if (!prepared?.files?.resume || input.preparedVersion !== prepared.version?.version || input.resumeHash !== prepared.version?.sha256) throw new Error('学校材料已变化，请重新核对实际提交版本');
+    materials = structuredClone(prepared);
+  } else if (input.materialSource === 'external') {
     if (!externalSubmitted(record)) throw new Error('官网尚未确认投递，不能引用已投材料');
     materials = structuredClone(record.externalSubmission?.materials || submissionMaterials(record));
     if (!materials.files?.resume) throw new Error('历史官网材料版本不完整，请填写实际学校材料说明');
@@ -191,5 +205,16 @@ export function updatePortal(record, input, now = new Date()) {
   } else throw new Error('请选择实际向学校提交的材料');
   return { ...record, portalHistory: history(record, 'submitted', now), portal: { ...record.portal, status: 'submitted',
     applicationDate: input.date, confirmedAt: now.toISOString(), receipt: field(input.receipt, 1000),
-    materialSource: input.materialSource, materials } };
+    materialSource: input.materialSource, materials, attachmentsConfirmedAt: now.toISOString(), attachmentNote: field(input.materialNote, 1000) } };
+}
+
+export function prepareSchoolMaterials(record, materials, now = new Date()) {
+  if (!record.portal || !['both', 'school-only'].includes(record.portal.channel)) throw new Error('请先确认申请渠道');
+  if (record.portal.status === 'submitted') throw new Error('学校提交记录已冻结，不能替换材料');
+  if (record.portal.preparedMaterials?.version?.version === materials.version.version
+      && record.portal.preparedMaterials.version.sha256 === materials.version.sha256
+      && record.portal.preparedMaterials.inputHash === materials.inputHash
+      && record.portal.preparedMaterials.version.assessment?.id === materials.version.assessment?.id) return record;
+  return { ...record, portal: { ...record.portal, preparedMaterials: structuredClone(materials) },
+    portalHistory: history(record, 'materials', now) };
 }

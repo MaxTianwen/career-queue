@@ -200,7 +200,9 @@ test('portal state endpoints preserve independent submission states, history and
   let current = (await request(`/api/jobs/${job.key}`)).data;
   await request(`/api/jobs/${job.key}/portal`, { action: 'link', row, requirement: 'required', confirmed: true, revision: current.portalRevision });
   current = (await request(`/api/jobs/${job.key}`)).data;
-  const result = await request(`/api/jobs/${job.key}/portal`, { action: 'submitted', confirmed: true, revision: current.portalRevision,
+  await request(`/api/jobs/${job.key}/portal`, { action: 'channel', channel: 'both', confirmed: true, revision: current.portalRevision });
+  current = (await request(`/api/jobs/${job.key}`)).data;
+  const result = await request(`/api/jobs/${job.key}/portal`, { action: 'submitted', confirmed: true, attachmentsConfirmed: true, revision: current.portalRevision,
     date: '2026-09-24', materialSource: 'other', materialNote: 'Synthetic school resume v1', receipt: 'SCHOOL-1' });
   assert.equal(result.status, 200); assert.equal(result.data.status, 'Queue'); assert.equal(result.data.applicationDate, null);
   assert.equal(result.data.portal.status, 'submitted');

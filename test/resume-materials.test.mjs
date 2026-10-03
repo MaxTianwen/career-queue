@@ -6,6 +6,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { dashboardServer } from '../src/dashboard.mjs';
 import { DemoStore } from '../src/demo-store.mjs';
 import { latestResume } from '../src/resume.mjs';
+import { confirmSchoolAvailability, schoolInputHash } from '../src/assessment.mjs';
 
 // Signature fixtures test provenance / transfer gating, not Word rendering.
 async function generated(root, key, time) {
@@ -42,6 +43,89 @@ async function setup(t) {
   };
   return { root, store, uploads, key, request };
 }
+
+async function schoolSetup(t) {
+  const fixture = await setup(t), { store, key, request } = fixture;
+  let job = { ...await store.find(key), url: '', fullJd: true, jdSource: 'school',
+    portal: { id: 'S-1416', requirement: 'required', channel: 'school-only', status: 'unknown' }, notes: 'Original note',
+    materials: { resume: 'official-old.pdf' }, materialVersion: { version: 'official-old' } };
+  job.schoolAvailability = confirmSchoolAvailability(job, { confirmed: true, note: 'Synthetic school check', inputHash: schoolInputHash(job) });
+  await store.updateState(job);
+  const current = await generated(fixture.root, key, 200);
+  const detail = (await request(`/api/jobs/${key}`)).data;
+  return { ...fixture, current, body: { checked: true, revision: detail.portalRevision, assessmentId: detail.assessment.id,
+    generatedVersion: current.version, resumeHash: current.resumeHash, staleReviewed: true } };
+}
+
+test('school PDF requires current review, channel and version; retries preserve official state and do not reupload', async t => {
+  const { request, store, key, body, uploads } = await schoolSetup(t);
+  const path = `/api/jobs/${key}/school-materials`;
+  for (const invalid of [{ checked: false }, { revision: 'old' }, { assessmentId: 'old' }, { resumeHash: 'old' }, { staleReviewed: false }]) {
+    assert.equal((await request(path, { ...body, ...invalid })).status >= 400, true);
+  }
+  assert.equal(uploads.length, 0);
+  const record = await store.find(key);
+  await store.updateState({ ...record, portal: { ...record.portal, channel: undefined } });
+  assert.match((await request(path, body)).data.error, /申请渠道/);
+  await store.updateState(record);
+  const save = store.updatePortalState.bind(store);
+  store.updatePortalState = async () => { throw new Error('Synthetic save failure'); };
+  assert.equal((await request(path, body)).status, 400);
+  assert.equal((await store.find(key)).portal.preparedMaterials, undefined);
+  store.updatePortalState = save;
+  const result = await request(path, body);
+  assert.equal(result.status, 200, result.data.error);
+  assert.equal(result.data.status, 'Queue'); assert.equal(result.data.applicationDate, null);
+  assert.equal(result.data.portal.status, 'unknown'); assert.equal(result.data.notes, 'Original note');
+  assert.equal(result.data.materials.resume, 'official-old.pdf');
+  assert.equal(result.data.materialVersion.version, 'official-old');
+  assert.equal(result.data.portal.preparedMaterials.version.sha256, body.resumeHash);
+  const count = uploads.length;
+  assert.equal((await request(path, body)).status, 200); assert.equal(uploads.length, count);
+});
+
+test('school submitted snapshot is independent and frozen; changed inputs require review even after the deadline', async t => {
+  const { request, store, key, body, root } = await schoolSetup(t);
+  assert.equal((await request(`/api/jobs/${key}/school-materials`, body)).status, 200);
+  const saved = await store.find(key);
+  await store.updateState({ ...saved, portal: { ...saved.portal, deadline: '2020-01-01' } });
+  let detail = (await request(`/api/jobs/${key}`)).data;
+  assert.equal(detail.schoolMaterialFreshness.needsReview, true);
+  const submitted = { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-24', materialSource: 'school-reviewed',
+    preparedVersion: body.generatedVersion, resumeHash: body.resumeHash, assessmentId: detail.assessment.id, revision: detail.portalRevision };
+  assert.equal((await request(`/api/jobs/${key}/portal`, submitted)).status, 400);
+  assert.equal((await request(`/api/jobs/${key}/portal`, { ...submitted, staleReviewed: true, attachmentsConfirmed: false })).status, 400);
+  const result = await request(`/api/jobs/${key}/portal`, { ...submitted, staleReviewed: true });
+  assert.equal(result.status, 200, result.data.error);
+  assert.equal(result.data.applicationDate, null); assert.equal(result.data.status, 'Queue');
+  assert.equal(result.data.portal.materials.version.version, body.generatedVersion);
+  await generated(root, key, 300);
+  detail = (await request(`/api/jobs/${key}`)).data;
+  assert.equal(detail.generatedMaterial.version, 'resume-300-12345678');
+  assert.equal(detail.portal.materials.version.version, body.generatedVersion);
+  assert.equal(detail.portalSummary.schoolOnlyCompleted, true);
+  assert.equal((await request('/api/jobs')).data.jobs.find(j => j.key === key).portalSummary.schoolOnlyCompleted, true);
+  assert.equal((await request(`/api/jobs/${key}/portal`, { action: 'channel', channel: 'both', confirmed: true, revision: detail.portalRevision })).status, 400);
+});
+
+test('school upload stops when inputs change in flight; edited latest PDF needs a new confirmation', async t => {
+  const { root, store, key, body, request } = await schoolSetup(t);
+  const original = await store.find(key);
+  store.upload = async () => {
+    await store.updateState({ ...original, portal: { ...original.portal, deadline: '2027-01-01' } });
+    return { demo: true };
+  };
+  assert.equal((await request(`/api/jobs/${key}/school-materials`, body)).status, 409);
+  assert.equal((await store.find(key)).portal.preparedMaterials, undefined);
+  await store.updateState(original);
+  await generated(root, key, 300);
+  assert.match((await request(`/api/jobs/${key}/school-materials`, body)).data.error, /最新 PDF/);
+  const oldCheck = { ...original, schoolAvailability: { ...original.schoolAvailability, confirmedAt: '2020-01-01T00:00:00Z' } };
+  await store.updateState(oldCheck);
+  const detail = (await request(`/api/jobs/${key}`)).data;
+  assert.match((await request(`/api/jobs/${key}/school-materials`, { ...body, generatedVersion: detail.generatedMaterial.version,
+    resumeHash: detail.generatedMaterial.sha256 })).data.error, /核实/);
+});
 
 test('generated PDF automatically appears on the job, transfers without reupload, and pins the reviewed version', async t => {
   const { root, store, uploads, key, request } = await setup(t);

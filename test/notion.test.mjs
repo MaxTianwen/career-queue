@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NotionStore, richText, schema } from '../src/notion.mjs';
 import { newRecord, normalizeJob } from '../src/core.mjs';
+import { portalRevision } from '../src/portal.mjs';
+import { schoolInputHash } from '../src/assessment.mjs';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const job = newRecord(normalizeJob({ company: 'Fixture', title: 'Data Intern', url: 'https://example.com/1', jd: 'x'.repeat(4000) }));
@@ -21,6 +23,35 @@ const page = record => ({ id, url: 'https://notion.so/test', properties: {
   Notes: { rich_text: richText('Human note') }, 'Next step': { rich_text: richText('Human next step') },
   'Application date': { date: null }, 'Last seen': { date: { start: '2026-09-24T16:00:00Z' } }
 } });
+
+test('school writes append fresh hosted attachments and patch only Payload and Materials', async () => {
+  const source = page({ ...job, portal: { id: 'S1' } });
+  const existing = { name: 'official.pdf', type: 'file', file: { url: 'https://example.com/fresh-signed.pdf', expiry_time: 'later' } };
+  source.properties.Materials = { files: [existing] };
+  const { store, calls } = makeStore([{ body: source }, {}]);
+  const record = store.decode(source), upload = { name: 'school-v1.pdf', type: 'file_upload', file_upload: { id } };
+  const next = { ...record, portal: { ...record.portal, channel: 'school-only', preparedMaterials: { version: 'v1', inputHash: schoolInputHash(record) } } };
+  await store.updatePortalState(next, portalRevision(record), [upload]);
+  const props = calls[1].body.properties;
+  assert.deepEqual(Object.keys(props), ['Payload', 'Materials']);
+  assert.deepEqual(props.Materials.files, [{ name: existing.name, type: 'file', file: { url: existing.file.url } }, upload]);
+  assert.doesNotMatch(JSON.stringify(props.Payload), /fresh-signed/);
+  const stale = makeStore([{ body: source }]);
+  await assert.rejects(stale.store.updatePortalState(next, 'stale', [upload]), /记录已变化/);
+  assert.equal(stale.calls.length, 1);
+});
+
+test('later official uploads preserve school attachments and unsupported existing files block replacement', async () => {
+  const source = page(job), file = { name: 'school-v1.pdf', type: 'external', external: { url: 'https://example.com/school.pdf' } };
+  source.properties.Materials = { files: [file] };
+  const { store, calls } = makeStore([{ body: source }, {}]);
+  const record = { ...store.decode(source), portalHistory: [{ portal: { preparedMaterials: { version: 'v1' } } }] };
+  const uploaded = { name: 'official-v2.pdf', type: 'file_upload', file_upload: { id } };
+  await store.updateState(record, [uploaded]);
+  assert.deepEqual(calls[1].body.properties.Materials.files, [file, uploaded]);
+  assert.throws(() => store.appendFiles({ properties: { Materials: { files: [{ name: 'unknown' }] } } }, [uploaded]), /停止保存/);
+  assert.throws(() => store.appendFiles({ properties: { Materials: { files: Array(100).fill(file) } } }, [uploaded]), /上限/);
+});
 
 test('dashboard note edits only write human fields; material links are read from current Notion files', async () => {
   const { store, calls } = makeStore([{}]);

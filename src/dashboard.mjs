@@ -26,7 +26,7 @@ import { resumeStatus, prepareResumeDraft, generateResume, editableResume, saveM
 import { publicReviewDraft } from './resume-review.mjs';
 import { renderPdf } from './pdf-preview.mjs';
 import { resumeLibrary, uploadResumeBase, activateResumeBase, readResumeBase } from './resume-bases.mjs';
-import { previewPortal, linkPortal, updatePortal, portalRevision, portalSummary, portalDiscovery } from './portal.mjs';
+import { previewPortal, linkPortal, updatePortal, portalRevision, portalSummary, portalDiscovery, prepareSchoolMaterials } from './portal.mjs';
 import { parsePortalPaste } from './portal-paste.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -86,6 +86,9 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       }
       return { ...job, ...evaluation, sourceName: sourceName(job), expired: deadlineExpired(job.deadline), ...assessed, availabilityView: availability, materialFreshness: materialFreshness(record.materialVersion, assessed.assessment),
         ...(isSchoolOnly(job) ? { schoolAvailabilityView: schoolAvailabilityState(job) } : {}),
+        schoolMaterialFreshness: record.portal?.preparedMaterials?.inputHash !== schoolInputHash(record)
+          ? { needsReview: true, reasons: ['学校来源或截止信息已变化'] }
+          : materialFreshness(record.portal?.preparedMaterials?.version, assessed.assessment),
         portalRevision: portalRevision(record), portalSummary: portalSummary(record) };
     });
   }
@@ -182,7 +185,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/job-view.js', '/job-facts.js', '/placement-options.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/school-materials-view.js', '/job-view.js', '/job-facts.js', '/placement-options.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -232,7 +235,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (req.method === 'GET' && url.pathname === '/api/jobs') {
         const store = await storeFor(mode);
         const records = await presentJobs(await store.list(), mode);
-        return send({ jobs: records.filter(x => x.status !== '已归档' && !(x.status === 'Queue' && x.expired)).sort(comparePreference) });
+        return send({ jobs: records.filter(x => x.status !== '已归档' && !(x.status === 'Queue' && x.expired && !x.portalSummary.schoolOnlyCompleted)).sort(comparePreference) });
       }
       if (req.method === 'GET' && url.pathname === '/api/portal') {
         const records = await (await storeFor(mode)).list();
@@ -477,9 +480,46 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (['prepare', 'complete'].includes(action) && record.fullJd === false) throw fail('请先补齐完整 JD，再准备材料');
       if (action === 'portal') {
         if (body.revision !== portalRevision(record)) throw fail('申请记录已变化，请重新打开详情后操作', 409);
+        let schoolReview;
+        if (body.action === 'submitted' && body.materialSource === 'school-reviewed') {
+          const assessed = await evaluated(record, mode);
+          if (body.assessmentId !== assessed.assessment.id) throw fail('当前输入已变化，请重新核对实际学校材料', 409);
+          if ((record.portal?.preparedMaterials?.inputHash !== schoolInputHash(record)
+            || materialFreshness(record.portal?.preparedMaterials?.version, assessed.assessment).needsReview) && body.staleReviewed !== true) throw fail('学校材料基于旧输入，请核对实际提交版本后确认');
+          schoolReview = { assessment: assessed.assessment, staleReviewed: body.staleReviewed === true };
+        }
         const next = body.action === 'link' ? linkPortal(record, body.row, await store.list(), body) : updatePortal(record, body);
         if (portalRevision(next) === portalRevision(record)) return send(record);
-        return send(await store.updateState(next));
+        if (schoolReview) next.portal.submissionReview = { ...schoolReview,
+          snapshotPath: await snapshotFile(record, await evaluated(record, mode), mode, 'school-submission') };
+        return send(await store.updatePortalState(next, body.revision));
+      }
+      if (action === 'school-materials') {
+        if (mode !== 'live' || body.checked !== true) throw fail('请先预览并确认学校简历的事实与排版');
+        if (!record.portal || record.fullJd === false || record.status === '已归档') throw fail('请先保存完整学校岗位');
+        if (deadlineExpired(record.portal.deadline)) throw fail('学校申请已截止，不能准备新材料；已实际提交的结果仍可记录');
+        const assessed = await evaluated(record, mode);
+        if (body.assessmentId !== assessed.assessment.id) throw fail('当前简历或 JD 已变化，请重新核对', 409);
+        const generated = await validatedResume(root, key, body.generatedVersion);
+        if ((await latestResume(root, key))?.version !== generated.version || generated.validation.pdfSha256 !== body.resumeHash) throw fail('最新 PDF 已变化，请重新预览并确认');
+        if (materialFreshness(generated.provenance, assessed.assessment).needsReview && body.staleReviewed !== true) throw fail('材料基于旧输入，请重新生成或重新审阅后确认');
+        const materials = { files: { resume: generated.pdf }, inputHash: schoolInputHash(record), version: {
+          version: generated.version, sha256: body.resumeHash, baseline: generated.provenance.baseline || null,
+          assessment: assessed.assessment, generatedAssessment: generated.provenance.assessment || null,
+          reviewedAt: new Date().toISOString(), staleReviewed: body.staleReviewed === true } };
+        let next = prepareSchoolMaterials(record, materials);
+        if (next === record) return send(record); // Retry after a committed write does not upload twice.
+        if (body.revision !== portalRevision(record)) throw fail('学校记录已变化，请重新打开后操作', 409);
+        if (isSchoolOnly(record)) requireAvailable(record);
+        if (assessed.eligibility?.summary.hardConflict || evaluateJob(record).decision === 'REJECT') throw fail('岗位不符合现有条件，不能准备材料');
+        materials.version.snapshotPath = await snapshotFile(record, assessed, mode, 'school-materials');
+        next = prepareSchoolMaterials(record, materials);
+        const uploaded = await store.upload(generated.pdf, 'application/pdf', `school-${key.slice(0, 6)}-${generated.version}.pdf`);
+        const current = await getRecord(store, key);
+        if (portalRevision(current) !== body.revision || schoolInputHash(current) !== materials.inputHash
+          || (await evaluated(current, mode)).assessment.id !== body.assessmentId
+          || (await latestResume(root, key))?.version !== generated.version) throw fail('上传期间岗位或简历已变化，未确认材料；请重新核对', 409);
+        return send(await store.updatePortalState(next, body.revision, [uploaded]));
       }
       if (action === 'notes') return send(await store.updateNotes(record, text(body.notes), text(body.nextStep)));
       if (action === 'archive') {

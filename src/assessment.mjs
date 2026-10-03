@@ -74,6 +74,7 @@ export function availabilityState(job, now = new Date()) {
 }
 
 export function requireAvailable(job, now = new Date()) {
+  if (job.portal?.channel === 'school-only' && job.portal.status === 'submitted') throw new Error('学校申请已完成；历史材料仍可预览，不生成新的申请材料');
   if (job.fullJd === false || !job.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   if (isSchoolOnly(job)) {
     const state = schoolAvailabilityState(job, now);

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeJob, newRecord, markReady, markSubmitted } from '../src/core.mjs';
-import { normalizePortalRow, previewPortal, linkPortal, updatePortal, portalSummary, portalRevision } from '../src/portal.mjs';
+import { normalizePortalRow, previewPortal, linkPortal, updatePortal, portalSummary, portalRevision, prepareSchoolMaterials } from '../src/portal.mjs';
+import { inQueue, inApplications, schoolMaterialsForm } from '../web/school-materials-view.js';
 
 const now = new Date('2026-09-28T16:00:00Z');
 const job = () => newRecord(normalizeJob({ company: 'Example Labs', title: 'Software Developer Intern',
@@ -9,7 +10,51 @@ const job = () => newRecord(normalizeJob({ company: 'Example Labs', title: 'Soft
 const row = (extra = {}) => ({ id: 'S456', url: 'https://school.example/jobs/456', company: 'Example Labs',
   title: 'Software Developer Intern', location: 'Toronto', term: 'Summer 2027', externalUrl: 'https://example.com/jobs/123',
   requisitionId: 'R123', deadline: '2026-10-01', ...extra });
-const linked = () => linkPortal(job(), row(), [], { confirmed: true, requirement: 'required' }, now);
+const linked = () => updatePortal(linkPortal(job(), row(), [], { confirmed: true, requirement: 'required' }, now), { action: 'channel', channel: 'both', confirmed: true }, now);
+
+test('channel is an explicit choice, never inferred from a missing link; only school completion changes list membership', () => {
+  const base = { ...linked(), url: '', jdSource: 'school' };
+  const input = { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-28', materialSource: 'other', materialNote: 'v1 and transcript' };
+  assert.throws(() => updatePortal({ ...base, portal: { ...base.portal, channel: undefined } }, input, now), /申请渠道/);
+  assert.throws(() => updatePortal(base, { ...input, attachmentsConfirmed: false }, now), /全部附件/);
+  for (const channel of ['both', 'school-only']) {
+    const selected = updatePortal(base, { action: 'channel', confirmed: true, channel }, now);
+    const done = updatePortal(selected, input, now);
+    const display = { ...done, portalSummary: portalSummary(done, now) };
+    assert.equal(inApplications(display), channel === 'school-only');
+    assert.equal(inQueue(display), channel !== 'school-only');
+    assert.equal(done.status, 'Queue'); assert.equal(done.applicationDate, null);
+    assert.equal(done.portal.attachmentsConfirmedAt, now.toISOString());
+  }
+});
+
+test('school PDF preparation keeps official materials untouched, preserves prior snapshots and survives reimport', () => {
+  const base = { ...linked(), materials: { resume: 'official.pdf' }, materialVersion: { version: 'official-v1' }, notes: 'keep' };
+  const materials = { files: { resume: 'school.pdf' }, version: { version: 'school-v1', sha256: 'abc' }, inputHash: 'jd1' };
+  const prepared = prepareSchoolMaterials(base, materials, now);
+  assert.equal(prepared.status, base.status); assert.deepEqual(prepared.materials, base.materials);
+  assert.equal(prepareSchoolMaterials(prepared, materials, now), prepared);
+  materials.files.resume = 'mutated'; assert.equal(prepared.portal.preparedMaterials.files.resume, 'school.pdf');
+  const reimport = linkPortal(prepared, row({ deadline: '2026-10-10' }), [prepared], { confirmed: true }, now);
+  assert.deepEqual(reimport.portal.preparedMaterials, prepared.portal.preparedMaterials);
+  assert.equal(reimport.portal.channel, 'both');
+  const newer = prepareSchoolMaterials(prepared, { ...materials, version: { version: 'school-v2', sha256: 'def' } }, now);
+  assert.equal(newer.portalHistory.at(-1).portal.preparedMaterials.version.version, 'school-v1');
+  const submitted = updatePortal(prepared, { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-28',
+    materialSource: 'school-reviewed', preparedVersion: 'school-v1', resumeHash: 'abc' }, now);
+  assert.equal(submitted.portal.materials.version.version, 'school-v1');
+  assert.throws(() => prepareSchoolMaterials(submitted, materials, now), /冻结/);
+  assert.throws(() => updatePortal(prepared, { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-28', materialSource: 'school-reviewed', preparedVersion: 'school-v2', resumeHash: 'abc' }, now), /已变化/);
+});
+
+test('school PDF form requires channel and escapes source text; saving is separate from submission', () => {
+  const base = { ...linked(), generatedMaterial: { version: '<script>', url: '/api/file?x=1', freshness: { needsReview: false } } };
+  const html = schoolMaterialsForm(base);
+  assert.match(html, /保存学校 PDF/); assert.match(html, /&lt;script&gt;/); assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /保存材料不代表已投递/);
+  assert.doesNotMatch(schoolMaterialsForm({ ...base, portal: { ...base.portal, channel: undefined } }), /id="school-materials-form"/);
+  assert.equal(schoolMaterialsForm({ ...base, portal: { ...base.portal, status: 'submitted' } }), '');
+});
 
 test('school ID stays separate from employer ID; invalid links, dates and empty fields are rejected', () => {
   assert.equal(normalizePortalRow(row()).id, 'S456');
@@ -48,7 +93,7 @@ test('school and employer submissions have independent dates, receipts and froze
   const external = markSubmitted(ready, '2026-09-27', true, now, 'E-123');
   assert.equal(external.portal.status, 'unknown'); assert.equal(external.externalSubmission.receipt, 'E-123');
   assert.equal(portalSummary(external, now).category, 'pending');
-  const school = updatePortal(external, { action: 'submitted', confirmed: true, date: '2026-09-28', materialSource: 'external', receipt: 'S-789' }, now);
+  const school = updatePortal(external, { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-28', materialSource: 'external', receipt: 'S-789' }, now);
   assert.equal(school.applicationDate, '2026-09-27'); assert.equal(school.portal.applicationDate, '2026-09-28');
   assert.deepEqual(school.portal.materials.version, ready.materialVersion);
   assert.equal(school.portal.receipt, 'S-789'); assert.equal(portalSummary(school, now).category, 'submitted');
@@ -61,7 +106,7 @@ test('school and employer submissions have independent dates, receipts and froze
 
 test('school-first submission is possible without marking employer submitted, and facts require explicit confirmation', () => {
   const j = linked();
-  const input = { action: 'submitted', confirmed: true, date: '2026-09-28', materialSource: 'other', materialNote: 'CS Sep 28 and transcript' };
+  const input = { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-28', materialSource: 'other', materialNote: 'CS Sep 28 and transcript' };
   for (const invalid of [{ confirmed: false }, { date: '2026-09-29' }, { date: '2026-02-30' }, { materialNote: '' }, { materialSource: 'external' }]) {
     assert.throws(() => updatePortal(j, { ...input, ...invalid }, now));
   }
@@ -81,7 +126,7 @@ test('unknown, not required, expired, and unlinked states do not masquerade as c
 });
 
 test('unlink retains a submitted school snapshot and permits a corrected link without altering employer history', () => {
-  const submitted = updatePortal(linked(), { action: 'submitted', confirmed: true, date: '2026-09-28', materialSource: 'other', materialNote: 'v1' }, now);
+  const submitted = updatePortal(linked(), { action: 'submitted', confirmed: true, attachmentsConfirmed: true, date: '2026-09-28', materialSource: 'other', materialNote: 'v1' }, now);
   const unlinked = updatePortal(submitted, { action: 'unlink', confirmed: true }, now);
   assert.equal(unlinked.portal, null); assert.equal(unlinked.portalHistory.at(-1).portal.status, 'submitted');
   const corrected = linkPortal(unlinked, row({ id: 'S999' }), [unlinked], { confirmed: true }, now);
