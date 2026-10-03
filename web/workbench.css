@@ -87,3 +87,4 @@ dialog{background:var(--surface);color:var(--ink);border-color:var(--line);borde
 .school-discovery summary { cursor: pointer; font-weight: 600; }
 .school-discovery-candidate { padding: 1rem 0; border-top: 1px solid #ddd9cf; overflow-wrap: anywhere; }
 .school-discovery-candidate .button { margin: .4rem 0 .4rem .5rem; }
+.school-filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}.school-filter-bar [aria-pressed="true"]{background:var(--ink);color:var(--paper,#fff)}#school-import [data-school-index][hidden]{display:none}.school-filter-reason{border-left:3px solid var(--line);padding-left:10px}
