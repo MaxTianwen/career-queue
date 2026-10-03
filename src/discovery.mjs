@@ -1,3 +1,4 @@
+import { fetchVeevaPage } from './veeva-page.mjs';
 import { amazonUrl, fetchAmazon } from './amazon.mjs';
 import { qualcommUrl, fetchQualcomm } from './qualcomm.mjs';
 import { normalizeJob, evaluateJob, comparePreference, TARGET_TERMS } from './core.mjs';
@@ -41,7 +42,12 @@ export async function officialJob(candidate, fetchImpl = fetch, boards = new Map
   const id = match[2];
   if (u.hostname === 'jobs.lever.co') {
     const api = `https://api.lever.co/v0/postings/${encodeURIComponent(board)}/${id}?mode=json`;
-    const j = await readJson(api, fetchImpl);
+    let j;
+    try { j = await readJson(api, fetchImpl); }
+    catch (error) {
+      if (board === 'veeva' && /HTTP 404\b/.test(error.message)) return fetchVeevaPage({ ...candidate, url: `https://jobs.lever.co/veeva/${id}` }, fetchImpl);
+      throw error;
+    }
     if (j.id !== id || !j.text || !j.descriptionPlain) throw new Error('Lever 未返回完整 JD');
     const parsed = boardPosting({ name: candidate.company, type: 'lever', board: encodeURIComponent(board) }, j, api);
     const salary = j.salaryRange;

@@ -1,4 +1,4 @@
-# Career Queue v1.4.12
+# Career Queue v1.4.13
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,9 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.12` (authorized for release to GitHub main / v1.4.12 on 2026-10-03). School rows without employer IDs show identical or closer official titles first, with a short ranking explanation. Expand candidates beyond the first five and explicitly adopt a link. Reliable ID/link evidence keeps priority; title similarity does not confirm identity. Re-match and personally confirm before saving. See the [verification record](docs/releases/v1.4.12-verification.md).
+Current version: `v1.4.13` (authorized for release to GitHub main / v1.4.13 on 2026-10-03). Some Veeva public job pages remain readable while the individual Lever API returns 404. The reader now verifies the company, title and application-link ID before extracting the JD, dates and work mode. This does not make unlisted jobs automatically discoverable. See the [verification record](docs/releases/v1.4.13-verification.md).
+
+For a saved school candidate with a corresponding Veeva link, enter the official job URL, leave the JD empty, confirm the match and save the completed JD. This requires an explicit save; the audited examples were not imported into live Notion or marked as submitted. School JDs without an external job URL cannot yet complete this flow; an unrelated company homepage is not a substitute.
 
 ## Start and verify
 

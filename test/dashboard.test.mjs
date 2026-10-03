@@ -1,3 +1,4 @@
+import { officialJob } from '../src/discovery.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
@@ -584,4 +585,29 @@ test('two school previews cannot create duplicate candidates, matched rows canno
   assert.equal((await store.list()).length, 1);
   const linked = (await request('/api/portal/preview', { rows: [row] })).data;
   assert.equal((await request('/api/portal/link', { token: linked.token, confirmed: true, selections: [{ index: 0, key: '__new__' }] })).status, 400);
+});
+
+
+test('school Veeva link completion uses verified page fallback and preserves data on read failure', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const url = 'https://jobs.lever.co/veeva/85fe3393-f296-4463-88a2-5454c6ba334b';
+  const title = 'Intern Software Engineer - Toronto [12 - 16 Months]';
+  const record = { ...schoolCandidate({ id: '116186', company: 'Veeva Systems', title, location: 'Toronto', term: 'Summer 2027', deadline: '2026-10-25' }, []), notes: 'Keep notes' };
+  await store.create(record);
+  let fail = true;
+  const html = '<h2>' + title + '</h2><a href="' + url + '/apply">Apply</a><script type="application/ld+json">' + JSON.stringify({ '@type': 'JobPosting', title, hiringOrganization: { name: 'Veeva Systems' }, description: 'Develop applications using Python and Java, collaborate with engineers and build reliable automated tests. Ability to complete a 12-16 month internship.' }) + '</script>';
+  const { request } = await setup(t, store, undefined, undefined, candidate => officialJob(candidate, async u => u.includes('api.lever.co') ? new Response('{}', { status: 404 }) : new Response(fail ? 'Maintenance' : html)));
+  const detail = (await request('/api/jobs/' + record.key, undefined, 'live')).data;
+  const input = { url, jd: '', confirmed: true, revision: detail.portalRevision, jdHash: detail.assessment.jdHash };
+  assert.equal((await request('/api/jobs/' + record.key + '/school-details', { ...input, confirmed: false }, 'live')).status, 400);
+  assert.equal((await request('/api/jobs/' + record.key + '/school-details', input, 'live')).status, 400);
+  assert.equal((await store.find(record.key)).fullJd, false);
+  fail = false;
+  const result = await request('/api/jobs/' + record.key + '/school-details', input, 'live');
+  assert.equal(result.status, 200);
+  const saved = await store.find(record.key);
+  assert.equal(saved.fullJd, true); assert.equal(saved.schoolCandidate, false); assert.equal(saved.url, url);
+  assert.equal(saved.notes, record.notes); assert.deepEqual(saved.portal, record.portal);
+  assert.equal(saved.term, 'Summer 2027'); assert.equal(saved.applicationDate, null); assert.equal(saved.status, 'Queue');
+  assert.equal((await store.list()).length, 1);
 });
