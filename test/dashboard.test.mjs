@@ -121,6 +121,31 @@ test('school preview compares discovery without writing; adopted URL requires a 
   assert.equal(again.rows[0].category, 'linked'); assert.equal((await store.list()).length, 1);
 });
 
+test('a school candidate beyond the first five can be adopted, rechecked and explicitly linked without changing materials', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const found = 'ABCDEFG'.split('').map(letter => newRecord(normalizeJob({ company: 'Synthetic', title: `Software Developer Intern ${letter}`,
+    url: `https://example.com/jobs/${letter}`, requisitionId: `R${letter}`, term: 'Summer 2027', location: 'Toronto', fullJd: true, jd: 'Python required' })));
+  const target = { ...found[6], notes: 'Keep existing notes', materialVersion: { version: 'old-reviewed' }, status: '已投递', applicationDate: '2026-10-01' };
+  await store.create(target);
+  const before = structuredClone(await store.list());
+  const { request } = await setup(t, store, undefined, { finishedAt: new Date().toISOString(), results: found, sources: [] });
+  const row = { id: 'S-MORE', company: 'Synthetic', title: 'Software Developer Intern', term: 'Summer 2027', location: 'Toronto' };
+  const first = (await request('/api/portal/preview', { rows: [row] }, 'live')).data;
+  assert.equal(first.rows[0].discovery.candidates.length, 7);
+  assert.equal(first.rows[0].discovery.candidates[6].url, target.url);
+  assert.equal(first.rows[0].suggestedKey, null);
+  const adopted = { ...row, externalUrl: first.rows[0].discovery.candidates[6].url };
+  const rechecked = (await request('/api/portal/preview', { rows: [adopted] }, 'live')).data;
+  assert.equal(rechecked.rows[0].category, 'exact'); assert.equal(rechecked.rows[0].suggestedKey, target.key);
+  assert.deepEqual(await store.list(), before);
+  const input = { token: rechecked.token, selections: [{ index: 0, key: target.key }] };
+  assert.equal((await request('/api/portal/link', input, 'live')).status, 400);
+  assert.equal((await request('/api/portal/link', { ...input, confirmed: true }, 'live')).status, 200);
+  const saved = await store.find(target.key);
+  for (const field of ['notes', 'materialVersion', 'status', 'applicationDate', 'key']) assert.deepEqual(saved[field], target[field]);
+  assert.equal(saved.portal.id, row.id); assert.equal((await store.list()).length, 1);
+});
+
 test('school paste parses without Notion and links a missing-URL row only after preview confirmation', async t => {
   const { request, url } = await setup(t);
   assert.equal((await fetch(url + '/portal-import.js')).status, 200);

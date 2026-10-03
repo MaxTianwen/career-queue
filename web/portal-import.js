@@ -86,10 +86,12 @@ export function openPortalImport({ api, esc, showModal, onSaved }) {
 export function discoveryView(item, esc) {
   const discovery = item.discovery;
   if (!discovery) return '';
+  const cards = discovery.candidates.map((c, i) => '<div class="school-discovery-candidate"><strong>' + esc(c.title) + '</strong>' + (c.rankingReason ? '<p>排序依据：' + esc(c.rankingReason) + '</p>' : '') + '<p>' + esc([c.requisitionId, c.termLabel || c.term, c.location].filter(Boolean).join(' · ')) + '</p><p>' + esc(c.state) + (c.detail ? '：' + esc(c.detail) : '') + '</p><p>' + esc([...c.reasons, ...c.conflicts].join('；')) + '</p><a href="' + esc(c.url) + '" target="_blank" rel="noopener noreferrer">核对官网 ↗</a> <button type="button" class="button secondary" data-discovery-choice="' + item.index + '" data-candidate="' + i + '">采用链接并重新匹配</button></div>');
   return '<details class="school-discovery"><summary>官网发现对照' + (discovery.total ? ' · ' + discovery.total + ' 条候选' : '') + '</summary><p>' + esc(discovery.message) + '</p>' +
     (discovery.searchedAt ? '<p>搜索记录：' + esc(discovery.searchedAt) + '</p>' : '') +
-    discovery.candidates.map((c, i) => '<div class="school-discovery-candidate"><strong>' + esc(c.title) + '</strong><p>' + esc([c.requisitionId, c.termLabel || c.term, c.location].filter(Boolean).join(' · ')) + '</p><p>' + esc(c.state) + (c.detail ? '：' + esc(c.detail) : '') + '</p><p>' + esc([...c.reasons, ...c.conflicts].join('；')) + '</p><a href="' + esc(c.url) + '" target="_blank" rel="noopener noreferrer">核对官网 ↗</a> <button type="button" class="button secondary" data-discovery-choice="' + item.index + '" data-candidate="' + i + '">采用链接并重新匹配</button></div>').join('') +
-    (discovery.total > discovery.candidates.length ? '<p>仅展示前 5 条，请细化标题或招聘编号后重新匹配。</p>' : '') + '</details>';
+    (cards.length ? '<p>排序不代表确认同一岗位；采用链接后仍需重新匹配并核对保存。</p>' : '') + cards.slice(0, 5).join('') +
+    (cards.length > 5 ? '<details><summary>展开其余 ' + (cards.length - 5) + ' 条候选</summary>' + cards.slice(5).join('') + '</details>' : '') +
+    (discovery.total > cards.length ? '<p>当前预览未包含全部候选，请重新匹配以更新。</p>' : '') + '</details>';
 }
 
 

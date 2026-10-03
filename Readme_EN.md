@@ -1,4 +1,4 @@
-# Career Queue v1.4.11
+# Career Queue v1.4.12
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.11` (released to GitHub main / v1.4.11 on 2026-10-03). Explicit Qualcomm May/June 2027 starts appear under Summer. Amazon multi-season roles stay on one card, with season and duration matched against the same official option. Discovery, saved Queue, details and school comparisons share evidence derived from the saved JD. Identity, application history, scoring and automatic rejection rules are unchanged. See the [verification record](docs/releases/v1.4.11-verification.md).
+Current version: `v1.4.12` (authorized for release to GitHub main / v1.4.12 on 2026-10-03). School rows without employer IDs show identical or closer official titles first, with a short ranking explanation. Expand candidates beyond the first five and explicitly adopt a link. Reliable ID/link evidence keeps priority; title similarity does not confirm identity. Re-match and personally confirm before saving. See the [verification record](docs/releases/v1.4.12-verification.md).
 
 ## Start and verify
 

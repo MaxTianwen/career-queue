@@ -102,6 +102,11 @@ export function portalDiscovery(row, report, now = new Date()) {
   const discoveredUrls = new Set(discovered.map(j => j.url));
   const jobs = [...discovered, ...(report.filteredJobs || []).filter(j => !discoveredUrls.has(j.url)).map(j => ({ ...j, prefiltered: true }))];
   const company = norm(row.company);
+  const title = norm(row.title), words = new Set(title.split(' ').filter(Boolean));
+  const titleSimilarity = candidate => {
+    const other = new Set(norm(candidate.title).split(' ').filter(Boolean));
+    return words.size && other.size ? [...words].filter(word => other.has(word)).length / Math.max(words.size, other.size) : 0;
+  };
   const candidates = jobs.filter(job => {
     if (norm(job.company) === company) return true;
     if (!row.externalUrl) return false;
@@ -110,13 +115,22 @@ export function portalDiscovery(row, report, now = new Date()) {
     const match = evidence(row, job);
     return { key: job.key, title: job.title, company: job.company, url: job.url, term: job.term, termLabel: placementTermText(job), location: job.location,
       requisitionId: job.requisitionId, ...match,
+      rankingReason: match.reasons.includes('公司与雇主招聘编号一致') ? '招聘编号一致，仍需核对'
+        : match.reasons.includes('外部职位链接一致') ? '官网链接一致，仍需核对'
+          : title === norm(job.title) ? '标题一致，仅供核对' : '标题相近，仅供核对',
       stateCode: job.prefiltered ? 'prefiltered' : deadlineExpired(job.deadline, now) ? 'expired' : job.decision === 'REJECT' ? 'excluded' : !job.fullJd ? 'incomplete' : 'found',
       state: job.prefiltered ? '搜索预筛排除，尚未读取正文' : deadlineExpired(job.deadline, now) ? '官网截止已过，默认隐藏' : job.decision === 'REJECT' ? '未通过当前岗位条件' : !job.fullJd ? '已发现，正文待补齐' : '已发现，可在自动发现中查看',
       detail: job.fetchError || (job.prefiltered || job.decision === 'REJECT' ? (job.reasons || []).join('；') : '') };
   }).filter(c => c.reasons.length).sort((a, b) => Number(b.strong) - Number(a.strong)
-    || Number(Boolean(row.requisitionId) && norm(b.requisitionId) === norm(row.requisitionId)) - Number(Boolean(row.requisitionId) && norm(a.requisitionId) === norm(row.requisitionId)));
+    || Number(Boolean(row.requisitionId) && norm(b.requisitionId) === norm(row.requisitionId)) - Number(Boolean(row.requisitionId) && norm(a.requisitionId) === norm(row.requisitionId))
+    || Number(b.reasons.includes('外部职位链接一致')) - Number(a.reasons.includes('外部职位链接一致'))
+    || Number(norm(b.title) === title) - Number(norm(a.title) === title)
+    || titleSimilarity(b) - titleSimilarity(a)
+    || norm(a.title).localeCompare(norm(b.title), 'en')
+    || String(a.requisitionId || '').localeCompare(String(b.requisitionId || ''), 'en')
+    || a.url.localeCompare(b.url, 'en'));
   const source = (report.sources || []).find(s => norm(s.name) === norm(row.company));
-  return { searchedAt: report.finishedAt, total: candidates.length, candidates: candidates.slice(0, 5),
+  return { searchedAt: report.finishedAt, total: candidates.length, candidates,
     status: candidates.length ? 'candidates' : source ? source.status === 'complete' ? 'not-found' : 'source-incomplete' : 'source-uncovered',
     message: candidates.length ? `最近搜索中找到 ${candidates.length} 条来源候选；请核对编号、批次与地点，列表显示仍受当前筛选影响。`
       : source?.status !== 'complete' && source ? '本次雇主来源读取不完整，暂不能判断是否漏岗。'
