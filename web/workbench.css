@@ -89,3 +89,14 @@ dialog{background:var(--surface);color:var(--ink);border-color:var(--line);borde
 .school-discovery-candidate .button { margin: .4rem 0 .4rem .5rem; }
 .school-filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}.school-filter-bar [aria-pressed="true"]{background:var(--ink);color:var(--paper,#fff)}#school-import [data-school-index][hidden]{display:none}.school-filter-reason{border-left:3px solid var(--line);padding-left:10px}
 .card-score{max-width:145px;text-align:right}.card-score>span:last-child:not(.match-score){font-size:12px;line-height:1.5;overflow-wrap:anywhere}.card-tags .workplace-warning,.field-warning{color:#805d24;background:#f7edda}.field-warning{padding:8px 10px;border-left:3px solid #b5853d}.match-components>div{padding:12px;border:1px solid var(--line);min-width:0}.match-components p{margin:6px 0}.origin-links blockquote{margin:8px 0;padding:8px 12px;border-left:2px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
+/* v1.5: concise next actions and source-backed comparisons in the existing split view. */
+.application-flow { border-left: 3px solid var(--accent, #a45238); padding: 12px 16px; margin: 0 0 20px; background: #f6f2eb; border-radius: 0 8px 8px 0; }
+.application-flow ul { list-style: none; padding: 0; margin: 8px 0 0; }
+.application-flow li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 7px 0; }
+.application-flow li span { flex: 1 1 200px; }
+.salary-evidence { margin: 10px 0 18px; }
+.salary-evidence blockquote, .evidence-pair blockquote { margin: 10px 0; border-left: 2px solid #d3cabc; padding: 4px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.evidence-pair { border-top: 1px solid #ded8ce; padding: 12px 0; }
+.evidence-pair h4 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.evidence-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 760px) { .evidence-columns { grid-template-columns: minmax(0, 1fr); gap: 8px; } }

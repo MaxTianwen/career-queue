@@ -185,7 +185,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/school-materials-view.js', '/job-view.js', '/job-facts.js', '/placement-options.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/salary.js', '/application-flow.js', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/school-materials-view.js', '/job-view.js', '/job-facts.js', '/placement-options.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;

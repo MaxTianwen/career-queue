@@ -1,4 +1,6 @@
-# Career Queue v1.4.16
+# Career Queue v1.5.0
+
+Current version: **v1.5.0 (release authorized)**. Salary amounts, explicit currency and pay period are displayed alongside the original wording and uncertainty. Expand Match Score to compare JD quotes with the active resume, including required, preferred and alternative-skill context. State-based next-step links guide official and school material review and submission separately. Scoring weights, filters and historical records are unchanged. See [verification](docs/releases/v1.5.0-verification.md). Release target: the existing private repository, main / v1.5.0.
 
 [中文](README.md) | **English**
 
@@ -6,7 +8,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.16` (authorized for release to GitHub main / v1.4.16 on 2026-10-03). Explicitly select unknown, employer + school, or school-only for each linked job. Preview and review the latest generated or edited PDF, then save it directly as independent school material without downloading and re-uploading. Personally submit through the school portal and confirm the date, actual materials and required attachments. Completed school-only jobs appear in Applications; employer status and date remain unchanged. See the [verification record](docs/releases/v1.4.16-verification.md).
+Last published baseline: `v1.4.16` (authorized for release to GitHub main / v1.4.16 on 2026-10-03). Explicitly select unknown, employer + school, or school-only for each linked job. Preview and review the latest generated or edited PDF, then save it directly as independent school material without downloading and re-uploading. Personally submit through the school portal and confirm the date, actual materials and required attachments. Completed school-only jobs appear in Applications; employer status and date remain unchanged. See the [verification record](docs/releases/v1.4.16-verification.md).
 
 For a saved school candidate with a corresponding Veeva link, enter the official job URL, leave the JD empty, confirm the match and save the completed JD. This requires an explicit save; the audited examples were not imported into live Notion or marked as submitted. For a JD without an employer URL, choose the school-source option, paste the full text and confirm saving. Add an employer link later through the optional section; the original school text and identity remain available. Do not substitute an unrelated company homepage.
 

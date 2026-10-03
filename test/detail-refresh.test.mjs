@@ -1,4 +1,5 @@
 import { inQueue, schoolMaterialsForm } from '../web/school-materials-view.js';
+import { applicationFlow } from '../web/application-flow.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -32,7 +33,7 @@ const syncSource=app.slice(app.indexOf('async function syncGeneratedMaterials(')
 function materialFixture({dirty=false,fails=false,school=false}={}){
  const panel={innerHTML:'existing upload inputs'},form={dataset:{...(dirty?{dirty:'true'}:{})}},dialog={dataset:{}},selected={key:'job',generatedMaterial:{version:'old'}};
  const run=runInNewContext(`${syncSource};syncGeneratedMaterials`,{
-  selected,schoolMaterialsForm,$:s=>s==='#material-panel'?panel:s===(school?'#school-materials-form':'#materials-form')?form:dialog,
+  selected,schoolMaterialsForm,applicationFlow,$:s=>s==='#material-panel'?panel:s===(school?'#school-materials-form':'#materials-form')?form:dialog,
   api:async()=>{if(fails)throw Error('offline');return{generatedMaterial:{version:'new'}};},
   deferDetailRefresh:()=>{dialog.dataset.refreshPending='true';return true;},materialForm:()=> 'new material form',esc:String
  });

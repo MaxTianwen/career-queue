@@ -11,6 +11,16 @@ import { schoolCandidate, completeSchoolCandidate } from '../src/school-candidat
 import { normalizeJob, newRecord } from '../src/core.mjs';
 import { schoolInputHash } from '../src/assessment.mjs';
 
+test('quality display modules and re-evaluated detail do not write saved application fields', async t => {
+  const store = new DemoStore();
+  const before = await store.list();
+  const { request, url } = await setup(t, store);
+  for (const file of ['salary.js', 'application-flow.js']) assert.equal((await fetch(`${url}/${file}`)).status, 200);
+  const detail = await request(`/api/jobs/${before[0].key}`, undefined, 'live');
+  assert.equal(detail.status, 200);
+  assert.deepEqual(await store.list(), before);
+});
+
 test('school completion previews an existing application; interrupted transfer blocks unlink and resumes', async t => {
   const store = new DemoStore(); store.rows.clear();
   const source = schoolCandidate({ id: 'S-TRANSFER', company: 'Synthetic', title: 'Software Intern', term: 'Summer 2027' }, []);

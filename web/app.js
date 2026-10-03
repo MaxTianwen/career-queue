@@ -1,3 +1,5 @@
+import { salaryText } from './salary.js';
+import { applicationFlow } from './application-flow.js';
 import { inApplications, inQueue, channelLabel, schoolMaterialsForm } from './school-materials-view.js';
 import { placementTermText } from './placement-options.js';
 import { automationView } from './automation-view.js';
@@ -7,7 +9,7 @@ import { openPortalImport } from './portal-import.js';
 import { schoolAssociationView } from './school-association.js';
 import { matchesFilters, sortJobs } from './job-view.js';
 import { publication, recentPublication, durationText, workModeText } from './job-facts.js';
-import { jobHighlights, skillHighlights, scoreBasisText, scoreComponentsView, workplaceBadge } from './job-summary.js';
+import { jobHighlights, skillHighlights, scoreBasisText, scoreComponentsView, matchEvidenceView, workplaceBadge } from './job-summary.js';
 import { jobDescription } from './job-description.js';
 import { eligibilityBadge, assessmentPanel, freshnessReview } from './assessment-view.js';
 const $ = selector => document.querySelector(selector);
@@ -93,7 +95,7 @@ function savedCard(j, isQueue) {
     <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0,1))}</span><strong>${esc(j.company)}</strong><span class="badge">${esc(j.portalSummary?.schoolOnlyCompleted ? '学校已交 · 仅学校' : j.schoolCandidate ? '学校候选 · 待补 JD' : j.jdSource === 'school' ? '学校来源 · JD 已保存' : j.status)}</span></div>
     <div class="card-title-row"><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score" title="当前简历覆盖分，不代表录取概率">${scoreBadge(j)}<span>${esc(scoreBasisText(j.match))}</span></div></div>
     <div class="card-tags">${directionBadge(j)}${workplaceBadge(j)}${eligibilityBadge(j)}</div>
-    <dl class="card-facts"><div><dt>入职时间</dt><dd>${fieldTag(termText(j),'term', termText(j).includes('待核实'))}</dd></div><div><dt>工作时长</dt><dd>${fieldTag(durationText(j),'duration', durationText(j).includes('待核实'))}</dd></div><div><dt>地点 / 方式</dt><dd>${esc(j.location || '待核实')} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(j.salary || '未披露')}</dd></div></dl>
+    <dl class="card-facts"><div><dt>入职时间</dt><dd>${fieldTag(termText(j),'term', termText(j).includes('待核实'))}</dd></div><div><dt>工作时长</dt><dd>${fieldTag(durationText(j),'duration', durationText(j).includes('待核实'))}</dd></div><div><dt>地点 / 方式</dt><dd>${esc(j.location || '待核实')} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(salaryText(j))}</dd></div></dl>
     <p class="card-dates">${isQueue ? esc(publicationText(j)) : j.portalSummary?.schoolOnlyCompleted ? '学校申请日期：' + esc(j.portal.applicationDate) : '官网申请日期：' + esc(j.applicationDate || '尚未投递')}</p>
     ${j.notes || j.nextStep ? '<p class="card-note">' + esc(isQueue ? j.notes || j.nextStep : j.nextStep || j.notes) + '</p>' : ''}
     <div class="card-actions"><button class="button secondary compact" data-action="detail" data-key="${j.key}">查看与处理 →</button></div></article>`;
@@ -411,7 +413,7 @@ $('#preview').addEventListener('close', () => { previewRequest++; previewSource 
 function matchingDetails(job) {
   const m = job.match;
   if (!m || m.score == null) return `<div class="hint">Match Score：${esc(m?.reason || '暂不评分')}</div>`;
-  return `<section class="match-details"><h3>Match Score · ${scoreBadge(job)}</h3><p><b>评分简历：${esc(m.source?.name || '当前简历')}</b><br>${esc(m.source?.version || '')} · ${esc(m.selection || '')}</p>${m.comparisons?.length > 1 ? `<div class="match-comparisons">${m.comparisons.map(c => `<p><b>${esc(c.source.track.toUpperCase())}：${c.score == null ? '暂不评分' : `${c.score} / 100`}</b> · ${esc(scoreBasisText(c))} · ${esc(c.source.name || c.reason)}<small>${esc(c.source.version || '')}</small></p>`).join('')}</div>` : ''}<p>${esc(m.note)}</p>${scoreComponentsView(m)}<details><summary>查看匹配依据与待核实项（${m.evidenceCount} 项）</summary><h4>简历中的对应内容</h4><ul>${m.matched.length ? m.matched.map(x => `<li><b>${esc(x.name)}</b>${x.level < 1 ? ' · 基础接触，计半项' : ''}<small>${esc(x.evidence)}</small></li>`).join('') : '<li>暂未找到对应证据</li>'}</ul><h4>当前简历未提及</h4><ul>${m.gaps.length ? m.gaps.map(x => `<li>${esc(x.name)}${x.unverified ? ' · 仅原简历列出，案例待核实' : ' · 尚无对应证据'}</li>`).join('') : '<li>已识别项目均有一定证据；不代表所有资格都已符合。</li>'}</ul>${m.checks.length ? `<h4>另需核实的 JD 条件（不计分）</h4><ul>${m.checks.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</details></section>`;
+  return `<section class="match-details"><h3>Match Score · ${scoreBadge(job)}</h3><p><b>评分简历：${esc(m.source?.name || '当前简历')}</b><br>${esc(m.source?.version || '')} · ${esc(m.selection || '')}</p>${m.comparisons?.length > 1 ? `<div class="match-comparisons">${m.comparisons.map(c => `<p><b>${esc(c.source.track.toUpperCase())}：${c.score == null ? '暂不评分' : `${c.score} / 100`}</b> · ${esc(scoreBasisText(c))} · ${esc(c.source.name || c.reason)}<small>${esc(c.source.version || '')}</small></p>`).join('')}</div>` : ''}<p>${esc(m.note)}</p>${scoreComponentsView(m)}${matchEvidenceView(m)}${m.checks?.length ? `<details><summary>另需核实的 JD 条件（不计分）</summary><ul>${m.checks.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}</section>`;
 }
 function sourceReport(coverage = []) {
   if (!coverage.length) return '';
@@ -446,7 +448,7 @@ function discoveryCard(j) {
     <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0, 1))}</span><strong>${esc(j.company)}</strong><span class="card-state">${saved ? '已保存 ✓' : j.decision === 'REJECT' ? '不符合条件' : j.fullJd ? '完整 JD' : '待补全文'}</span></div>
     <div class="card-title-row"><button class="job-title" data-action="search-detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score" title="当前简历覆盖分，不代表录取概率">${scoreBadge(j)}<span>${esc(scoreBasisText(j.match))}</span></div></div>
     <div class="card-tags">${directionBadge(j)}${workplaceBadge(j)}<span>${esc(term)}</span>${eligibilityBadge(j)}</div>
-    <dl class="card-facts"><div><dt>地点</dt><dd>${esc(j.location || '待核实')}</dd></div><div><dt>时长 / 方式</dt><dd>${esc(durationText(j))} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(j.salary || '未披露')}</dd></div></dl>
+    <dl class="card-facts"><div><dt>地点</dt><dd>${esc(j.location || '待核实')}</dd></div><div><dt>时长 / 方式</dt><dd>${esc(durationText(j))} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(salaryText(j))}</dd></div></dl>
     <div class="card-skills"><span>匹配技能</span>${skills.length ? skills.slice(0, 4).map(s => `<span class="skill-chip" title="${esc(s.evidence)}">${esc(s.name)}${s.level < 1 ? ' · 基础' : ''}</span>`).join('') + (skills.length > 4 ? `<span>+${skills.length - 4}</span>` : '') : '<span class="skill-empty">当前简历暂无匹配</span>'}</div>
     <div class="card-dates"><span>${esc(publicationText(j))}</span>${j.deadline ? `<strong>截止 ${esc(deadlineDate(j.deadline))}</strong>` : ''}</div>
     ${j.decision === 'REJECT' || j.fetchError ? `<p class="card-alert">${esc(j.decision === 'REJECT' ? j.reasons[0] : '全文读取失败，查看详情核实')}</p>` : ''}
@@ -511,7 +513,7 @@ function searchDetail(key, updated) {
   detailContext = { source: 'discovery', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
   delete $('#detail').dataset.refreshPending;
-  $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">自动发现 · ${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${j.fullJd ? '已读取官方完整 JD' : '公开来源记录 · 全文尚未取得'}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">${directionBadge(j)}${workplaceBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}<div class="meta"><span>入职季：${esc(termText(j))}</span><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看官方岗位 ↗</a></div>${j.decision === 'REJECT' ? `<p class="card-alert">不满足当前筛选条件：${esc(j.reasons[0] || '')}</p>` : ''}<div class="form-actions">${searchState.state === 'running' ? '<p>搜索完成并去重后即可保存或生成材料。</p>' : j.identityConflict || j.decision === 'REJECT' ? '' : saved ? `<button class="button secondary" data-action="show-saved" data-key="${saved.key}">查看已保存职位 · ${esc(saved.status)}</button>` : j.fullJd ? `<button class="button primary" data-action="${connected && mode === 'live' ? 'search-save' : 'search-connect'}" data-key="${j.key}">${connected && mode === 'live' ? '保存到 Queue' : '连接 Notion 后保存'}</button>` : `<button class="button primary" data-action="search-fill" data-key="${j.key}">补充 JD 与核实信息</button>`}</div>${assessmentPanel(j)}${scoreDetails(j)}${resumeControls(j, 'discovery')}${j.fullJd ? `<h3>完整职位描述</h3>${jobDescription(j)}` : `<h3>全文状态</h3><p>${esc(j.fetchError || '该招聘系统暂不支持自动读取全文。基本信息已自动发现，可补充 JD 后入队。')}</p>`}<h3>来源与日期依据</h3><div class="hint">${esc(publicationText(j))}\n申请截止：${esc(deadlineDate(j.deadline))}\n${esc(j.deadlineEvidence || '')}\n索引收录时间：${esc(j.indexEvidence ? searchDate(j.indexEvidence.addedAt) : '此岗位由雇主列表发现')}\n索引标注批次：${esc(j.indexEvidence?.terms?.join(' / ') || '无索引批次')}\n${esc(j.indexEvidence?.note || '')}${j.sourceEvidence ? `\n官方读取时间：${esc(searchDate(j.sourceEvidence.retrievedAt))}\n${esc(j.sourceEvidence.note)}${j.sourceEvidence.publicationError ? `\n${esc(j.sourceEvidence.publicationError)}` : ''}` : ''}</div><p>此结果来自公开招聘信息；尚未生成材料或投递。</p></div>`;
+  $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">自动发现 · ${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${j.fullJd ? '已读取官方完整 JD' : '公开来源记录 · 全文尚未取得'}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">${applicationFlow(j, { discovery: true, saved: Boolean(saved) })}${directionBadge(j)}${workplaceBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}<div class="meta"><span>入职季：${esc(termText(j))}</span><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看官方岗位 ↗</a></div>${j.decision === 'REJECT' ? `<p class="card-alert">不满足当前筛选条件：${esc(j.reasons[0] || '')}</p>` : ''}<div class="form-actions">${searchState.state === 'running' ? '<p>搜索完成并去重后即可保存或生成材料。</p>' : j.identityConflict || j.decision === 'REJECT' ? '' : saved ? `<button class="button secondary" data-action="show-saved" data-key="${saved.key}">查看已保存职位 · ${esc(saved.status)}</button>` : j.fullJd ? `<button class="button primary" data-action="${connected && mode === 'live' ? 'search-save' : 'search-connect'}" data-key="${j.key}">${connected && mode === 'live' ? '保存到 Queue' : '连接 Notion 后保存'}</button>` : `<button class="button primary" data-action="search-fill" data-key="${j.key}">补充 JD 与核实信息</button>`}</div>${assessmentPanel(j)}${scoreDetails(j)}${resumeControls(j, 'discovery')}${j.fullJd ? `<h3>完整职位描述</h3>${jobDescription(j)}` : `<h3>全文状态</h3><p>${esc(j.fetchError || '该招聘系统暂不支持自动读取全文。基本信息已自动发现，可补充 JD 后入队。')}</p>`}<h3>来源与日期依据</h3><div class="hint">${esc(publicationText(j))}\n申请截止：${esc(deadlineDate(j.deadline))}\n${esc(j.deadlineEvidence || '')}\n索引收录时间：${esc(j.indexEvidence ? searchDate(j.indexEvidence.addedAt) : '此岗位由雇主列表发现')}\n索引标注批次：${esc(j.indexEvidence?.terms?.join(' / ') || '无索引批次')}\n${esc(j.indexEvidence?.note || '')}${j.sourceEvidence ? `\n官方读取时间：${esc(searchDate(j.sourceEvidence.retrievedAt))}\n${esc(j.sourceEvidence.note)}${j.sourceEvidence.publicationError ? `\n${esc(j.sourceEvidence.publicationError)}` : ''}` : ''}</div><p>此结果来自公开招聘信息；尚未生成材料或投递。</p></div>`;
   showDetailSurface();
 }
 async function refreshAssessmentDetail(context = detailContext, updated) {
@@ -558,6 +560,7 @@ async function syncGeneratedMaterials(key) {
     selected.generatedMaterial = result.generatedMaterial;
     if (result.assessment) selected.assessment = result.assessment;
     $('#material-panel').innerHTML = materialForm(selected) + schoolMaterialsForm(selected);
+    if ($('#application-next')) $('#application-next').innerHTML = applicationFlow(selected);
   } catch (error) {
     if ($('#material-panel') && selected?.key === key) {
       if (($('#materials-form')?.dataset.dirty || $('#school-materials-form')?.dataset.dirty) && deferDetailRefresh()) return;
@@ -586,7 +589,7 @@ async function detail(key) {
   detailContext = { source: 'queue', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${esc(termText(j))} · ${esc(j.portalSummary?.schoolOnlyCompleted ? '学校已交 · 仅学校' : j.status)}${mode === 'demo' ? ' · 演示职位' : ''}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">
-    ${directionBadge(j)}${workplaceBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}${j.url ? `<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>` : `<p class="badge">${j.jdSource === 'school' ? '学校来源 · JD 已保存' : '学校候选 · 待补 JD'}</p>`}
+    <div id="application-next">${applicationFlow(j)}</div>${directionBadge(j)}${workplaceBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}${j.url ? `<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>` : `<p class="badge">${j.jdSource === 'school' ? '学校来源 · JD 已保存' : '学校候选 · 待补 JD'}</p>`}
     ${j.transferredTo ? `<p class="form-status">学校关联已迁移，原备注和历史保留在此。</p><button class="button secondary" data-action="show-saved" data-key="${esc(j.transferredTo)}">查看关联后的职位</button>` : ''}
     ${[...(j.schoolAssociationHistory || []), ...(j.schoolAssociationTransfer ? [j.schoolAssociationTransfer] : [])].map(t => `<button class="button secondary compact" data-action="detail" data-key="${esc(t.sourceKey)}">查看原学校候选、备注与历史 · ${esc(t.portal?.id)}</button>`).join('')}
     ${schoolDetailsForm(j)}
@@ -637,6 +640,14 @@ async function handle(action, button) {
   if (['detail', 'search-detail'].includes(action)) { detailOpener = button; detailReturnY = window.scrollY; detailReturnView = view; }
   if (['discover', 'queue', 'applications', 'resumes', 'portal', 'mode', 'search'].includes(action)) detailRequest++;
 
+  if (action === 'flow-target') {
+    const target = $('#detail').querySelector(button.dataset.target);
+    if (!target) return;
+    for (let node = target; node && node !== $('#detail'); node = node.parentElement) if (node.tagName === 'DETAILS') node.open = true;
+    target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true });
+    return;
+  }
   if (action === 'refresh-detail' || action === 'retry-detail') {
     if ($('#detail').dataset.dirty && !confirm('其他输入尚未保存，确定放弃这些修改并读取最新详情？')) return;
     delete $('#detail').dataset.dirty;

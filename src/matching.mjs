@@ -1,6 +1,6 @@
 // Local keyword evidence coverage, not an ATS score or a hiring probability.
 // Read only the supported skill rows in knowledge-base section 5, never its search terms or prohibitions.
-import { excludeReturnArrangements } from './eligibility.mjs';
+import { excludeReturnArrangements, assessEligibility } from './eligibility.mjs';
 const skills = [
   ['Python', /\bpython\b/i], ['SQL', /\bsql\b/i], ['MySQL', /\bmysql\b/i], ['PostgreSQL', /\bpostgres(?:ql)?\b/i],
   ['Excel', /\bexcel\b/i], ['Tableau', /\btableau\b/i], ['Power BI', /\bpower\s*bi\b/i], ['pandas', /\bpandas\b/i], ['NumPy', /\bnumpy\b/i],
@@ -77,8 +77,16 @@ export function matchJob(job, profile) {
   if (!parts.length) return { score: null, reason: '未识别到可计分要求，请阅读 JD 核实' };
   const weight = parts.reduce((n, p) => n + p.weight, 0);
   const score = Math.round(parts.reduce((n, p) => n + p.weight * p.rows.reduce((sum, r) => sum + r.level, 0) / p.rows.length, 0) / weight * 100);
+  // Explain the existing counted terms; qualification labels never change their weight.
+  const requirements = assessEligibility(job, profile).requirements;
+  const quotes = comparedText.split(/\n|(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
   const evidence = [...technical.map(item => ({ ...item, kind: 'skill' })), ...experience.map(item => ({ ...item, kind: 'experience' }))]
-    .map(({ name, level, evidence, unverified, kind }) => ({ name, level, evidence: evidence || null, unverified: Boolean(unverified), kind }));
+    .map(({ name, level, evidence, unverified, kind, pattern }) => ({ name, level, evidence: evidence || null, unverified: Boolean(unverified), kind,
+      jdEvidence: [...new Set(quotes.filter(quote => pattern.test(quote)))].slice(0, 3).map(quote => {
+        const requirement = requirements.find(r => r.quote === quote || quote.replace(/^[-*•]\s*/, '') === r.quote);
+        return { quote, kind: requirement?.kind || 'unspecified', mode: requirement?.mode || 'unknown',
+          status: requirement?.status || 'unknown', reason: requirement?.reason || '此处为计分关键词上下文，尚不能判断为必需或加分条件。' };
+      }) }));
   const checks = job.jd.split(/\n|(?<=[.!?])\s+/).flatMap(excludeReturnArrangements)
     .filter(l => /\b(?:\d+\+?\s*(?:years?|yrs?)|citizen|citizenship|security clearance|enroll\w*|degree|graduat\w*)\b/i.test(l)).slice(0, 6).map(l => l.trim().slice(0, 350));
   return { score, version: '本地规则 v1', evidenceCount: evidence.length, comparedSection: qualifications ? 'JD 资格要求段落' : 'JD 全文（未识别独立资格段落）',

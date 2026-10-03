@@ -1,4 +1,5 @@
 import { durationText, locationRegion, workModeText, workModes, workModeChoices } from './job-facts.js';
+import { salaryText, salaryDetails } from './salary.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -10,10 +11,10 @@ export function jobHighlights(job) {
   const facts = [
     ['工作时长', durationText(job), false],
     ['工作地点', location, ['toronto', 'gta'].includes(region)],
-    ['薪资', job.salary || '未披露', false],
+    ['薪资', salaryText(job), false],
     ['工作方式', work, remote]
   ];
-  return `<dl class="job-facts" aria-label="岗位关键信息">${facts.map(([label, value, preferred]) => `<div class="job-fact${preferred ? ' preferred' : ''}"><dt>${label}</dt><dd>${esc(value)}</dd>${label === '工作地点' && preferred ? `<small>${region === 'toronto' ? 'Toronto 市内' : 'GTA 地区'}</small>` : ''}</div>`).join('')}</dl>${job.fullJd === false ? '<p class="fact-caveat">来源摘要 · 全文未取得，任期和资格待核实</p>' : ''}${remote ? '<p class="fact-caveat">Remote 不代表允许从加拿大办公，请核实工作资格。</p>' : ''}`;
+  return `<dl class="job-facts" aria-label="岗位关键信息">${facts.map(([label, value, preferred]) => `<div class="job-fact${preferred ? ' preferred' : ''}"><dt>${label}</dt><dd>${esc(value)}</dd>${label === '工作地点' && preferred ? `<small>${region === 'toronto' ? 'Toronto 市内' : 'GTA 地区'}</small>` : ''}</div>`).join('')}</dl>${job.fullJd === false ? '<p class="fact-caveat">来源摘要 · 全文未取得，任期和资格待核实</p>' : ''}${salaryDetails(job)}${remote ? '<p class="fact-caveat">Remote 不代表允许从加拿大办公，请核实工作资格。</p>' : ''}`;
 }
 
 export function skillHighlights(job) {
@@ -28,6 +29,11 @@ export function scoreBasisText(match) {
   const components = match.components || [];
   const total = components.reduce((sum, c) => sum + c.total, 0);
   return total ? `基于 ${total} 项可识别要求` : '评分依据待核实';
+}
+
+export function matchEvidenceView(match) {
+  const rows = [...(match.matched || []), ...(match.gaps || [])];
+  return `<details class="match-evidence"><summary>查看逐项 JD 与当前简历对照（${rows.length} 项）</summary><p class="assessment-note">必需 / 加分 / 任选仅解释原文，不改变覆盖分；最多展示每项前三处计分范围内的上下文。关键词提及不证明整项资格满足。</p>${rows.map(row => `<article class="evidence-pair"><h4>${esc(row.name)} <span class="badge">${row.level === 1 ? '简历体现' : row.level > 0 ? '基础接触 · 半项' : '简历未体现'}</span></h4><div class="evidence-columns"><div><strong>JD 原文</strong>${row.jdEvidence?.length ? row.jdEvidence.map(e => `<p class="requirement-kind">${esc({required:'必需',preferred:'加分',unspecified:'类别待核实'}[e.kind] || '类别待核实')}${e.mode === 'any' ? ' · 任选其一' : ''}</p><blockquote>${esc(e.quote)}</blockquote><p class="assessment-note">${esc(e.reason)}</p>`).join('') : '<p>旧评估没有记录原句，请刷新详情重新评估。</p>'}</div><div><strong>当前简历原文</strong><blockquote>${esc(row.evidence || '当前简历未体现，不代表本人不会。')}</blockquote></div></div></article>`).join('')}</details>`;
 }
 
 export function scoreComponentsView(match) {
