@@ -1,3 +1,4 @@
+import { placementOptions, rangeText } from './placement-options.js';
 // Shared by source adapters, evaluation and the browser. Never substitute index dates.
 export function validPublicationDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(value)) return false;
@@ -34,6 +35,8 @@ export function durationRange(job) {
   return minimum && Number(minimum[1]) > 0 ? { min: Number(minimum[1]), max: Infinity } : null;
 }
 export function durationText(job) {
+  const placement = placementOptions(job);
+  if (placement?.status === 'confirmed') return `${[...new Set(placement.options.flatMap(o => o.ranges.map(rangeText)))].join(' 或 ')} 个月`;
   const range = durationRange(job);
   if (!range) return '时长待核实';
   return range.max === Infinity ? `${range.min}+ 个月` : range.min === range.max ? `${range.min} 个月` : `${range.min}–${range.max} 个月`;

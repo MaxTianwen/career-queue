@@ -77,6 +77,32 @@ async function setup(t, storeOverride, discoverImpl, cachedReport, officialJobIm
 const files = { resume: Buffer.from('%PDF-1.7\nSynthetic signature fixture, not a rendered resume.').toString('base64'),
   docx: Buffer.from('PK synthetic format fixture').toString('base64'), reviewNotes: Buffer.from('Synthetic review').toString('base64') };
 
+test('placement display module and old saved JD work through discovery, Queue and school preview without persistence changes', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const job = newRecord(normalizeJob({ company: 'Synthetic', title: 'Software Intern', url: 'https://example.com/job/placement',
+    term: 'Unknown', location: 'Toronto', requisitionId: 'JR123', fullJd: true,
+    jd: '12-16 month internship (starts May 2027)\n3-4 month internship (starts January 2027, May 2027, September 2027)' }));
+  await store.create(job);
+  const before = structuredClone(await store.list());
+  const { url, request } = await setup(t, store, undefined, { finishedAt: new Date().toISOString(), sources: [], results: [job] });
+  const module = await fetch(url + '/placement-options.js');
+  assert.equal(module.status, 200); assert.match(module.headers.get('content-type'), /javascript/);
+  const { matchesFilters } = await import('../web/job-view.js');
+  for (const j of [(await request('/api/jobs', undefined, 'live')).data.jobs[0], (await request('/api/discovery', undefined, 'live')).data.report.results[0]]) {
+    assert.equal(j.key, job.key); assert.equal(j.term, 'Unknown');
+    assert.equal(matchesFilters(j, { term: 'Summer 2027', duration: '16' }), true);
+    assert.equal(matchesFilters(j, { term: 'Winter 2027', duration: '16' }), false);
+  }
+  const row = { id: 'S123', company: job.company, title: job.title, location: job.location, requisitionId: job.requisitionId, term: 'Summer 2027' };
+  const response = (await request('/api/portal/preview', { rows: [row] }, 'live')).data;
+  assert.match(response.jobs[0].termLabel, /Winter 2027.*Summer 2027.*Fall 2027/);
+  const preview = response.rows[0];
+  assert.equal(preview.category, 'exact'); assert.deepEqual(preview.candidates[0].conflicts, []);
+  assert.equal(preview.discovery.candidates[0].strong, true);
+  assert.equal((await request('/api/portal', undefined, 'live')).data.jobs[0].termLabel, response.jobs[0].termLabel);
+  assert.deepEqual(await store.list(), before);
+});
+
 test('school preview compares discovery without writing; adopted URL requires a fresh preview and explicit save', async t => {
   const store = new DemoStore(); store.rows.clear();
   const discovered = { ...normalizeJob({ company: 'Synthetic', title: 'Software Intern', url: 'https://example.com/job/JR900', jd: 'Python', term: 'Summer 2027', location: 'Toronto', requisitionId: 'JR900' }), fullJd: true };

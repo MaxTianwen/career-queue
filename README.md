@@ -1,4 +1,4 @@
-# Career Queue v1.4.10
+# Career Queue v1.4.11
 
 **中文** | [English](Readme_EN.md)
 
@@ -6,7 +6,7 @@
 
 **发现职位 → 已保存 Queue → 生成 / 审阅材料 → 确认材料并保存为待提交 → 本人确认已投递。**
 
-当前版本：`v1.4.10`（2026-10-03 发布至 GitHub main / v1.4.10）。新增 Qualcomm 加拿大 intern / co-op 公开列表、完整 JD、官方发布日期和招聘编号复查；旧 Eightfold 链接与官网统一去重，学校对照显示找到或被现有方向预筛排除的依据。FY27 年份不冒充具体入职季，未改变 CS / Data 筛选规则。
+当前版本：`v1.4.11`（2026-10-03 发布至 GitHub main / v1.4.11）。Qualcomm 明确的 May/June 2027 入职归入 Summer；Amazon 多季岗位保留一张卡，入职季和时长必须由同一官方选项满足。发现、Queue、详情与学校对照共用 JD 依据；不改已保存身份、申请记录、评分或自动排除规则。详见 [验收记录](docs/releases/v1.4.11-verification.md)。
 
 ## 启动与验证
 

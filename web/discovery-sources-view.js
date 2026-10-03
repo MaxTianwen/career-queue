@@ -1,3 +1,4 @@
+import { placementOptions, rangeText } from './placement-options.js';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const table = (heads, rows) => `<div class="source-scroll"><table><thead><tr>${heads.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(v => `<td>${esc(v ?? '无法比较')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 
@@ -8,7 +9,10 @@ export function discoverySourcesView(report) {
 }
 
 export function fieldEvidenceView(job) {
-  const fields = Object.entries(job.fieldEvidence || {});
+  const placement = placementOptions(job);
+  const fields = Object.entries(job.fieldEvidence || {}).filter(([key]) => !placement || !['term', 'duration'].includes(key));
+  const placementView = placement ? `<p><b>入职与时长选项</b> · ${placement.status === 'confirmed' ? '按同一选项组合筛选' : esc(placement.reason)}</p>${placement.options.map(o => `<p>${esc(o.terms.join(' / '))} · ${esc(o.ranges.map(rangeText).join(' 或 '))} 个月</p><blockquote>${esc(o.raw)}</blockquote>`).join('')}` : '';
+
   const workplace = workplaceEvidence(job);
   let sourceLink = '';
   try {
@@ -17,7 +21,7 @@ export function fieldEvidenceView(job) {
   } catch {}
   const labels = { salary: '薪资', duration: '工作时长', workMode: '工作方式', location: '工作地点', term: '入职时间' };
   const states = { options: '官网明确可选', extracted: '已提取', ambiguous: '信息不一致，待核实', 'not-extracted': '正文中未提取到确定值，待核实', unread: '正文尚未取得' };
-  return `<details class="origin-links"><summary>查看地点、方式与其他字段依据${workplace.warnings.length ? ' · 有信息待核实' : ''}</summary><p><b>当前地点字段</b>：${esc(job.location || '地点待核实')}<br><b>当前工作方式</b>：${esc(workModeText(job))}</p>${workplace.locationQuotes.length ? `<p><b>JD 中的地点原文</b></p>${workplace.locationQuotes.map(q => `<blockquote>${esc(q)}</blockquote>`).join('')}` : '<p>未识别到独立的地点原句，当前地点保留来源字段，尚未核实。</p>'}${workplace.warnings.map(w => `<p class="field-warning">${esc(w)}</p>`).join('')}${workplace.quotes.length ? `<p><b>JD 中的工作方式原文</b></p>${workplace.quotes.map(q => `<blockquote>${esc(q)}</blockquote>`).join('')}` : '<p>未识别到明确的工作方式原句；请以来源正文为准。</p>'}${sourceLink || '<p>未记录可核对的来源链接。</p>'}${fields.map(([key, e]) => `<p><b>${esc(labels[key] || key)}</b> · ${esc(states[e.status] || '待核实')}<br>${esc(e.source)}${e.raw ? `：${esc(e.raw)}` : ''}</p>`).join('')}<p>未提取到不等于官方明确未披露；Remote 不代表允许从加拿大办公。裸 $ 不推断币种，不补猜缺失计薪周期。</p></details>`;
+  return `<details class="origin-links"><summary>查看地点、方式与其他字段依据${workplace.warnings.length || placement?.reason ? ' · 有信息待核实' : ''}</summary><p><b>当前地点字段</b>：${esc(job.location || '地点待核实')}<br><b>当前工作方式</b>：${esc(workModeText(job))}</p>${workplace.locationQuotes.length ? `<p><b>JD 中的地点原文</b></p>${workplace.locationQuotes.map(q => `<blockquote>${esc(q)}</blockquote>`).join('')}` : '<p>未识别到独立的地点原句，当前地点保留来源字段，尚未核实。</p>'}${workplace.warnings.map(w => `<p class="field-warning">${esc(w)}</p>`).join('')}${workplace.quotes.length ? `<p><b>JD 中的工作方式原文</b></p>${workplace.quotes.map(q => `<blockquote>${esc(q)}</blockquote>`).join('')}` : '<p>未识别到明确的工作方式原句；请以来源正文为准。</p>'}${sourceLink || '<p>未记录可核对的来源链接。</p>'}${placementView}${fields.map(([key, e]) => `<p><b>${esc(labels[key] || key)}</b> · ${esc(states[e.status] || '待核实')}<br>${esc(e.source)}${e.raw ? `：${esc(e.raw)}` : ''}</p>`).join('')}<p>未提取到不等于官方明确未披露；Remote 不代表允许从加拿大办公。裸 $ 不推断币种，不补猜缺失计薪周期。</p></details>`;
 }
 import { workplaceEvidence } from './job-summary.js';
 import { workModeText } from './job-facts.js';

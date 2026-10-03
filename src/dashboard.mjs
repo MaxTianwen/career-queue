@@ -1,3 +1,4 @@
+import { placementTermText } from '../web/placement-options.js';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, readdir, realpath, stat } from 'node:fs/promises';
 import { parseEnv } from 'node:util';
@@ -178,7 +179,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/job-view.js', '/job-facts.js', '/placement-options.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -232,7 +233,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       }
       if (req.method === 'GET' && url.pathname === '/api/portal') {
         const records = await (await storeFor(mode)).list();
-        return send({ jobs: records.map(j => ({ key: j.key, company: j.company, title: j.title, location: j.location, term: j.term,
+        return send({ jobs: records.map(j => ({ key: j.key, company: j.company, title: j.title, location: j.location, term: j.term, termLabel: placementTermText(j),
           status: j.status, applicationDate: j.applicationDate, portal: j.portal || null, summary: portalSummary(j) })) });
       }
       if (req.method === 'GET' && url.pathname === '/api/discovery') { await loadedSearch; return send(await presentSearch()); }
@@ -311,7 +312,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         for (const [key, entry] of portalPreviews) if (Date.now() - entry.at > 600000) portalPreviews.delete(key);
         if (portalPreviews.size >= 5) portalPreviews.delete(portalPreviews.keys().next().value);
         portalPreviews.set(token, { mode, at: Date.now(), rows, revisions: new Map(records.map(j => [j.key, portalRevision(j)])) });
-        return send({ token, rows, jobs: records.map(j => ({ key: j.key, title: j.title, company: j.company, term: j.term, status: j.status, externalSubmitted: portalSummary(j).externalSubmitted, linkedId: j.portal?.id || null })) });
+        return send({ token, rows, jobs: records.map(j => ({ key: j.key, title: j.title, company: j.company, term: j.term, termLabel: placementTermText(j), status: j.status, externalSubmitted: portalSummary(j).externalSubmitted, linkedId: j.portal?.id || null })) });
       }
       if (url.pathname === '/api/portal/link') {
         const preview = portalPreviews.get(body.token);

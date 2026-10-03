@@ -1,5 +1,8 @@
 export function matchesTerm(job, term) {
   if (!term) return true;
+  const placement = placementOptions(job);
+  if (placement?.status === 'confirmed') return placement.terms.includes(term);
+  if (placement && (!job.term || job.term === 'Unknown')) return term === 'Unknown';
   if (job.term && job.term !== 'Unknown') {
     return job.term === term || job.term === 'Summer/Fall 2027' && ['Summer 2027', 'Fall 2027'].includes(term);
   }
@@ -19,9 +22,14 @@ export function matchesFilters(job, filters = {}) {
   const modes = workModes(job);
   if (filters.workMode && (filters.workMode === 'unknown' ? modes.length > 0 : !modes.includes(filters.workMode))) return false;
   const range = durationRange(job);
-  if (filters.duration === 'unknown' && range) return false;
-  if (filters.duration === '8plus' && !(range && range.max >= 8)) return false;
-  if (filters.duration && !['unknown', '8plus'].includes(filters.duration) && !(range && range.min <= Number(filters.duration) && range.max >= Number(filters.duration))) return false;
+  const placement = placementOptions(job);
+  if (placement?.status === 'confirmed') {
+    if (!placement.options.some(option => optionMatches(option, filters.term, filters.duration))) return false;
+  } else {
+    if (filters.duration === 'unknown' && range) return false;
+    if (filters.duration === '8plus' && !(range && range.max >= 8)) return false;
+    if (filters.duration && !['unknown', '8plus'].includes(filters.duration) && !(range && range.min <= Number(filters.duration) && range.max >= Number(filters.duration))) return false;
+  }
   const region = locationRegion(job);
   if (filters.location === 'gta' && !['toronto', 'gta'].includes(region)) return false;
   if (['toronto', 'outside', 'unknown'].includes(filters.location) && region !== filters.location) return false;
@@ -37,3 +45,4 @@ export function sortJobs(jobs, by = 'match') {
     || a.company.localeCompare(b.company) || a.title.localeCompare(b.title) || String(a.key).localeCompare(String(b.key)));
 }
 import { publication, publicationDay, locationRegion, durationRange, workModes } from './job-facts.js';
+import { placementOptions, optionMatches } from './placement-options.js';

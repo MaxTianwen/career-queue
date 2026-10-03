@@ -10,7 +10,7 @@ function fixture(){
   const helpers=Object.fromEntries(['directionBadge','jobHighlights','skillHighlights','sourceLinks','fieldEvidenceView','assessmentPanel','scoreDetails','resumeControls','portalPanel','jobDescription','fileLinks','materialForm','freshnessReview'].map(name=>[name,()=> '']));
   const api=()=>new Promise((resolve,reject)=>pending.push({resolve,reject}));
   const f=runInNewContext(`let detailRequest=0,view='queue',mode='live',selected,detailContext;${controller};({detail,invalidate:()=>detailRequest++,navigate:()=>view='resumes',switchMode:()=>mode='demo',selected:()=>selected})`,{
-    ...helpers,workplaceBadge,api,esc:String,safeUrl:String,publicationText:()=>'',modeText:()=>'',deferDetailRefresh:()=>Boolean(dialog.dataset.dirty),document:{activeElement:{closest:()=>dialog}},detailFeedback:(key,error)=>messages.push({key,error:error?.message}),showDetailSurface:()=>{shown++;dialog.inert=false;},$:s=>s==='#detail'?dialog:body
+    ...helpers,termText:job=>job.term,workplaceBadge,api,esc:String,safeUrl:String,publicationText:()=>'',modeText:()=>'',deferDetailRefresh:()=>Boolean(dialog.dataset.dirty),document:{activeElement:{closest:()=>dialog}},detailFeedback:(key,error)=>messages.push({key,error:error?.message}),showDetailSurface:()=>{shown++;dialog.inert=false;},$:s=>s==='#detail'?dialog:body
   });
   return {...f,pending,messages,dialog,body,shown:()=>shown};
 }

@@ -1,3 +1,4 @@
+import { placementOptions, placementTermText } from '../web/placement-options.js';
 import { createHash } from 'node:crypto';
 import { canonicalUrl, validateApplicationDate, submissionMaterials, evaluateJob } from './core.mjs';
 import { deadlineExpired } from './deadlines.mjs';
@@ -52,7 +53,10 @@ function evidence(row, job) {
   const idMatch = sameCompany && row.requisitionId && sources.some(s => norm(s.requisitionId) === norm(row.requisitionId));
   if (urlMatch) reasons.push('外部职位链接一致');
   if (idMatch) reasons.push('公司与雇主招聘编号一致');
-  if (known(row.term) && known(job.term) && norm(row.term) !== norm(job.term)) conflicts.push('入职批次不同');
+  const placement = placementOptions(job);
+  const terms = placement?.status === 'confirmed' ? placement.terms : job.term === 'Summer/Fall 2027' ? ['Summer 2027', 'Fall 2027'] : known(job.term) ? [job.term] : [];
+  if (placement && placement.status !== 'confirmed') conflicts.push(placement.reason);
+  if (known(row.term) && terms.length && !terms.some(term => norm(row.term) === norm(term))) conflicts.push('入职批次不同');
   if (known(row.location) && known(job.location) && norm(row.location) !== norm(job.location)) conflicts.push('地点表述不同，需核对');
   if (!sameCompany && urlMatch) conflicts.push('公司名称不同');
   if (row.requisitionId && job.requisitionId && norm(row.requisitionId) !== norm(job.requisitionId)) conflicts.push('主记录招聘编号不同');
@@ -74,7 +78,7 @@ export function previewPortal(rows, records) {
       const candidates = records.map(j => {
         const match = evidence(row, j);
         if (j.portal?.id === row.id && !match.reasons.length) match.reasons.push('已有关联，需要核对更新后的来源');
-        return { key: j.key, company: j.company, title: j.title, location: j.location, term: j.term, status: j.status,
+        return { key: j.key, company: j.company, title: j.title, location: j.location, term: j.term, termLabel: placementTermText(j), status: j.status,
           externalSubmitted: externalSubmitted(j), linkedId: j.portal?.id || null, revision: portalRevision(j), ...match };
       }).filter(c => c.reasons.length);
       const strong = candidates.filter(c => c.strong && (!c.linkedId || c.linkedId === row.id));
@@ -104,7 +108,7 @@ export function portalDiscovery(row, report, now = new Date()) {
     try { return canonicalUrl(job.url) === row.externalUrl; } catch { return false; }
   }).map(job => {
     const match = evidence(row, job);
-    return { key: job.key, title: job.title, company: job.company, url: job.url, term: job.term, location: job.location,
+    return { key: job.key, title: job.title, company: job.company, url: job.url, term: job.term, termLabel: placementTermText(job), location: job.location,
       requisitionId: job.requisitionId, ...match,
       stateCode: job.prefiltered ? 'prefiltered' : deadlineExpired(job.deadline, now) ? 'expired' : job.decision === 'REJECT' ? 'excluded' : !job.fullJd ? 'incomplete' : 'found',
       state: job.prefiltered ? '搜索预筛排除，尚未读取正文' : deadlineExpired(job.deadline, now) ? '官网截止已过，默认隐藏' : job.decision === 'REJECT' ? '未通过当前岗位条件' : !job.fullJd ? '已发现，正文待补齐' : '已发现，可在自动发现中查看',
