@@ -1,4 +1,4 @@
-# Career Queue v1.4.3
+# Career Queue v1.4.4
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.3` (2026-10-02 release). Editing and review controls are locked while saving; failures preserve inputs and allow retry. Duplicate editor submissions are blocked, and a successful save is distinguished from a subsequent preview failure. Returning to the preview restores keyboard focus. Selected unmatched school candidates can now be saved to Queue, and Vena / Pinpoint discovery and JD reading are supported. 274 regression tests pass. Native zoom, screenshot and confirmation-dialog verification limits remain; see [v1.4.3 verification](docs/releases/v1.4.3-verification.md). The previous published version is `v1.4.2` (`3fe687f`). See [CHANGELOG](CHANGELOG.md) and [PROJECT_SPEC](PROJECT_SPEC.md).
+Current version: `v1.4.4` (2026-10-02 authorized release). School candidates can be compared with an existing application and explicitly confirmed for school-link transfer. Original notes and history remain available; the target application retains its materials and submission state. Interrupted transfers can resume. Explicit workplace choices match each offered mode without assuming remote eligibility. 287 regression tests pass; see [verification and limitations](docs/releases/v1.4.4-verification.md). This release is authorized. v1.4.5 development follows ROADMAP; its publication requires separate approval.
 
 ## Start and verify
 

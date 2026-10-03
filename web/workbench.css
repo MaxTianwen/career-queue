@@ -79,3 +79,6 @@ dialog{background:var(--surface);color:var(--ink);border-color:var(--line);borde
 .form-status .button{margin-top:8px}
 .dialog-head>div{min-width:0}.dialog-head h2,.dialog-head .eyebrow{overflow-wrap:anywhere}
 .dialog-head>.close{flex-shrink:0}.jd,.file-link,.material-file strong{overflow-wrap:anywhere}
+.school-association{margin-top:20px;padding:18px;border:1px solid var(--line);border-radius:3px;background:var(--canvas);overflow-wrap:anywhere}
+.school-association section{padding:12px 0;border-bottom:1px solid var(--line,#d8d4ca)}
+.school-association h4{margin:0 0 6px}.school-association section p{margin:6px 0}

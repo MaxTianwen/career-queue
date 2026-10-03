@@ -6,6 +6,40 @@ import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { dashboardServer } from '../src/dashboard.mjs';
 import { DemoStore } from '../src/demo-store.mjs';
+import { schoolCandidate } from '../src/school-candidates.mjs';
+import { normalizeJob, newRecord } from '../src/core.mjs';
+
+test('school completion previews an existing application; interrupted transfer blocks unlink and resumes', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const source = schoolCandidate({ id: 'S-TRANSFER', company: 'Synthetic', title: 'Software Intern', term: 'Summer 2027' }, []);
+  const target = newRecord(normalizeJob({ company: 'Synthetic', title: 'Software Intern', term: 'Summer 2027',
+    url: 'https://example.com/jobs/transfer', jd: 'Python required', fullJd: true }));
+  await store.create(source); await store.create(target);
+  const { request: send, url } = await setup(t, store, undefined, undefined, () => assert.fail('known URL must not fetch'));
+  assert.equal((await fetch(url + '/school-association.js')).status, 200);
+  const request = (path, body) => send(path, body, 'live');
+  assert.equal((await send('/api/status', undefined, 'live')).status, 200);
+  const detail = (await request(`/api/jobs/${source.key}`)).data;
+  const response = await request(`/api/jobs/${source.key}/school-details`, { url: target.url, confirmed: true,
+    revision: detail.portalRevision, jdHash: detail.assessment.jdHash });
+  assert.equal(response.status, 200);
+  const preview = response.data.association;
+  assert.equal(preview.target.key, target.key); assert.deepEqual(preview.conflicts, []);
+  const input = { targetKey: target.key, sourceRevision: preview.source.revision, targetRevision: preview.target.revision, confirmed: true };
+  const update = store.updateState.bind(store);
+  store.updateState = async record => { if (record.key === source.key) throw new Error('Synthetic second-write failure'); return update(record); };
+  const failed = await request(`/api/jobs/${source.key}/school-transfer`, input);
+  assert.equal(failed.status, 400); assert.match(failed.data.error, /原候选暂未归档/);
+  assert.equal((await request(`/api/jobs/${source.key}`)).data.pendingSchoolUrl, target.url);
+  assert.equal((await request(`/api/jobs/${source.key}/archive`, { confirmed: true })).status, 409);
+  const freshTarget = (await request(`/api/jobs/${target.key}`)).data;
+  assert.equal((await request(`/api/jobs/${target.key}/portal`, { action: 'unlink', confirmed: true, revision: freshTarget.portalRevision })).status, 409);
+  store.updateState = update;
+  const saved = await request(`/api/jobs/${source.key}/school-transfer`, input);
+  assert.equal(saved.status, 200); assert.equal(saved.data.targetKey, target.key);
+  assert.equal((await request('/api/jobs')).data.jobs.length, 1);
+  assert.equal((await store.find(source.key)).status, '已归档');
+});
 
 async function listenForTest(server) {
   // Windows can allocate an ephemeral port that Fetch reserves (e.g. 6000).

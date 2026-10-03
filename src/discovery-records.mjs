@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { canonicalUrl, normalizeJob } from './core.mjs';
 import { deadlineExpired } from './deadlines.mjs';
-import { durationRange, publication } from '../web/job-facts.js';
+import { durationRange, publication, workModes } from '../web/job-facts.js';
 import { pinpointUrl } from './discovery-sources.mjs';
 
 const known = value => value != null && !['', 'unknown', '未披露'].includes(String(value).trim().toLowerCase());
@@ -124,7 +124,7 @@ export function discoveryCoverage(jobs) {
     row.published += Number(Boolean(publication(job).at));
     row.duration += Number(Boolean(durationRange(job)));
     row.salary += Number(Boolean(job.salary && job.salary !== '未披露'));
-    row.workMode += Number(['onsite', 'hybrid', 'remote'].includes(job.workMode));
+    row.workMode += Number(workModes(job).length > 0);
     sources.set(name, row);
   }
   return [...sources.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));

@@ -11,6 +11,6 @@ export function fieldEvidenceView(job) {
   const fields = Object.entries(job.fieldEvidence || {});
   if (!fields.length) return '';
   const labels = { salary: '薪资', duration: '工作时长', workMode: '工作方式' };
-  const states = { extracted: '已提取', ambiguous: '多组值，待核实', 'not-extracted': '正文中未提取到确定值，待核实', unread: '正文尚未取得' };
+  const states = { options: '官网明确可选', extracted: '已提取', ambiguous: '信息不一致，待核实', 'not-extracted': '正文中未提取到确定值，待核实', unread: '正文尚未取得' };
   return `<details class="origin-links"><summary>查看重点字段依据</summary>${fields.map(([key, e]) => `<p><b>${esc(labels[key] || key)}</b> · ${esc(states[e.status] || '待核实')}<br>${esc(e.source)}${e.raw ? `：${esc(e.raw)}` : ''}</p>`).join('')}<p>未提取到不等于官方明确未披露；裸 $ 不推断币种，不补猜缺失计薪周期。</p></details>`;
 }

@@ -16,7 +16,8 @@ function comparePublication(a, b) {
 export function matchesFilters(job, filters = {}) {
   if (!matchesTerm(job, filters.term)) return false;
   if (filters.track && (job.resumeClassification?.track || 'unknown') !== filters.track) return false;
-  if (filters.workMode && (job.workMode || 'unknown') !== filters.workMode) return false;
+  const modes = workModes(job);
+  if (filters.workMode && (filters.workMode === 'unknown' ? modes.length > 0 : !modes.includes(filters.workMode))) return false;
   const range = durationRange(job);
   if (filters.duration === 'unknown' && range) return false;
   if (filters.duration === '8plus' && !(range && range.max >= 8)) return false;
@@ -35,4 +36,4 @@ export function sortJobs(jobs, by = 'match') {
     : compareNumber(score(a), score(b)) || comparePublication(a, b))
     || a.company.localeCompare(b.company) || a.title.localeCompare(b.title) || String(a.key).localeCompare(String(b.key)));
 }
-import { publication, publicationDay, locationRegion, durationRange } from './job-facts.js';
+import { publication, publicationDay, locationRegion, durationRange, workModes } from './job-facts.js';

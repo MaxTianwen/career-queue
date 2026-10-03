@@ -1,6 +1,9 @@
+import { workModeChoices } from '../web/job-facts.js';
 // Conservative, source-backed extraction. Absence is not proof of nondisclosure.
 export function enrichFields(job) {
   const evidence = { ...job.fieldEvidence }, body = job.jd || '';
+  const choices = workModeChoices(job);
+  if (choices) evidence.workMode = { status: 'options', source: 'JD：明确可选工作方式', raw: choices.raw };
   let salary = job.salary || '未披露';
   if (salary === '未披露') {
     const amounts = [...body.matchAll(/(?:\b(?:CAD|USD|GBP|EUR)\s*|(?:CA|US)?\$)\s*\d[\d,.]*(?:[kK])?(?:\s*(?:-|–|to)\s*(?:(?:CAD|USD|GBP|EUR)\s*|(?:CA|US)?\$)?\s*\d[\d,.]*(?:[kK])?)?\s*(?:CAD|USD)?\s*(?:per\s+|\/|an?\s+)(?:hour|hr|year|annum|month|week)\b/gi)].filter(m => {
@@ -27,5 +30,5 @@ export function enrichFields(job) {
   const rawDuration = body.match(/(?:\b(?:duration|term(?: length)?|length)\s*:\s*|\bfor\s+)[^\n.]{0,50}\bmonths?\b/i)?.[0];
   evidence.duration = { status: duration || job.durationMonths ? 'extracted' : body ? 'not-extracted' : 'unread', source: 'JD / 官方标题', raw: rawDuration || (job.durationMonths ? job.title : '') };
   const paid = job.paid === false ? false : /^(?:(?:CAD|USD|GBP|EUR)\s*|(?:CA|US)?\$)\s*[1-9]/i.test(salary) ? true : job.paid;
-  return { ...job, paid, salary, ...(duration ? { durationRange: duration, durationMonths: null } : {}), fieldEvidence: evidence };
+  return { ...job, ...(choices ? { workMode: 'unknown' } : {}), paid, salary, ...(duration ? { durationRange: duration, durationMonths: null } : {}), fieldEvidence: evidence };
 }

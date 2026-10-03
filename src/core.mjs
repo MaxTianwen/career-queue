@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
-import { publication } from '../web/job-facts.js';
+import { publication, workModeChoices } from '../web/job-facts.js';
 
 export const TARGET_TERMS = new Set(['Winter 2027', 'Summer 2027', 'Fall 2027']);
 const PREFERRED = /\b(toronto|north york|scarborough|markham|vaughan|richmond hill)\b/i;
@@ -62,7 +62,9 @@ export function evaluateJob(job, now = new Date()) {
   if (job.eligibilityNotes) review.push(clean(job.eligibilityNotes));
 
   const inGta = job.inGta ?? (GTA.test(job.location) ? true : null);
-  if (job.workMode === 'remote') {
+  if (workModeChoices(job)) {
+    review.push('官网提供多种工作方式；核实所选方式的地点、任期和工作资格限制');
+  } else if (job.workMode === 'remote') {
     if (job.remoteEligible !== true) review.push('核实是否允许从多伦多远程工作及工作资格');
   } else if (job.workMode === 'unknown') {
     review.push('核实办公方式；不将未知办公方式当作现场工作');

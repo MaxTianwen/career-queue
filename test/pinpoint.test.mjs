@@ -57,9 +57,11 @@ test('Pinpoint multiple workplace choices and conflicting location do not become
   const choice = 'This position can be on-site in our Toronto office, hybrid or entirely remote in Ontario.';
   const board = await readEmployerBoard(source, async () => Response.json({ data: [{ ...post, description: choice, workplace_type: 'onsite', location: { name: 'Canada - Remote' } }] }));
   const job = extractFacts(board.jobs[0]);
-  assert.equal(job.workMode, 'unknown'); assert.equal(job.fieldEvidence.workMode.status, 'ambiguous');
+  assert.equal(job.workMode, 'unknown'); assert.equal(job.fieldEvidence.workMode.status, 'options');
   const detail = extractFacts(await fetchPinpoint(job, async () => html({ ...ld, description: choice })));
   assert.equal(detail.workMode, 'unknown'); assert.equal(detail.fieldEvidence.workMode.raw, choice.slice(0,-1));
+  const conflict = await readEmployerBoard(source, async () => Response.json({ data: [{ ...post, workplace_type: 'onsite', location: { name: 'Canada - Remote' } }] }));
+  assert.equal(extractFacts(conflict.jobs[0]).fieldEvidence.workMode.status, 'ambiguous');
 });
 
 test('Vena board discovers missing-index jobs, deduplicates application aliases and retains full JD on metadata failure', async () => {

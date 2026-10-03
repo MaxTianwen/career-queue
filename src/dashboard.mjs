@@ -13,7 +13,8 @@ import { DiscoveryRunner } from './discovery-runner.mjs';
 import { automationAdapter, networkAvailable } from './automation.mjs';
 import { workspaceId } from './background-services.mjs';
 import { discover, extractFacts, officialJob } from './discovery.mjs';
-import { schoolCandidate, completeSchoolCandidate } from './school-candidates.mjs';
+import { schoolCandidate, completeSchoolCandidate, schoolAssociation, transferSchoolAssociation } from './school-candidates.mjs';
+import { workModeChoices } from '../web/job-facts.js';
 import { discoveryCoverage, sourceName } from './discovery-records.mjs';
 import { extractDeadline, deadlineExpired } from './deadlines.mjs';
 import { currentResumeProfiles } from './resume-profile.mjs';
@@ -70,6 +71,11 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const job = { ...record, ...extractDeadline(record), durationMonths: record.durationMonths ?? extracted.durationMonths,
         inGta: extracted.inGta,
         workMode: record.workMode && record.workMode !== 'unknown' ? record.workMode : extracted.workMode };
+      const choices = workModeChoices(job);
+      if (choices) {
+        job.workMode = 'unknown';
+        job.fieldEvidence = { ...job.fieldEvidence, workMode: { status: 'options', source: 'JD：明确可选工作方式', raw: choices.raw } };
+      }
       const evaluation = evaluateJob(job);
       if (record.fullJd === false) evaluation.reasons.unshift(record.schoolCandidate ? '学校列表尚无正文，请补齐官网链接与完整 JD' : record.fetchError ? `官方 JD 读取失败：${record.fetchError}` : '此来源暂不支持自动读取全文，需要补充完整 JD');
       const assessed = assessJob(job, profiles);
@@ -171,7 +177,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const url = new URL(req.url, origin);
       const mode = url.searchParams.get('mode') ?? 'live';
       if (!['live', 'demo'].includes(mode)) throw fail('无效模式');
-      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/automation-view.js', '/assessment-view.js', '/resume-review-view.js', '/discovery-sources-view.js', '/portal-import.js', '/school-association.js', '/job-view.js', '/job-facts.js', '/job-summary.js', '/job-description.js', '/style.css', '/workbench.css'].includes(url.pathname)) {
         const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': types[extname(file)] });
         res.end(await readFile(resolve(projectRoot, 'web', file))); return;
@@ -259,6 +265,10 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (req.method === 'GET' && match && !match[2]) {
         const record = await getRecord(await storeFor(mode), match[1]);
         const job = (await presentJobs([record], mode))[0];
+        if (record.schoolCandidate && record.portal) {
+          const rows = await (await storeFor(mode)).list();
+          job.pendingSchoolUrl = rows.find(j => j.schoolAssociationTransfer?.sourceKey === record.key && j.portal?.id === record.portal.id)?.url || '';
+        }
         return send({ ...job, localFiles: await materials(mode, record.key), generatedMaterial: await generatedMaterial(mode, record.key, job) });
       }
       if (req.method !== 'POST') throw fail('未找到', 404);
@@ -421,14 +431,27 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (!match || !match[2]) throw fail('未找到', 404);
       const store = await storeFor(mode), key = match[1], action = match[2];
       const record = await getRecord(store, key);
+      if (action === 'school-transfer') return send(await transferSchoolAssociation(store, key, body));
+      if (record.schoolCandidate && !['notes', 'school-details'].includes(action) || action === 'portal' && record.schoolAssociationTransfer) {
+        const all = await store.list();
+        const pending = all.some(target => {
+          const source = all.find(j => j.key === target.schoolAssociationTransfer?.sourceKey);
+          return source?.portal?.id && source.portal.id === target.portal?.id && [source.key, target.key].includes(key);
+        });
+        if (pending) throw fail('学校关联迁移尚未收尾，请在原候选中重试完成迁移后再修改学校状态', 409);
+      }
       if (action === 'school-details') {
         if (body.confirmed !== true) throw fail('请确认官网链接与 JD 对应当前学校岗位');
         if (body.revision !== portalRevision(record) || body.jdHash !== jobInputHash(record)) throw fail('岗位已变化，请重新打开后补齐', 409);
         const url = text(body.url, 2000), jd = text(body.jd || '', 100000).trim();
+        const association = schoolAssociation(record, url, await store.list());
+        if (association) return send({ association });
         const details = jd ? { url, jd } : await officialJobImpl({ url, company: record.company, title: record.title, location: record.location, term: record.term });
         if (!details?.jd?.trim()) throw fail('此链接暂不支持读取，请粘贴官网完整 JD 后保存');
         const current = await getRecord(store, key);
         if (portalRevision(current) !== body.revision || jobInputHash(current) !== body.jdHash) throw fail('读取期间岗位已变化，请重新打开', 409);
+        const afterRead = schoolAssociation(current, details.url, await store.list());
+        if (afterRead) return send({ association: afterRead });
         return send(await store.updateJob(completeSchoolCandidate(current, details, await store.list())));
       }
       if (['prepare', 'complete'].includes(action) && record.fullJd === false) throw fail('请先补齐完整 JD，再准备材料');

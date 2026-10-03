@@ -39,6 +39,23 @@ export function durationText(job) {
   return range.max === Infinity ? `${range.min}+ 个月` : range.min === range.max ? `${range.min} 个月` : `${range.min}–${range.max} 个月`;
 }
 
+// Only a choice explicitly stated for this position counts as multiple modes.
+// Mentioning remote teams or conflicting metadata is not an offer of remote work.
+export function workModeChoices(job) {
+  const sentence = (job.jd || '').match(/\bthis (?:position|role|is an? [^\n.!?]{0,100}\b(?:position|role))[^\n.!?]{0,100}\bcan be\b[^\n.!?]{0,240}/i)?.[0];
+  if (!sentence || /\b(?:not|no|cannot|can't|rather than)\b/i.test(sentence) || !/\bor\b/i.test(sentence)) return null;
+  const modes = ['onsite', 'hybrid', 'remote'].filter(mode => new RegExp(mode === 'onsite' ? '\\bon[ -]?site\\b' : `\\b${mode}\\b`, 'i').test(sentence));
+  return modes.length > 1 ? { modes, raw: sentence.trim() } : null;
+}
+export function workModes(job) {
+  return workModeChoices(job)?.modes || (['onsite', 'hybrid', 'remote'].includes(job.workMode) ? [job.workMode] : []);
+}
+export function workModeText(job) {
+  const modes = workModes(job);
+  const labels = { onsite: 'On-site · 现场', hybrid: 'Hybrid · 混合', remote: 'Remote · 远程' };
+  return modes.length > 1 ? `可选：${modes.map(m => labels[m]).join(' / ')}` : labels[modes[0]] || '工作方式待核实';
+}
+
 const TORONTO = /\b(toronto|north york|scarborough|etobicoke|east york)\b/i;
 const GTA = /\b(toronto|north york|scarborough|etobicoke|east york|markham|vaughan|richmond hill|mississauga|brampton|caledon|oakville|burlington|milton|halton hills|pickering|ajax|whitby|oshawa|clarington|uxbridge|scugog|brock|aurora|newmarket|king city|whitchurch.stouffville|east gwillimbury|georgina|gta|greater toronto area)\b/i;
 const OUTSIDE = /\b(vancouver|calgary|montreal|montréal|ottawa|waterloo|kitchener|cambridge|hamilton|london|edmonton|winnipeg|halifax|quebec|québec|victoria|burnaby|surrey|regina|saskatoon|guelph|new york|san francisco|united states|usa)\b/i;

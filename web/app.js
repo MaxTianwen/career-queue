@@ -2,8 +2,9 @@ import { automationView } from './automation-view.js';
 import { resumeReviewView, resumeReviewHistory } from './resume-review-view.js';
 import { discoverySourcesView, fieldEvidenceView } from './discovery-sources-view.js';
 import { openPortalImport } from './portal-import.js';
+import { schoolAssociationView } from './school-association.js';
 import { matchesFilters, sortJobs } from './job-view.js';
-import { publication, recentPublication, durationText } from './job-facts.js';
+import { publication, recentPublication, durationText, workModeText } from './job-facts.js';
 import { jobHighlights, skillHighlights } from './job-summary.js';
 import { jobDescription } from './job-description.js';
 import { eligibilityBadge, assessmentPanel, freshnessReview } from './assessment-view.js';
@@ -236,7 +237,7 @@ function portalPanel(j) {
 }
 const searchDate = value => value ? /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : new Date(value).toLocaleString('zh-CN', { timeZone: 'America/Toronto' }) : '未提供';
 const publicationText = job => { const p = publication(job); return p.at ? `${p.label}：${searchDate(p.at)}${p.dateOnly ? '（未提供具体时间）' : '（多伦多时间）'}` : '发布日期：官方未提供'; };
-const modeText = job => ({ onsite: 'On-site · 现场', remote: 'Remote · 远程', hybrid: 'Hybrid · 混合' })[job.workMode] || '方式待核实';
+const modeText = workModeText;
 const deadlineDate = value => !value ? '未披露' : /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}（多伦多当日结束）` : searchDate(value);
 function directionBadge(job) {
   const classification = job.resumeClassification;
@@ -578,7 +579,9 @@ async function detail(key) {
   delete $('#detail').dataset.dirty;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${esc(j.term)} · ${esc(j.status)}${mode === 'demo' ? ' · 演示职位' : ''}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">
     ${directionBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}${j.url ? `<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>` : '<p class="badge">学校候选 · 待补 JD</p>'}
-    ${j.schoolCandidate && j.status === 'Queue' ? `<form id="school-details-form"><h3>补齐职位正文</h3><label>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="留空时尝试读取受支持的官网；读取失败后可粘贴完整正文。"></textarea></label><label class="check"><input type="checkbox" name="confirmed" required>我已核对链接及正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>` : ''}
+    ${j.transferredTo ? `<p class="form-status">学校关联已迁移，原备注和历史保留在此。</p><button class="button secondary" data-action="show-saved" data-key="${esc(j.transferredTo)}">查看关联后的职位</button>` : ''}
+    ${[...(j.schoolAssociationHistory || []), ...(j.schoolAssociationTransfer ? [j.schoolAssociationTransfer] : [])].map(t => `<button class="button secondary compact" data-action="detail" data-key="${esc(t.sourceKey)}">查看原学校候选、备注与历史 · ${esc(t.portal?.id)}</button>`).join('')}
+    ${j.schoolCandidate && j.status === 'Queue' ? `<form id="school-details-form"><h3>补齐职位正文</h3><label>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.pendingSchoolUrl || j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="留空时尝试读取受支持的官网；读取失败后可粘贴完整正文。"></textarea></label><label class="check"><input type="checkbox" name="confirmed" required>我已核对链接及正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>` : ''}
     <p>${esc(publicationText(j))} · ${esc(modeText(j))}</p>
     ${assessmentPanel(j)}
     ${scoreDetails(j)}
@@ -764,7 +767,13 @@ document.addEventListener('click', async event => {
   catch (error) { const dialog = button.closest('dialog'); dialog?.open ? dialogError(dialog, error) : feedback(error.message, true); }
   finally { if (button.isConnected) button.disabled = button.dataset.action === 'search' && searchState.state === 'running' || button.dataset.action === 'preview-prev' && previewPage <= 1 || button.dataset.action === 'preview-next' && previewPage >= previewPages; }
 });
-document.addEventListener('input', event => { if (event.target.closest('#job-form')) { const b = $('[data-action="import"]'); if (b) b.hidden = true; } });
+document.addEventListener('input', event => {
+  if (event.target.closest('#job-form')) { const b = $('[data-action="import"]'); if (b) b.hidden = true; }
+  const form = event.target.closest('#school-details-form');
+  if (form && ['url', 'jd', 'confirmed'].includes(event.target.name)) {
+    delete form.association; form.querySelector('.school-association')?.remove();
+  }
+});
 document.addEventListener('change', event => {
   if (event.target.id === 'material-source') {
     const upload = event.target.value === 'upload', form = $('#materials-form');
@@ -848,7 +857,13 @@ document.addEventListener('submit', async event => {
       $('[data-action="import"]').hidden = preview.decision === 'REJECT'; return;
     }
     let action, body;
-    if (form.id === 'school-details-form') { action = 'school-details'; body = { ...values, confirmed: form.elements.confirmed.checked, revision: selected.portalRevision, jdHash: selected.assessment.jdHash }; }
+    if (form.id === 'school-details-form') {
+      action = 'school-details'; body = { ...values, confirmed: form.elements.confirmed.checked, revision: selected.portalRevision, jdHash: selected.assessment.jdHash };
+      if (button?.name === 'transfer' && form.association) {
+        action = 'school-transfer'; body = { confirmed: form.elements.transferConfirmed.checked, targetKey: form.association.target.key,
+          sourceRevision: form.association.source.revision, targetRevision: form.association.target.revision };
+      }
+    }
     if (form.id === 'notes-form') { action = 'notes'; body = values; }
     if (form.id === 'materials-form') {
       const files = {}; let total = 0;
@@ -861,10 +876,18 @@ document.addEventListener('submit', async event => {
     if (form.id === 'submitted-form') { action = 'submitted'; body = { date: values.date, receipt: values.receipt, confirmed: form.elements.confirmed.checked, assessmentId: selected.assessment?.id, staleReviewed: form.elements.staleReviewed?.checked === true }; }
     if (form.id === 'progress-form') { action = 'progress'; body = values; }
     if (!action) return;
-    await api(`/api/jobs/${selected.key}/${action}`, body);
+    const result = await api(`/api/jobs/${selected.key}/${action}`, body);
+    if (result.association) {
+      form.association = result.association;
+      form.querySelector('.school-association')?.remove();
+      form.insertAdjacentHTML('beforeend', schoolAssociationView(result.association));
+      formFeedback(form, '已找到现有职位，尚未修改任何记录。请核对下方对照。');
+      form.dataset.focusAssociation = 'true';
+      return;
+    }
     saved = true;
     markDetailFormSaved(form);
-    const key = selected.key;
+    const key = result.targetKey || selected.key;
     if (action === 'notes') {
       selected = { ...selected, ...values }; detailContext.job = selected;
       jobs = jobs.map(j => j.key === key ? { ...j, ...values } : j);
@@ -882,6 +905,7 @@ document.addEventListener('submit', async event => {
   finally {
     if (detailForm) {
       delete $('#detail').dataset.saving; lockedForms.forEach(({form, inert}) => { form.inert = inert; });
+      if (form.dataset.focusAssociation) { delete form.dataset.focusAssociation; form.querySelector('.school-association h3')?.focus(); }
       if (saved && $('#detail').dataset.state === 'failed') {
         detailNotice('更改已保存，但最新详情尚未读取成功。请重新读取详情，无需再次提交。');
       }

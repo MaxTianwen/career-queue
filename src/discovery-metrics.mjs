@@ -1,4 +1,4 @@
-import { durationRange, publication } from '../web/job-facts.js';
+import { durationRange, publication, workModes } from '../web/job-facts.js';
 
 export function discoveryMetrics(sources, raw, results, dedup) {
   const has = (job, id) => job.discoverySources?.some(s => s.id === id);
@@ -22,7 +22,7 @@ export function discoveryMetrics(sources, raw, results, dedup) {
         deadline: independent.filter(j => j.deadline).length,
         salary: independent.filter(j => j.salary && j.salary !== '未披露').length,
         duration: independent.filter(j => durationRange(j)).length,
-        workMode: independent.filter(j => ['onsite', 'remote', 'hybrid'].includes(j.workMode)).length } };
+        workMode: independent.filter(j => workModes(j).length).length } };
   });
   return { baselineComplete, ...dedup, bySource, independent: results.length,
     incremental: baselineComplete ? incremental.filter(j => j.decision === 'PASS').length : null,
