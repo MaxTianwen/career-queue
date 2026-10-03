@@ -9,8 +9,20 @@ import { runDiscoveryCommand } from '../src/automation-client.mjs';
 import { automationView } from '../web/automation-view.js';
 
 const listen = async (server, port = 0) => {
-  await new Promise((done, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', done); });
-  return `http://127.0.0.1:${server.address().port}`;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise((done, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', () => { server.off('error', reject); done(); });
+    });
+    const url = `http://127.0.0.1:${server.address().port}`;
+    try { await fetch(url, { method: 'HEAD' }); return url; }
+    catch (e) {
+      await close(server);
+      // Windows can allocate a Fetch-forbidden ephemeral port. Never hide
+      // connection failures or change the explicitly requested recovery port.
+      if (port || e.cause?.message !== 'bad port' || attempt === 9) throw e;
+    }
+  }
 };
 const close = async server => {
   if (!server?.listening) return;

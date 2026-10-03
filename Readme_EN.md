@@ -1,4 +1,4 @@
-# Career Queue v1.4.7
+# Career Queue v1.4.8
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.7` (2026-10-02 release). School matching results now offer All / Not found / Needs review filters, preserving selections and showing hidden selected rows. Discovery coverage is separate from existing application links. Failed saves preserve choices for retry. See [verification](docs/releases/v1.4.7-verification.md). Release target: main and v1.4.7 in the existing private repository.
+Current version: `v1.4.8` (released 2026-10-02). Match Score now explains recognized requirements, resume evidence, basic exposure and missing evidence separately. Location/work-mode notices expand to show source wording and links. Scores, weights and ordering are unchanged. See [verification](docs/releases/v1.4.8-verification.md). Published on GitHub main / v1.4.8.
 
 ## Start and verify
 
