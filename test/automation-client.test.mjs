@@ -7,9 +7,18 @@ import { dashboardServer } from '../src/dashboard.mjs';
 import { runDiscoveryCommand } from '../src/automation-client.mjs';
 
 async function listen(t, server) {
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  t.after(() => new Promise(r => server.close(r)));
-  return `http://127.0.0.1:${server.address().port}`;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      await fetch(base + '/api/status');
+      t.after(() => new Promise(r => server.close(r)));
+      return base;
+    } catch (error) {
+      await new Promise(r => server.close(r));
+      if (error.cause?.message !== 'bad port' || attempt === 9) throw error;
+    }
+  }
 }
 
 test('scheduled busy check defers without consuming a search attempt or releasing the other operation lock', async t => {

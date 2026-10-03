@@ -1,4 +1,4 @@
-# Career Queue v1.4.4
+# Career Queue v1.4.5
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.4` (2026-10-02 authorized release). School candidates can be compared with an existing application and explicitly confirmed for school-link transfer. Original notes and history remain available; the target application retains its materials and submission state. Interrupted transfers can resume. Explicit workplace choices match each offered mode without assuming remote eligibility. 287 regression tests pass; see [verification and limitations](docs/releases/v1.4.4-verification.md). This release is authorized. v1.4.5 development follows ROADMAP; its publication requires separate approval.
+Current version: `v1.4.5` (authorized release). Adds Genesys discovery, multiline portal paste support, and a read-only comparison against discovered and prefiltered postings. Users explicitly adopt a posting URL before previewing and saving. Grouped requisitions retain their own links. See [verification](docs/releases/v1.4.5-verification.md). Publication of v1.4.5 is authorized; v1.4.6 will require separate approval.
 
 ## Start and verify
 
@@ -68,7 +68,7 @@ Dashboard 4317, supervisor lock 4318 and token-authenticated Gateway 18791 bind 
 
 ### v1.2.1 public employer discovery
 
-- Searches the existing index plus the public Tenstorrent University, Cohere, Telesat and Vena Solutions boards. These are four named employers, not all employers on those ATS platforms.
+- Searches the existing index plus the public Tenstorrent University, Cohere, Telesat, Vena Solutions and Genesys boards. These are five named employers, not all employers on those ATS platforms.
 - Partial failures retain other results. Discovery metrics distinguish raw rows, scoped candidates, incremental verified / pending results, deduplication, inline descriptions and actual detail requests.
 - Grouped sources keep separate JD text and evidence. Salary currency and period, duration ranges and workplace evidence remain explicit; missing values are not guessed.
 - The read-only live run found three incremental candidates requiring review, including two Cohere Winter 2027 postings. None passed every rule without review. See [source audit](docs/DATA_SOURCES.md).

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { canonicalUrl, validateApplicationDate, submissionMaterials } from './core.mjs';
+import { canonicalUrl, validateApplicationDate, submissionMaterials, evaluateJob } from './core.mjs';
 import { deadlineExpired } from './deadlines.mjs';
 import { schoolDeadline } from './portal-paste.mjs';
 
@@ -84,6 +84,38 @@ export function previewPortal(rows, records) {
         missing: ['url', 'location', 'term', 'externalUrl', 'requisitionId', 'deadline'].filter(k => !row[k]) };
     } catch (e) { return { index, category: 'invalid', error: e.message, candidates: [] }; }
   });
+}
+
+// Discovery suggestions are read-only; they never become an application match.
+export function portalDiscovery(row, report, now = new Date()) {
+  if (!report?.finishedAt) return { message: '尚无已完成的搜索结果，请先运行自动发现。', candidates: [] };
+  // A display group can contain different requisitions; adopt the matching
+  // source's URL, never silently substitute the group's primary posting.
+  const discovered = (report.results || []).flatMap(job => job.groupedSources?.length ? job.groupedSources.map(source => {
+    const item = { ...job, ...source, groupedSources: [], fullJd: Boolean(source.jd) };
+    return { ...item, ...evaluateJob(item, now) };
+  }) : [job]);
+  const discoveredUrls = new Set(discovered.map(j => j.url));
+  const jobs = [...discovered, ...(report.filteredJobs || []).filter(j => !discoveredUrls.has(j.url)).map(j => ({ ...j, prefiltered: true }))];
+  const company = norm(row.company);
+  const candidates = jobs.filter(job => {
+    if (norm(job.company) === company) return true;
+    if (!row.externalUrl) return false;
+    try { return canonicalUrl(job.url) === row.externalUrl; } catch { return false; }
+  }).map(job => {
+    const match = evidence(row, job);
+    return { key: job.key, title: job.title, company: job.company, url: job.url, term: job.term, location: job.location,
+      requisitionId: job.requisitionId, ...match,
+      state: job.prefiltered ? '搜索预筛排除，尚未读取正文' : deadlineExpired(job.deadline, now) ? '官网截止已过，默认隐藏' : job.decision === 'REJECT' ? '未通过当前岗位条件' : !job.fullJd ? '已发现，正文待补齐' : '已发现，可在自动发现中查看',
+      detail: job.fetchError || (job.prefiltered || job.decision === 'REJECT' ? (job.reasons || []).join('；') : '') };
+  }).filter(c => c.reasons.length).sort((a, b) => Number(b.strong) - Number(a.strong)
+    || Number(Boolean(row.requisitionId) && norm(b.requisitionId) === norm(row.requisitionId)) - Number(Boolean(row.requisitionId) && norm(a.requisitionId) === norm(row.requisitionId)));
+  const source = (report.sources || []).find(s => norm(s.name) === norm(row.company));
+  return { searchedAt: report.finishedAt, total: candidates.length, candidates: candidates.slice(0, 5),
+    message: candidates.length ? `最近搜索中找到 ${candidates.length} 条来源候选；请核对编号、批次与地点，列表显示仍受当前筛选影响。`
+      : source?.status !== 'complete' && source ? '本次雇主来源读取不完整，暂不能判断是否漏岗。'
+        : source ? '最近搜索未找到对应岗位；可能不在本次列表或筛选范围内，不能据此判断岗位已关闭。'
+          : '最近搜索未找到对应岗位，且尚未接入此雇主的主动发现列表；公共索引覆盖不全。' };
 }
 
 function history(record, action, now) {

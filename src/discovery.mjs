@@ -81,6 +81,9 @@ export function extractFacts(job) {
   if (!terms.length && !start && titleMonth.length === 1) terms.push(`${season(titleMonth[0][1])} ${titleMonth[0][2]}`);
   if (!terms.length && start && job.jd) terms.push(`${season(start[1])} ${start[3]}`);
   if (!terms.length && datedStart) terms.push(`${season(datedStart[1])} ${datedStart[2]}`);
+  const startOptions = [...body.matchAll(new RegExp(`\\b(?:beginning|starting|starts)(?:\\s+in)?\\s+${months}(?:\\s*[/–-]\\s*${months})?\\s+(20\\d{2})\\b`, 'gi'))];
+  const optionTerms = [...new Set(startOptions.flatMap(m => [m[1], m[2]].filter(Boolean).map(month => `${season(month)} ${m[3]}`)))];
+  if (!terms.length && optionTerms.length === 1) terms.push(optionTerms[0]);
   // Ambiguous lengths ("8 or 12 months") are left for review; no guessed duration.
   const numbers = { one: 1, two: 2, three: 3, four: 4, six: 6, eight: 8, twelve: 12, sixteen: 16 };
   const durations = [...body.matchAll(/(?:\b(?:duration|term(?: length)?|length)\s*:\s*|\bfor\s+)(\d{1,2}|one|two|three|four|six|eight|twelve|sixteen)[\s-]+months?\b/gi)].map(m => numbers[m[1].toLowerCase()] ?? Number(m[1]));
@@ -109,7 +112,7 @@ export function extractFacts(job) {
 }
 
 export async function discover({ fetchImpl = fetch, now = new Date(), onProgress = () => {}, sources = EMPLOYER_SOURCES } = {}) {
-  const report = { dataVersion: 5, source: SOURCE, targetTerms: [...TARGET_TERMS], startedAt: now.toISOString(), finishedAt: null, total: 0, candidates: 0, duplicates: 0, skipped: 0, processed: 0, results: [], errors: [], sources: [] };
+  const report = { dataVersion: 5, source: SOURCE, targetTerms: [...TARGET_TERMS], startedAt: now.toISOString(), finishedAt: null, total: 0, candidates: 0, duplicates: 0, skipped: 0, processed: 0, results: [], filteredJobs: [], errors: [], sources: [] };
   onProgress({ phase: '正在读取公开索引与雇主招聘列表…', report });
   const index = { id: 'index', name: SOURCE.name, url: SOURCE.url, status: 'complete', raw: 0, candidates: 0, malformed: 0, pages: 0 };
   const candidates = [], seen = new Map();
@@ -118,7 +121,14 @@ export async function discover({ fetchImpl = fetch, now = new Date(), onProgress
     if (!Array.isArray(data) || !data.length || !data.some(x => typeof x?.company_name === 'string' && Array.isArray(x.terms))) throw new Error('职位索引格式变化或为空，请稍后重试');
     index.raw = data.length; index.pages = 1;
     for (const entry of data) {
-      if (!entry || !entry.active || !entry.is_visible || !Array.isArray(entry.terms) || !Array.isArray(entry.locations) || !entry.terms.some(t => TARGET_TERMS.has(t)) || !entry.locations.some(l => geography.test(l)) || !role.test(entry.title)) { report.skipped++; continue; }
+      if (!entry || !entry.active || !entry.is_visible || !Array.isArray(entry.terms) || !Array.isArray(entry.locations) || !entry.terms.some(t => TARGET_TERMS.has(t)) || !entry.locations.some(l => geography.test(l)) || !role.test(entry.title)) {
+        report.skipped++;
+        if (typeof entry?.company_name === 'string' && typeof entry.title === 'string' && Array.isArray(entry.terms) && Array.isArray(entry.locations)) {
+          try { report.filteredJobs.push({ company: entry.company_name, title: entry.title, url: postingUrl(entry.url), location: entry.locations.join(' / '), term: entry.terms.join(' / '), sourceId: 'index',
+            reasons: [!entry.active && '公共索引标记非活跃（未核实官网）', !entry.is_visible && '公共索引未公开展示', !entry.terms.some(t => TARGET_TERMS.has(t)) && '索引入职季不在 Winter / Summer / Fall 2027', !entry.locations.some(l => geography.test(l)) && '索引地点不在当前发现范围', !role.test(entry.title) && '标题不在当前 CS / Data 方向'].filter(Boolean) }); } catch {}
+        }
+        continue;
+      }
       index.candidates++;
       try {
         if (typeof entry.company_name !== 'string' || !entry.company_name.trim() || typeof entry.title !== 'string' || !entry.title.trim()) throw new Error('公司 / 标题无效');
@@ -138,7 +148,10 @@ export async function discover({ fetchImpl = fetch, now = new Date(), onProgress
   const boardResults = await Promise.all(sources.map(source => readEmployerBoard(source, fetchImpl)));
   const inline = new Map();
   for (const { jobs, ...stats } of boardResults) {
-    const selected = jobs.filter(j => geography.test(j.location) && role.test(j.title) && /\b(intern(?:ship)?|co[ -]?op)\b/i.test(j.title));
+    const selected = jobs.filter(j => (geography.test(j.location) || stats.type === 'workday' && /^(?:Unknown|\d+ Locations?)$/i.test(j.location)) && role.test(j.title) && /\b(intern(?:ship)?|co[ -]?op)\b/i.test(j.title));
+    const chosen = new Set(selected);
+    for (const job of jobs) if (!chosen.has(job)) report.filteredJobs.push({ company: job.company, title: job.title, url: job.url, location: job.location, requisitionId: job.requisitionId, sourceId: stats.id,
+      reasons: [!(geography.test(job.location) || stats.type === 'workday' && /^(?:Unknown|\d+ Locations?)$/i.test(job.location)) && '雇主列表地点不在当前发现范围', !role.test(job.title) && '标题不在当前 CS / Data 方向', !/\b(intern(?:ship)?|co[ -]?op)\b/i.test(job.title) && '标题未标明 intern / co-op'].filter(Boolean) });
     stats.candidates = selected.length; report.sources.push(stats);
     for (const job of selected) { candidates.push(job); if (job.jd) inline.set(postingUrl(job.url), job); }
   }

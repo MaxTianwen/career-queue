@@ -25,7 +25,7 @@ import { resumeStatus, prepareResumeDraft, generateResume, editableResume, saveM
 import { publicReviewDraft } from './resume-review.mjs';
 import { renderPdf } from './pdf-preview.mjs';
 import { resumeLibrary, uploadResumeBase, activateResumeBase, readResumeBase } from './resume-bases.mjs';
-import { previewPortal, linkPortal, updatePortal, portalRevision, portalSummary } from './portal.mjs';
+import { previewPortal, linkPortal, updatePortal, portalRevision, portalSummary, portalDiscovery } from './portal.mjs';
 import { parsePortalPaste } from './portal-paste.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -91,7 +91,8 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     if (!runner.search.report) return runner.search;
     const results = await presentJobs(runner.search.report.results);
     const visible = results.filter(j => !j.expired);
-    return { ...runner.search, report: { ...runner.search.report, expiredCount: results.filter(j => j.expired).length, results: visible, coverage: discoveryCoverage(visible) } };
+    const { filteredJobs, ...report } = runner.search.report;
+    return { ...runner.search, report: { ...report, expiredCount: results.filter(j => j.expired).length, results: visible, coverage: discoveryCoverage(visible) } };
   }
   async function storeFor(mode) {
     if (mode === 'demo') return demo;
@@ -305,6 +306,8 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       if (url.pathname === '/api/portal/preview') {
         const records = await (await storeFor(mode)).list();
         const rows = previewPortal(body.rows, records), token = randomUUID();
+        await loadedSearch;
+        if (mode === 'live') for (const item of rows) if (item.row) item.discovery = portalDiscovery(item.row, runner.search.report);
         for (const [key, entry] of portalPreviews) if (Date.now() - entry.at > 600000) portalPreviews.delete(key);
         if (portalPreviews.size >= 5) portalPreviews.delete(portalPreviews.keys().next().value);
         portalPreviews.set(token, { mode, at: Date.now(), rows, revisions: new Map(records.map(j => [j.key, portalRevision(j)])) });

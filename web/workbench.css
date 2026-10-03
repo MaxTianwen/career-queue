@@ -82,3 +82,8 @@ dialog{background:var(--surface);color:var(--ink);border-color:var(--line);borde
 .school-association{margin-top:20px;padding:18px;border:1px solid var(--line);border-radius:3px;background:var(--canvas);overflow-wrap:anywhere}
 .school-association section{padding:12px 0;border-bottom:1px solid var(--line,#d8d4ca)}
 .school-association h4{margin:0 0 6px}.school-association section p{margin:6px 0}
+/* School discovery comparison stays secondary to the explicit save choice. */
+.school-discovery { margin: 1rem 0; padding: .8rem 1rem; background: var(--surface, #f8f7f3); border: 1px solid #ddd9cf; border-radius: 8px; }
+.school-discovery summary { cursor: pointer; font-weight: 600; }
+.school-discovery-candidate { padding: 1rem 0; border-top: 1px solid #ddd9cf; overflow-wrap: anywhere; }
+.school-discovery-candidate .button { margin: .4rem 0 .4rem .5rem; }

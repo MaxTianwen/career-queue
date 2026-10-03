@@ -77,6 +77,24 @@ async function setup(t, storeOverride, discoverImpl, cachedReport, officialJobIm
 const files = { resume: Buffer.from('%PDF-1.7\nSynthetic signature fixture, not a rendered resume.').toString('base64'),
   docx: Buffer.from('PK synthetic format fixture').toString('base64'), reviewNotes: Buffer.from('Synthetic review').toString('base64') };
 
+test('school preview compares discovery without writing; adopted URL requires a fresh preview and explicit save', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const discovered = { ...normalizeJob({ company: 'Synthetic', title: 'Software Intern', url: 'https://example.com/job/JR900', jd: 'Python', term: 'Summer 2027', location: 'Toronto', requisitionId: 'JR900' }), fullJd: true };
+  const { request } = await setup(t, store, undefined, { finishedAt: new Date().toISOString(), sources: [], results: [discovered] });
+  const row = { id: '99001', company: 'Synthetic', title: 'Software Intern', requisitionId: 'JR900', term: 'Summer 2027', location: 'Toronto' };
+  const first = (await request('/api/portal/preview', { rows: [row] }, 'live')).data;
+  assert.equal(first.rows[0].category, 'unmatched'); assert.equal(first.rows[0].discovery.candidates.length, 1);
+  assert.equal((await store.list()).length, 0); assert.equal(first.rows[0].row.externalUrl, '');
+  const refreshed = (await request('/api/portal/preview', { rows: [{ ...row, externalUrl: discovered.url }] }, 'live')).data;
+  const input = { token: refreshed.token, selections: [{ index: 0, key: '__new__' }] };
+  assert.equal((await request('/api/portal/link', input, 'live')).status, 400);
+  assert.equal((await request('/api/portal/link', { ...input, confirmed: true }, 'live')).status, 200);
+  const saved = (await store.list())[0]; assert.equal(saved.portal.externalUrl, discovered.url);
+  assert.equal(saved.status, 'Queue'); assert.equal(saved.portal.status, 'unknown');
+  const again = (await request('/api/portal/preview', { rows: [row] }, 'live')).data;
+  assert.equal(again.rows[0].category, 'linked'); assert.equal((await store.list()).length, 1);
+});
+
 test('school paste parses without Notion and links a missing-URL row only after preview confirmation', async t => {
   const { request, url } = await setup(t);
   assert.equal((await fetch(url + '/portal-import.js')).status, 200);

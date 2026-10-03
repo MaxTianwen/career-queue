@@ -8,6 +8,21 @@ const header = ['', 'App Status', 'Term', 'ID', 'Job Title', 'Organization', 'Op
 const row = (id = '900001', title = '**NEW** **Web Developer Intern - JR900099**') => ['Shortlist Apply', '', '2027 - Summer', id, title, 'Example Labs', '1', 'Toronto, ON', 'Oct 31, 2026 11:59 PM', ''];
 const markdown = data => [header, header.map(() => ':---'), ...data].map(c => `| ${c.join(' | ')} |`).join('\n');
 
+test('portal multiline headers preserve blank status, action cells, last trailing tab and school versus employer IDs', () => {
+  const wrapped = 'App Status\tTerm\t\nID\nJob Title\nOrganization\nOpenings\nLocation\nApp Deadline';
+  const parsed = parsePortalPaste(wrapped + '\n' + row('900111', 'NEW Developer - 140972').join('\t') + '\n' + row('900112', 'Intern - 2027').slice(0, -1).join('\t'));
+  assert.equal(parsed.rows.length, 2); assert.equal(parsed.rows[0].id, '900111'); assert.equal(parsed.rows[0].requisitionId, '140972');
+  assert.equal(parsed.rows[0].sourceStatus, ''); assert.equal(parsed.rows[0].company, 'Example Labs');
+  assert.equal(parsed.rows[0].term, 'Summer 2027'); assert.equal(parsed.rows[1].requisitionId, '');
+  assert.equal(parsed.errors.length, 0);
+  const applied = row(); applied[0] = 'Shortlist Applied'; applied[1] = 'Application Submitted';
+  assert.equal(parsePortalPaste(wrapped + '\n' + applied.join('\t')).rows[0].sourceStatus, 'Application Submitted');
+  const invalid = row(); invalid.splice(1, 1);
+  const mixed = parsePortalPaste(wrapped + '\n' + row().join('\t') + '\n' + invalid.join('\t'));
+  assert.equal(mixed.rows.length, 1); assert.equal(mixed.errors.length, 1);
+  assert.throws(() => parsePortalPaste(wrapped.replace('Organization', 'Surprise') + '\n' + row().join('\t')), /未识别到学校表头/);
+});
+
 test('copied Markdown preserves blank status, detects partial copy and duplicate employer IDs without merging school IDs', () => {
   const parsed = parsePortalPaste('**TOTAL RESULTS:** **67**\n\n' + markdown([row(), row('900002')]));
   assert.equal(parsed.parsedCount, 2); assert.equal(parsed.reportedTotal, 67);

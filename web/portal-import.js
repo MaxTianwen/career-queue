@@ -13,7 +13,7 @@ export function openPortalImport({ api, esc, showModal, onSaved }) {
       if (!item.row) return `<div class="school-import-row"><strong>第 ${item.index + 1} 条</strong><p>${esc(item.error)}</p></div>`;
       const candidates = new Map(item.candidates.map(c => [c.key, c]));
       const options = [...preview.jobs].sort((a,b) => Number(candidates.has(b.key)) - Number(candidates.has(a.key)));
-      return `<article class="school-import-row"><div class="school-import-heading"><strong>${esc(item.row.company)} · ${esc(item.row.title)}</strong><span class="badge">${label[item.category]}</span></div><p>学校 ID ${esc(item.row.id)} · ${esc(item.row.term)} · ${esc(item.row.location)}${item.row.requisitionId ? ` · 雇主编号 ${esc(item.row.requisitionId)}` : ''}</p><p>学校截止：${esc(item.row.deadlineText || item.row.deadline || '待核实')}${!item.row.url ? ' · 尚无学校链接，可按 ID 查找' : ''}</p>${item.relatedSchoolIds?.length ? `<p class="warning">同一雇主编号也出现在学校 ID ${esc(item.relatedSchoolIds.join("、"))}，请核对后只选正确关联。</p>` : ''}<label>对应本应用的申请<select data-target="${item.index}"><option value="">暂不保存</option>${item.category === 'unmatched' ? '<option value="__new__">新增到 Queue（待补 JD）</option>' : ''}${options.map(j => `<option value="${j.key}" ${item.suggestedKey === j.key ? 'selected' : ''}>${candidates.has(j.key) ? '候选 · ' : ''}${esc(j.company)} · ${esc(j.title)} · ${esc(j.term)} · ${j.externalSubmitted ? '官网已投' : '官网未确认投递'}${j.linkedId ? ` · 已关联学校 ${esc(j.linkedId)}` : ''}</option>`).join('')}</select></label><p data-evidence="${item.index}"></p><label class="check"><input type="checkbox" data-choice="${item.index}">我已核对，保存此选择</label></article>`;
+      return `<article class="school-import-row"><div class="school-import-heading"><strong>${esc(item.row.company)} · ${esc(item.row.title)}</strong><span class="badge">${label[item.category]}</span></div><p>学校 ID ${esc(item.row.id)} · ${esc(item.row.term)} · ${esc(item.row.location)}${item.row.requisitionId ? ` · 雇主编号 ${esc(item.row.requisitionId)}` : ''}</p><p>学校截止：${esc(item.row.deadlineText || item.row.deadline || '待核实')}${!item.row.url ? ' · 尚无学校链接，可按 ID 查找' : ''}</p>${item.relatedSchoolIds?.length ? `<p class="warning">同一雇主编号也出现在学校 ID ${esc(item.relatedSchoolIds.join("、"))}，请核对后只选正确关联。</p>` : ''}${discoveryView(item, esc)}<label>对应本应用的申请<select data-target="${item.index}"><option value="">暂不保存</option>${item.category === 'unmatched' ? '<option value="__new__">新增到 Queue（待补 JD）</option>' : ''}${options.map(j => `<option value="${j.key}" ${item.suggestedKey === j.key ? 'selected' : ''}>${candidates.has(j.key) ? '候选 · ' : ''}${esc(j.company)} · ${esc(j.title)} · ${esc(j.term)} · ${j.externalSubmitted ? '官网已投' : '官网未确认投递'}${j.linkedId ? ` · 已关联学校 ${esc(j.linkedId)}` : ''}</option>`).join('')}</select></label><p data-evidence="${item.index}"></p><label class="check"><input type="checkbox" data-choice="${item.index}">我已核对，保存此选择</label></article>`;
     }).join('')}<div class="school-import-heading"><span>保存关联不会标记任何渠道已提交。</span><button class="button primary">保存勾选项</button></div></form>`;
     result.querySelectorAll('[data-target]').forEach(select => {
       const explain = () => {
@@ -22,6 +22,15 @@ export function openPortalImport({ api, esc, showModal, onSaved }) {
         result.querySelector(`[data-choice="${item.index}"]`).checked = false;
       };
       select.addEventListener('change', explain); explain();
+    });
+    result.querySelectorAll('[data-discovery-choice]').forEach(button => {
+      button.onclick = () => {
+        if (host.dataset.busy) return;
+        const index = Number(button.dataset.discoveryChoice), candidate = preview.rows[index].discovery.candidates[Number(button.dataset.candidate)];
+        rows[index].externalUrl = candidate.url; preview = null; edits();
+        const input = result.querySelector('[data-row="' + index + '"][data-field="externalUrl"]');
+        input.closest('details').open = true; input.focus();
+      };
     });
     result.querySelector('#school-edit').onclick = () => { preview = null; edits(); };
   }
@@ -59,4 +68,13 @@ export function openPortalImport({ api, esc, showModal, onSaved }) {
   });
   // Changes to the pasted input invalidate the previous matching preview.
   host.querySelector('textarea').addEventListener('input', () => { preview = null; result.replaceChildren(); });
+}
+
+export function discoveryView(item, esc) {
+  const discovery = item.discovery;
+  if (!discovery) return '';
+  return '<details class="school-discovery"><summary>官网发现对照' + (discovery.total ? ' · ' + discovery.total + ' 条候选' : '') + '</summary><p>' + esc(discovery.message) + '</p>' +
+    (discovery.searchedAt ? '<p>搜索记录：' + esc(discovery.searchedAt) + '</p>' : '') +
+    discovery.candidates.map((c, i) => '<div class="school-discovery-candidate"><strong>' + esc(c.title) + '</strong><p>' + esc([c.requisitionId, c.term, c.location].filter(Boolean).join(' · ')) + '</p><p>' + esc(c.state) + (c.detail ? '：' + esc(c.detail) : '') + '</p><p>' + esc([...c.reasons, ...c.conflicts].join('；')) + '</p><a href="' + esc(c.url) + '" target="_blank" rel="noopener noreferrer">核对官网 ↗</a> <button type="button" class="button secondary" data-discovery-choice="' + item.index + '" data-candidate="' + i + '">采用链接并重新匹配</button></div>').join('') +
+    (discovery.total > discovery.candidates.length ? '<p>仅展示前 5 条，请细化标题或招聘编号后重新匹配。</p>' : '') + '</details>';
 }

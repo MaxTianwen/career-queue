@@ -29,24 +29,35 @@ const linkText = text => clean(text).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)
 export function parsePortalPaste(text) {
   if (typeof text !== 'string' || !text.trim() || text.length > 150000) throw new Error('请粘贴学校列表文字，每批不超过 150,000 字符');
   const lines = text.split(/\r?\n/), rows = [], errors = [], warnings = [];
-  let columns, markdown;
+  let columns, markdown, wrapped = false, headerParts = [];
   for (const [index, line] of lines.entries()) {
     if (!line.trim()) continue;
     const isMarkdown = line.trim().startsWith('|');
-    const cells = splitRow(line, isMarkdown).map(clean);
+    let cells = splitRow(line, isMarkdown).map(clean);
+    // The portal copies its eight visible headers across lines, while retaining
+    // empty action/status cells in each ten-column data row.
+    const tokens = cells.filter(Boolean).map(c => c.toLowerCase());
+    const expected = ['app status', 'term', 'id', 'job title', 'organization', 'openings', 'location', 'app deadline'];
+    if (!isMarkdown && tokens.length && (headerParts.length || tokens.length < expected.length) && tokens.every((c, i) => c === expected[headerParts.length + i])) {
+      headerParts.push(...tokens);
+      if (headerParts.length === expected.length) { columns = [undefined, ...expected.map(c => headers[c]), undefined]; markdown = false; wrapped = true; headerParts = []; }
+      continue;
+    }
+    headerParts = [];
     const mapped = cells.map(c => headers[c.toLowerCase()]);
-    if (['id', 'title', 'company', 'term'].every(name => mapped.includes(name))) { columns = mapped; markdown = isMarkdown; continue; }
+    if (['id', 'title', 'company', 'term'].every(name => mapped.includes(name))) { columns = mapped; markdown = isMarkdown; wrapped = false; continue; }
     if (!columns || /^\s*\|?[\s:|-]+\|?\s*$/.test(line)) continue;
     if (markdown !== isMarkdown || (!markdown && !line.includes('\t'))) {
       if (/20\d{2}\s*-\s*(winter|summer|fall)/i.test(line)) errors.push(`第 ${index + 1} 行未保留表格分隔，请重新复制该行`);
       continue;
     }
-    if (cells.length !== columns.length) { errors.push(`第 ${index + 1} 行列数不完整，未导入`); continue; }
+    if (wrapped && cells.length === 9) cells.push('');
+    if (cells.length !== columns.length || wrapped && !/^(?:shortlist\s+)?(?:apply|applied)$/i.test(cells[0])) { errors.push(`第 ${index + 1} 行列数不完整，未导入`); continue; }
     const row = Object.fromEntries(columns.flatMap((key, i) => key ? [[key, linkText(cells[i])]] : []));
     if (!/^\d+$/.test(row.id || '') || !row.company || !row.title) { errors.push(`第 ${index + 1} 行缺少有效学校 ID、公司或标题，未导入`); continue; }
     row.title = row.title.replace(/^NEW\s+/i, '');
     row.term = row.term.replace(/^(20\d{2})\s*-\s*(Winter|Summer|Fall)$/i, (_, year, term) => `${term[0].toUpperCase()}${term.slice(1).toLowerCase()} ${year}`);
-    row.requisitionId = row.title.match(/\b(JR\d+)\s*$/i)?.[1] || row.title.match(/[[(](\d{5,})[\])]\s*$/)?.[1] || '';
+    row.requisitionId = row.title.match(/\b(JR\d+)\s*$/i)?.[1] || row.title.match(/[[(](\d{5,})[\])]\s*$/)?.[1] || row.title.match(/\s-\s(\d{5,})\s*$/)?.[1] || '';
     row.url = ['title', 'id'].map(k => cells[columns.indexOf(k)]?.match(/\]\((https?:\/\/[^\s)]+)\)/)?.[1]).find(Boolean) || '';
     row.externalUrl = '';
     try { Object.assign(row, schoolDeadline(row.deadline)); }
