@@ -1,4 +1,4 @@
-# Career Queue v1.4.9
+# Career Queue v1.4.10
 
 [中文](README.md) | **English**
 
@@ -6,7 +6,7 @@ A personal workspace for finding Canadian co-op and internship opportunities. Ru
 
 **Discover jobs → Save to Queue → Generate and review materials → Confirm materials and mark ready to submit → Personally confirm submission.**
 
-Current version: `v1.4.9` (released to GitHub main / v1.4.9 on 2026-10-03). Adds bounded Amazon Canada intern / co-op discovery, deduplication with existing sources, full descriptions, official posting dates, school requisition comparisons and availability rechecks. Multiple start options retain their source text rather than selecting one season.
+Current version: `v1.4.10` (released to GitHub main / v1.4.10 on 2026-10-03). Adds bounded Qualcomm Canada intern / co-op discovery, full descriptions, official posting dates and requisition rechecks. Verified Eightfold aliases share canonical job URLs; school comparisons distinguish discovered jobs from existing role prefilter exclusions. FY27 alone does not establish a start season; CS / Data filtering is unchanged.
 
 ## Start and verify
 

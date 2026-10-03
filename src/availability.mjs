@@ -1,4 +1,5 @@
 import { amazonUrl, amazonSearchUrl } from './amazon.mjs';
+import { qualcommUrl, qualcommDetailUrl } from './qualcomm.mjs';
 import { officialJob } from './discovery.mjs';
 import { deadlineExpired, extractDeadline } from './deadlines.mjs';
 import { workdayUrl } from './workday.mjs';
@@ -7,6 +8,8 @@ import { celesticaUrl } from './celestica.mjs';
 
 // An allowlist for the existing public readers, never a general URL fetcher.
 function source(value) {
+  const qualcomm = qualcommUrl(value);
+  if (qualcomm) return { url: qualcomm, allowed: new Set([qualcomm, qualcommDetailUrl(new URL(qualcomm).pathname.split('/').at(-1))]) };
   const amazon = amazonUrl(value);
   if (amazon) return { url: amazon, allowed: new Set([amazon, amazonSearchUrl(new URL(amazon).pathname.split('/')[3])]) };
   const celestica = celesticaUrl(value);

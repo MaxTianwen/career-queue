@@ -1,6 +1,19 @@
 # 数据来源与 API 清单
 
-## v1.4.9 当前增量（本机版，未推送）
+## v1.4.10 当前增量（2026-10-03 发布）
+
+当前入口：1 个公共索引 + 9 个指定雇主公开列表；不等于九个平台全网搜索。Qualcomm 接入官网实际使用的公开 Eightfold API：
+
+- 列表：`https://careers.qualcomm.com/api/pcsx/search?domain=qualcomm.com&query=intern&location=Canada&start=0`，另查询 co-op。每页 10 条，分别最多 20 页；校验计数、编号、地区及提前结束。
+- 详情：`https://careers.qualcomm.com/api/pcsx/position_details?position_id=网页ID&domain=qualcomm.com&hl=en`，只请求已验证的数字网页 ID；不访问登录或提交接口。
+- 官网 307 跳转证实 `qualcomm.eightfold.ai/careers/job/ID` 与 `careers.qualcomm.com/careers/job/ID` 对应，读取器直接使用官网规范链接。
+- `displayJobId` 与 `atsJobId` 为雇主招聘编号；网页数字 ID 单独核对。`postedTs` 与实测公开页面 `datePosted` 相符，按日期显示，不用 `creationTs` 冒充发布。
+
+2026-10-03 独立实测：intern 19 + co-op 5 条、3 页，22 个独立网页 ID。正式搜索 8 条预筛候选均读取全文，其中 5 条与索引共享、3 条额外待核实候选，不能宣传为 8 条全新合格岗位。五条学校样本可找到对应来源：2 条在候选列表，3 条纯硬件标题按既有 CS / Data 预筛排除，学校对照显示其编号及原因。五条 JD 均通过独立只读验证；预筛排除岗位不会被自动读取正文或生成材料。
+
+仅写 FY27 或说明可工作月份、毕业年份的复杂正文，当前通用规则未识别时仍保留未知入职季。薪资专项提取、多季与不连续时长筛选待后续方案。公开接口可能变化，失败显示部分 / 未知，不当作岗位关闭。
+
+## v1.4.9 增量（2026-10-03 发布）
 
 当前发现为一个公共索引 + 8 个固定雇主列表：Tenstorrent、Cohere、Telesat、Vena、Genesys、Celestica、Veeva、Amazon。实际状态、页数、候选数和增量以 Dashboard 每次搜索统计为准；下文 v1.2.1 / v1.0.x 表格是历史快照，不代表当前只有一个发现入口。
 
@@ -10,7 +23,7 @@ Amazon 使用官网公开搜索 [intern 加拿大列表](https://www.amazon.jobs
 
 初次独立实测 intern 6 条 + co-op 2 条，按招聘编号合并为 6 条；4 条进入现有 CS / Data 预筛。学校 SCHOOL-04 对应 Amazon 10538066 已取得完整 JD；它在旧索引中已有摘要，因此这是补齐全文及主动发现覆盖，不能宣传为全新岗位。多入职选项保留原文和待核实批次，索引单季提示不再产生重复卡片。最新完整搜索增量见 v1.4.9 验收文档。
 
-未解决：Qualcomm 官方页面可读但列表接入仍未验证；Veeva 旧学校样本在已查列表未发现，不能判关闭；RCMP 等未新增入口。多季与不连续时长组合、薪资专项提取仍是后续候选。没有付费来源、账号、模型或自动申请。
+v1.4.9 当时未解决：Qualcomm 列表接入（现见上方 v1.4.10）；Veeva 旧学校样本在已查列表未发现，不能判关闭；RCMP 等未新增入口。多季与不连续时长组合、薪资专项提取仍是后续候选。没有付费来源、账号、模型或自动申请。
 
 ## v1.2.1 及更早历史核查
 

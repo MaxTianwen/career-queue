@@ -1,9 +1,11 @@
 import { readAmazonBoard } from './amazon.mjs';
+import { readQualcommBoard } from './qualcomm.mjs';
 import { readGenesysBoard } from './genesys-board.mjs';
 import { readCelesticaBoard } from './celestica.mjs';
 
 // Fixed public employer boards, not a global ATS search or an arbitrary URL reader.
 export const EMPLOYER_SOURCES = [
+  { id: 'qualcomm', name: 'Qualcomm', type: 'qualcomm', board: 'canada-internships', url: 'https://careers.qualcomm.com/careers?query=intern&location=Canada' },
   { id: 'amazon', name: 'Amazon', type: 'amazon', board: 'canada-internships', url: 'https://www.amazon.jobs/en/search?base_query=intern&country=CAN' },
   { id: 'tenstorrent', name: 'Tenstorrent', type: 'greenhouse', board: 'tenstorrentuniversity', url: 'https://job-boards.greenhouse.io/tenstorrentuniversity' },
   { id: 'cohere', name: 'Cohere', type: 'ashby', board: 'cohere', url: 'https://jobs.ashbyhq.com/cohere' },
@@ -71,6 +73,7 @@ export function boardPosting(source, j, api) {
 }
 
 export async function readEmployerBoard(source, fetchImpl = fetch) {
+  if (source.id === 'qualcomm' && source.type === 'qualcomm' && source.board === 'canada-internships') return readQualcommBoard(source, fetchImpl);
   if (source.id === 'amazon' && source.type === 'amazon' && source.board === 'canada-internships') return readAmazonBoard(source, fetchImpl);
   if (source.id === 'celestica' && source.type === 'celestica' && source.board === 'students') return readCelesticaBoard(source, fetchImpl);
   if (source.id === 'genesys' && source.type === 'workday' && source.board === 'Genesys') return readGenesysBoard(source, fetchImpl);

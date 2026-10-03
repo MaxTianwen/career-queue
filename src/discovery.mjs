@@ -1,4 +1,5 @@
 import { amazonUrl, fetchAmazon } from './amazon.mjs';
+import { qualcommUrl, fetchQualcomm } from './qualcomm.mjs';
 import { normalizeJob, evaluateJob, comparePreference, TARGET_TERMS } from './core.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import { fetchWorkday } from './workday.mjs';
@@ -26,6 +27,7 @@ export async function officialJob(candidate, fetchImpl = fetch, boards = new Map
   const u = new URL(candidate.url);
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
   if (amazonUrl(candidate.url)) return fetchAmazon(candidate, fetchImpl);
+  if (qualcommUrl(candidate.url)) return fetchQualcomm(candidate, fetchImpl);
   if (celesticaUrl(candidate.url)) return fetchCelestica(candidate, fetchImpl);
   if (pinpointUrl(candidate.url)) return fetchPinpoint(candidate, fetchImpl);
   if (/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) return fetchWorkday(candidate, fetchImpl);
