@@ -40,6 +40,7 @@ export function assessmentSnapshot(job, assessed) {
 }
 
 export function availabilityState(job, now = new Date()) {
+  if (job.jdSource === 'school' && !job.url) return { status: 'unknown', evidence: '学校来源 JD，尚无官网链接，无法核查官网开放状态', checkedAt: null, current: false, recent: false, manual: false };
   if (deadlineExpired(extractDeadline(job).deadline, now)) return { status: 'closed', evidence: '申请截止时间已过', checkedAt: job.availability?.checkedAt || null, current: true };
   const saved = job.availability;
   const current = Boolean(saved && saved.jdHash === jobInputHash(job));
@@ -50,6 +51,7 @@ export function availabilityState(job, now = new Date()) {
 }
 
 export function requireAvailable(job, now = new Date()) {
+  if (job.jdSource === 'school' && !job.url) throw new Error('学校来源尚无官网链接，本版仅支持阅读与匹配，材料准备暂不可用');
   if (job.fullJd === false || !job.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   const state = availabilityState(job, now);
   if (state.status === 'closed') throw new Error('岗位已关闭或截止，不能生成新的申请材料；历史材料继续保留');

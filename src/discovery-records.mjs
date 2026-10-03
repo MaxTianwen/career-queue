@@ -30,6 +30,7 @@ export function postingUrl(value) {
 }
 
 export function sourceName(job) {
+  if (job.jdSource === 'school') return '学校来源 · 本人提供 JD';
   if (qualcommUrl(job.url)) return 'Qualcomm / Eightfold';
   if (amazonUrl(job.url)) return 'Amazon Jobs';
   if (job.schoolCandidate) return '学校列表 · 待补 JD';

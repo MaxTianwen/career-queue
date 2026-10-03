@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { dashboardServer } from '../src/dashboard.mjs';
 import { DemoStore } from '../src/demo-store.mjs';
-import { schoolCandidate } from '../src/school-candidates.mjs';
+import { schoolCandidate, completeSchoolCandidate } from '../src/school-candidates.mjs';
 import { normalizeJob, newRecord } from '../src/core.mjs';
 
 test('school completion previews an existing application; interrupted transfer blocks unlink and resumes', async t => {
@@ -610,4 +610,57 @@ test('school Veeva link completion uses verified page fallback and preserves dat
   assert.equal(saved.notes, record.notes); assert.deepEqual(saved.portal, record.portal);
   assert.equal(saved.term, 'Summer 2027'); assert.equal(saved.applicationDate, null); assert.equal(saved.status, 'Queue');
   assert.equal((await store.list()).length, 1);
+});
+
+
+test('school-only JD saves without fetching, retries safely and cannot bypass material or official checks', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const record = schoolCandidate({ id: 'S-SCHOOL-JD', company: 'Synthetic School Company', title: 'Software Intern', term: 'Summer 2027', location: 'Toronto', deadline: '2027-01-10' }, []);
+  record.notes = 'Keep my note'; await store.create(record);
+  const { request: send } = await setup(t, store, undefined, undefined, () => assert.fail('school text must not fetch'));
+  const request = (p, b) => send(p, b, 'live');
+  const path = '/api/jobs/' + record.key;
+  const detail = (await request(path)).data;
+  const input = { jdSource: 'school', jd: 'Required: Python. Duration: 8 months. Work mode: hybrid.', confirmed: true, revision: detail.portalRevision, jdHash: detail.assessment.jdHash };
+  for (const change of [{ confirmed: false }, { jd: ' ' }, { jdSource: 'official' }, { url: 'https://example.com' }]) assert.equal((await request(path + '/school-details', { ...input, ...change })).status, 400);
+  assert.equal((await request(path + '/school-details', { ...input, jdHash: 'stale' })).status, 409);
+  const update = store.updateJob.bind(store); let fail = true;
+  store.updateJob = async job => { if (fail) throw Error('Synthetic save failure'); return update(job); };
+  assert.equal((await request(path + '/school-details', input)).status, 400);
+  assert.equal((await store.find(record.key)).fullJd, false); fail = false;
+  assert.equal((await request(path + '/school-details', input)).status, 200);
+  assert.equal((await request(path + '/school-details', input)).status, 409);
+  const saved = (await request(path)).data;
+  assert.equal(saved.url, null); assert.equal(saved.jdSource, 'school'); assert.equal(saved.sourceName, '学校来源 · 本人提供 JD');
+  assert.equal(saved.notes, record.notes); assert.deepEqual(saved.portal, record.portal); assert.equal(saved.applicationDate, null);
+  assert.equal(saved.availabilityView.status, 'unknown'); assert.equal(saved.status, 'Queue'); assert.equal((await store.list()).length, 1);
+  for (const action of ['prepare', 'complete', 'submitted']) assert.equal((await request(path + '/' + action, { confirmed: true })).status, 400);
+  for (const action of ['recheck', 'confirm']) assert.equal((await request('/api/assessment/' + action, { source: 'queue', key: record.key, confirmed: true, assessmentId: saved.assessment.id })).status, 400);
+  for (const action of ['proposal', 'generate']) assert.equal((await request('/api/resume/' + action, { source: 'queue', key: record.key })).status, 400);
+  const linked = await request(path + '/school-details', { url: 'https://example.com/jobs/school', jd: 'Python required. Duration: 8 months.', confirmed: true, revision: saved.portalRevision, jdHash: saved.assessment.jdHash });
+  assert.equal(linked.status, 200); assert.equal(linked.data.key, record.key); assert.equal(linked.data.schoolJd.text, input.jd);
+  assert.equal(linked.data.notes, record.notes); assert.deepEqual(linked.data.portal, record.portal);
+});
+
+
+test('completed school JD association keeps history and blocks unlink during interrupted migration', async t => {
+  const store = new DemoStore(); store.rows.clear();
+  const source = completeSchoolCandidate(schoolCandidate({ id: 'S-MIGRATE-JD', company: 'Synthetic', title: 'Software Intern', term: 'Summer 2027' }, []), { jdSource: 'school', jd: 'Python required.' }, []);
+  const target = newRecord(normalizeJob({ company: 'Synthetic', title: 'Software Intern', term: 'Summer 2027', url: 'https://example.com/job/link', jd: 'Python required', fullJd: true }));
+  target.notes = 'Keep target note'; await store.create(source); await store.create(target);
+  const { request: send } = await setup(t, store, undefined, undefined, () => assert.fail('known URL must not fetch'));
+  const request = (p,b) => send(p,b,'live'), path = '/api/jobs/' + source.key;
+  const detail = (await request(path)).data;
+  const preview = (await request(path + '/school-details', { url: target.url, confirmed: true, revision: detail.portalRevision, jdHash: detail.assessment.jdHash })).data.association;
+  assert.deepEqual(preview.conflicts, []);
+  const input = { confirmed: true, targetKey: target.key, sourceRevision: preview.source.revision, targetRevision: preview.target.revision };
+  const update = store.updateState.bind(store); let fail = true;
+  store.updateState = async record => { if (fail && record.key === source.key) throw Error('Synthetic interruption'); return update(record); };
+  assert.equal((await request(path + '/school-transfer', input)).status, 400);
+  for (const key of [source.key, target.key]) assert.equal((await request('/api/jobs/' + key + '/portal', { action: 'unlink', confirmed: true })).status, 409);
+  fail = false; assert.equal((await request(path + '/school-transfer', input)).status, 200);
+  const archived = await store.find(source.key), linked = await store.find(target.key);
+  assert.equal(archived.status, '已归档'); assert.deepEqual(archived.schoolJd, source.schoolJd);
+  assert.equal(linked.notes, target.notes); assert.equal(linked.status, 'Queue'); assert.equal(linked.portal.id, source.portal.id);
+  assert.equal((await store.list()).length, 2);
 });

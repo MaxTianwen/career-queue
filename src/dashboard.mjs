@@ -128,6 +128,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
     return next;
   }
   async function recheckJob(source, job, mode) {
+    if (job.jdSource === 'school' && !job.url) throw fail('学校来源尚无官网链接，无法复查官网');
     const check = mode === 'demo' ? { status: 'unknown', checkedAt: new Date().toISOString(), sourceUrl: job.url, evidence: '演示岗位，不代表真实开放状态' } : await availabilityImpl(job);
     const changes = {};
     if (check.job && check.status === 'open' && ['Queue', '待提交', undefined].includes(job.status)) {
@@ -436,7 +437,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
       const store = await storeFor(mode), key = match[1], action = match[2];
       const record = await getRecord(store, key);
       if (action === 'school-transfer') return send(await transferSchoolAssociation(store, key, body));
-      if (record.schoolCandidate && !['notes', 'school-details'].includes(action) || action === 'portal' && record.schoolAssociationTransfer) {
+      if ((record.schoolCandidate || record.jdSource === 'school' && !record.url) && !['notes', 'school-details'].includes(action) || action === 'portal' && record.schoolAssociationTransfer) {
         const all = await store.list();
         const pending = all.some(target => {
           const source = all.find(j => j.key === target.schoolAssociationTransfer?.sourceKey);
@@ -445,12 +446,15 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         if (pending) throw fail('学校关联迁移尚未收尾，请在原候选中重试完成迁移后再修改学校状态', 409);
       }
       if (action === 'school-details') {
-        if (body.confirmed !== true) throw fail('请确认官网链接与 JD 对应当前学校岗位');
+        if (body.confirmed !== true) throw fail('请确认所提供的链接或正文对应当前学校岗位');
         if (body.revision !== portalRevision(record) || body.jdHash !== jobInputHash(record)) throw fail('岗位已变化，请重新打开后补齐', 409);
-        const url = text(body.url, 2000), jd = text(body.jd || '', 100000).trim();
+        const url = text(body.url || '', 2000).trim(), jd = text(body.jd || '', 100000).trim();
+        const school = body.jdSource === 'school';
+        if (school && (url || !jd)) throw fail('学校来源请粘贴完整 JD，并留空官网链接');
+        if (!school && !url) throw fail('请填写官网链接，或选择学校来源并粘贴 JD');
         const association = schoolAssociation(record, url, await store.list());
         if (association) return send({ association });
-        const details = jd ? { url, jd } : await officialJobImpl({ url, company: record.company, title: record.title, location: record.location, term: record.term });
+        const details = jd ? { url, jd, ...(school ? { jdSource: 'school' } : {}) } : await officialJobImpl({ url, company: record.company, title: record.title, location: record.location, term: record.term });
         if (!details?.jd?.trim()) throw fail('此链接暂不支持读取，请粘贴官网完整 JD 后保存');
         const current = await getRecord(store, key);
         if (portalRevision(current) !== body.revision || jobInputHash(current) !== body.jdHash) throw fail('读取期间岗位已变化，请重新打开', 409);
@@ -458,6 +462,7 @@ export function dashboardServer({ root = projectRoot, storeOverride, discoverImp
         if (afterRead) return send({ association: afterRead });
         return send(await store.updateJob(completeSchoolCandidate(current, details, await store.list())));
       }
+      if (['prepare', 'complete', 'submitted'].includes(action) && record.jdSource === 'school' && !record.url) throw fail('学校来源尚无官网链接，本版暂不准备材料或记录官网投递');
       if (['prepare', 'complete'].includes(action) && record.fullJd === false) throw fail('请先补齐完整 JD，再准备材料');
       if (action === 'portal') {
         if (body.revision !== portalRevision(record)) throw fail('申请记录已变化，请重新打开详情后操作', 409);

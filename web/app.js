@@ -89,7 +89,7 @@ function render() {
 }
 function savedCard(j, isQueue) {
   return `<article data-job-key="${j.key}" class="discovery-card saved-card ${j.key === highlightedKey ? 'saved-highlight' : ''}">
-    <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0,1))}</span><strong>${esc(j.company)}</strong><span class="badge">${esc(j.schoolCandidate ? '学校候选 · 待补 JD' : j.status)}</span></div>
+    <div class="card-overline"><span class="company-icon">${esc(j.company.slice(0,1))}</span><strong>${esc(j.company)}</strong><span class="badge">${esc(j.schoolCandidate ? '学校候选 · 待补 JD' : j.jdSource === 'school' ? '学校来源 · JD 已保存' : j.status)}</span></div>
     <div class="card-title-row"><button class="job-title" data-action="detail" data-key="${j.key}">${esc(j.title)}</button><div class="card-score" title="当前简历覆盖分，不代表录取概率">${scoreBadge(j)}<span>${esc(scoreBasisText(j.match))}</span></div></div>
     <div class="card-tags">${directionBadge(j)}${workplaceBadge(j)}${eligibilityBadge(j)}</div>
     <dl class="card-facts"><div><dt>入职时间</dt><dd>${fieldTag(termText(j),'term', termText(j).includes('待核实'))}</dd></div><div><dt>工作时长</dt><dd>${fieldTag(durationText(j),'duration', durationText(j).includes('待核实'))}</dd></div><div><dt>地点 / 方式</dt><dd>${esc(j.location || '待核实')} · ${esc(modeText(j))}</dd></div><div><dt>薪资</dt><dd>${esc(j.salary || '未披露')}</dd></div></dl>
@@ -250,6 +250,7 @@ function scoreDetails(job) {
   return `<p><b>简历方向：${esc(job.resumeClassification?.label || '待确认')}</b> · ${esc(job.resumeClassification?.basis || '待分析')}判断，可在准备任务时切换。</p>${matchingDetails(job)}`;
 }
 function resumeControls(job, source) {
+  if (job.jdSource === 'school' && !job.url) return '';
   if (mode !== 'demo' && (job.availabilityView?.status === 'closed' || job.eligibility?.summary.hardConflict || job.expired)) return `<section class="resume-controls"><h3>已有简历版本</h3><p>停止生成新材料，历史版本仍可预览或下载。</p><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button><div id="generate-result" role="status"></div></section>`;
   if ((source === 'discovery' && searchState.state === 'running') || mode === 'demo' || job.identityConflict || job.expired || job.fullJd === false || (source === 'discovery' && job.decision === 'REJECT') || (job.status && !['Queue', '待提交'].includes(job.status))) return '';
   return `<section class="resume-controls"><h3>定制一页简历</h3><p>${esc(status.resume?.ready ? status.resume.note : status.resume?.reason || '模板尚未就绪')}</p><div class="baseline-summary">${['cs', 'data'].map(track => { const t = status.resume?.tracks?.[track]; return `<p><b>${track.toUpperCase()} 基准</b> · ${esc(t?.name || '未配置')}<small>${esc(t?.version || '最初固定模板')}${t?.ready === false ? ` · ${esc(t.reason)}` : ''}</small></p>`; }).join('')}<button class="text-button" data-action="resumes">管理 / 上传简历 →</button></div><label>生成使用的原始简历<select id="generate-track"><option value="auto">自动：${esc(job.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><div class="form-actions"><button class="button primary" data-action="generate-resume" data-key="${job.key}" data-source="${source}" ${status.resume?.ready ? '' : 'disabled'}>准备简历修改对照</button><button class="button secondary" data-action="resume-versions" data-key="${job.key}">查看已生成版本</button></div><p>原稿只读；新版本保存到本项目。通过原格式与一页检查后提供 DOCX / PDF，申请状态保持不变。</p><div id="generate-result" role="status"></div></section>`;
@@ -416,7 +417,7 @@ function sourceReport(coverage = []) {
   return `<details class="source-summary"><summary>查看来源与信息完整度 · ${coverage.length} 类招聘系统</summary><p>以下是全文读取系统，与上方发现入口分开统计。以下按未截止结果统计，包含不符合条件的岗位，不随页面筛选变化；数量不代表市场覆盖率。</p><div class="source-scroll"><table><thead><tr><th>招聘系统</th><th>结果</th><th>完整 JD</th><th>读取失败</th><th>未尝试全文</th><th>有日期</th><th>有时长</th><th>有薪资</th><th>有工作方式</th></tr></thead><tbody>${coverage.map(row => `<tr>${[row.name, row.total, row.fullJd, row.failed, row.unsupported, row.published, row.duration, row.salary, row.workMode].map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p>未尝试指未适配的来源或链接格式，不代表被阻止或需要付费。字段零值可能表示来源未提供或程序尚未提取。</p></details>`;
 }
 function sourceLinks(job) {
-  return `<p class="source-label">招聘系统：${esc(job.sourceName || '待核实')}${job.discoverySources?.length ? ` · 发现：${esc(job.discoverySources.map(s => s.name).join('、'))}` : ''}${job.sourceLinks?.length > 1 ? ` · ${job.sourceLinks.length} 个来源链接` : ''}</p>${job.duplicateNote && !job.groupedSources ? `<p class="duplicate-note">${esc(job.duplicateNote)}</p>` : ''}${job.sourceLinks?.length ? `<details class="origin-links"><summary>${job.groupedSources ? `已合并 ${job.groupedSources.length} 条记录 · 查看来源与招聘编号` : '查看保留的职位来源链接'}</summary>${job.groupedSources ? `<p>按公司、标题、批次和地点合并展示。正文与字段来自当前主链接，不混合不同来源的要求。</p><ul>${job.groupedSources.map(source => `<li><a href="${safeUrl(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.requisitionId || '招聘编号未提供')}</a> · ${esc(source.salary || '薪资未披露')} · ${esc(durationText(source))} · ${esc(modeText(source))} · 截止：${esc(deadlineDate(source.deadline))}${source.jd ? `<details><summary>此来源 JD</summary><div class="hint">${esc(source.jd)}</div></details>` : ''}</li>`).join('')}</ul>` : ''}<ul>${job.sourceLinks.map(url => `<li><a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></li>`).join('')}</ul></details>` : ''}`;
+  return `<p class="source-label">${job.jdSource === 'school' ? '正文来源' : '招聘系统'}：${esc(job.sourceName || '待核实')}${job.discoverySources?.length ? ` · 发现：${esc(job.discoverySources.map(s => s.name).join('、'))}` : ''}${job.sourceLinks?.length > 1 ? ` · ${job.sourceLinks.length} 个来源链接` : ''}</p>${job.duplicateNote && !job.groupedSources ? `<p class="duplicate-note">${esc(job.duplicateNote)}</p>` : ''}${job.sourceLinks?.length ? `<details class="origin-links"><summary>${job.groupedSources ? `已合并 ${job.groupedSources.length} 条记录 · 查看来源与招聘编号` : '查看保留的职位来源链接'}</summary>${job.groupedSources ? `<p>按公司、标题、批次和地点合并展示。正文与字段来自当前主链接，不混合不同来源的要求。</p><ul>${job.groupedSources.map(source => `<li><a href="${safeUrl(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.requisitionId || '招聘编号未提供')}</a> · ${esc(source.salary || '薪资未披露')} · ${esc(durationText(source))} · ${esc(modeText(source))} · 截止：${esc(deadlineDate(source.deadline))}${source.jd ? `<details><summary>此来源 JD</summary><div class="hint">${esc(source.jd)}</div></details>` : ''}</li>`).join('')}</ul>` : ''}<ul>${job.sourceLinks.map(url => `<li><a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></li>`).join('')}</ul></details>` : ''}`;
 }
 const discoveryFilterControls = [
   ['term-filter', '入职时间', ''], ['track-filter', '方向', ''], ['duration-filter', '时长', ''],
@@ -535,7 +536,13 @@ function showModal(title, subtitle, content) {
   $('#modal-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">CAREER QUEUE</span><h2 id="modal-title">${title}</h2><p>${subtitle}</p></div><button class="close" data-action="close" aria-label="关闭弹窗">×</button></div><div class="dialog-content">${content}</div>`;
   $('#modal').showModal();
 }
+function schoolDetailsForm(j) {
+  if (!(j.schoolCandidate || j.jdSource === 'school' && !j.url) || j.status !== 'Queue') return '';
+  const form = `<form id="school-details-form"><h3>${j.fullJd ? '补充官网链接' : '补齐职位正文'}</h3>${j.fullJd ? '' : '<label>正文来源<select name="jdSource"><option value="official">官网链接 / 官网 JD</option><option value="school">学校 JD · 无官网链接</option></select></label>'}<label data-school-url>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.pendingSchoolUrl || j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="官网链接模式可留空自动读取；学校来源须粘贴完整正文。"></textarea></label><p data-school-note hidden>保存后可阅读和查看匹配；无官网链接时暂不准备材料，也不改变学校与官网投递状态。</p><label class="check"><input type="checkbox" name="confirmed" required>我已核对所提供的链接或正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>`;
+  return j.fullJd ? `<details><summary>补充官网链接（可选）</summary>${form}</details>` : form;
+}
 function materialForm(j) {
+  if (j.jdSource === 'school' && !j.url) return '<p>学校来源尚无官网链接，本版暂不准备或上传申请材料。学校与官网投递状态保持不变。</p>';
   if (j.fullJd === false) return '<p>补齐完整 JD 后，可以评分和准备申请材料。</p>';
   if (!['Queue', '待提交'].includes(j.status)) return '';
   const generated = j.generatedMaterial?.version ? j.generatedMaterial : null;
@@ -578,10 +585,10 @@ async function detail(key) {
   detailContext = { source: 'queue', key: j.key, job: j };
   delete $('#detail').dataset.dirty;
   $('#detail-body').innerHTML = `<div class="dialog-head"><div><span class="eyebrow">${esc(j.company)}</span><h2 id="detail-title">${esc(j.title)}</h2><p>${esc(termText(j))} · ${esc(j.status)}${mode === 'demo' ? ' · 演示职位' : ''}</p></div><button class="close" data-action="close" aria-label="关闭详情">×</button></div><div class="dialog-content">
-    ${directionBadge(j)}${workplaceBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}${j.url ? `<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>` : '<p class="badge">学校候选 · 待补 JD</p>'}
+    ${directionBadge(j)}${workplaceBadge(j)}${jobHighlights(j)}${skillHighlights(j)}${sourceLinks(j)}${fieldEvidenceView(j)}${j.url ? `<div class="meta"><a href="${safeUrl(j.url)}" target="_blank" rel="noopener noreferrer">查看职位原文 ↗</a></div>` : `<p class="badge">${j.jdSource === 'school' ? '学校来源 · JD 已保存' : '学校候选 · 待补 JD'}</p>`}
     ${j.transferredTo ? `<p class="form-status">学校关联已迁移，原备注和历史保留在此。</p><button class="button secondary" data-action="show-saved" data-key="${esc(j.transferredTo)}">查看关联后的职位</button>` : ''}
     ${[...(j.schoolAssociationHistory || []), ...(j.schoolAssociationTransfer ? [j.schoolAssociationTransfer] : [])].map(t => `<button class="button secondary compact" data-action="detail" data-key="${esc(t.sourceKey)}">查看原学校候选、备注与历史 · ${esc(t.portal?.id)}</button>`).join('')}
-    ${j.schoolCandidate && j.status === 'Queue' ? `<form id="school-details-form"><h3>补齐职位正文</h3><label>对应官网职位链接<input type="url" name="url" required maxlength="2000" value="${esc(j.pendingSchoolUrl || j.portal?.externalUrl || '')}"></label><label>完整 JD<textarea name="jd" rows="8" maxlength="100000" placeholder="留空时尝试读取受支持的官网；读取失败后可粘贴完整正文。"></textarea></label><label class="check"><input type="checkbox" name="confirmed" required>我已核对链接及正文对应此学校岗位</label><button class="button primary">补齐并保存 JD</button></form>` : ''}
+    ${schoolDetailsForm(j)}
     <p>${esc(publicationText(j))} · ${esc(modeText(j))}</p>
     ${assessmentPanel(j)}
     ${scoreDetails(j)}
@@ -589,9 +596,10 @@ async function detail(key) {
     ${j.expired ? '<div class="hint">申请已截止，保留已有申请记录供追踪。</div>' : ''}
     ${portalPanel(j)}
     ${j.reasons?.length ? `<div class="hint">${esc(j.reasons.join('\n'))}</div>` : ''}
-    <div class="form-actions">${j.fullJd !== false && ['Queue', '待提交'].includes(j.status) ? `<label>原始简历方向<select id="resume-track"><option value="auto">自动：${esc(j.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><button class="button primary" data-action="prepare">准备定制任务</button>` : ''}${j.status === 'Queue' ? '<button class="button danger" data-action="archive">不投 · 归档</button>' : ''}</div>
-    ${j.fullJd !== false && ['Queue', '待提交'].includes(j.status) ? '<p>“准备定制任务”另行导出上下文，供助手做进一步审阅或修改；定制请使用上方“准备简历修改对照”，审阅后生成。</p>' : ''}
+    <div class="form-actions">${j.fullJd !== false && !(j.jdSource === 'school' && !j.url) && ['Queue', '待提交'].includes(j.status) ? `<label>原始简历方向<select id="resume-track"><option value="auto">自动：${esc(j.resumeClassification?.label || '待确认')}</option><option value="cs">CS 简历</option><option value="data">Data 简历</option></select></label><button class="button primary" data-action="prepare">准备定制任务</button>` : ''}${j.status === 'Queue' ? '<button class="button danger" data-action="archive">不投 · 归档</button>' : ''}</div>
+    ${j.fullJd !== false && !(j.jdSource === 'school' && !j.url) && ['Queue', '待提交'].includes(j.status) ? '<p>“准备定制任务”另行导出上下文，供助手做进一步审阅或修改；定制请使用上方“准备简历修改对照”，审阅后生成。</p>' : ''}
     <div id="archive-question"></div><div id="prepare-result"></div>${j.fullJd === false ? '' : `<h3>完整职位描述</h3>${jobDescription(j)}`}
+    ${j.schoolJd && j.url ? `<details><summary>保留的学校正文</summary><p>学校 ID：${esc(j.schoolJd.schoolId)}</p><div class="hint">${esc(j.schoolJd.text)}</div></details>` : ''}
     <h3>我的备注与下一步</h3><form id="notes-form"><div class="form-grid"><label class="wide">备注<textarea name="notes" maxlength="5000">${esc(j.notes)}</textarea></label><label class="wide">下一步<input name="nextStep" value="${esc(j.nextStep)}" maxlength="5000"></label></div><div class="form-actions"><button class="button secondary">保存备注</button></div></form>
     <hr class="section-line"><h3>材料与版本</h3><div id="files">${j.localFiles.length || j.attachments?.length ? `${fileLinks(j.localFiles)}${(j.attachments ?? []).filter(f => f.url).map(f => `<a class="file-link" href="${safeUrl(f.url)}" target="_blank" rel="noopener noreferrer">↗ Notion · ${esc(f.name)}</a>`).join('')}` : '<p>尚无材料。处理任务文件和上传的简历会按版本保存在这里。</p>'}</div>
     <div id="material-panel">${materialForm(j)}</div>
@@ -770,11 +778,19 @@ document.addEventListener('click', async event => {
 document.addEventListener('input', event => {
   if (event.target.closest('#job-form')) { const b = $('[data-action="import"]'); if (b) b.hidden = true; }
   const form = event.target.closest('#school-details-form');
-  if (form && ['url', 'jd', 'confirmed'].includes(event.target.name)) {
+  if (form && ['url', 'jd', 'confirmed', 'jdSource'].includes(event.target.name)) {
     delete form.association; form.querySelector('.school-association')?.remove();
   }
 });
 document.addEventListener('change', event => {
+  if (event.target.name === 'jdSource' && event.target.closest('#school-details-form')) {
+    const form = event.target.form, school = event.target.value === 'school';
+    form.querySelector('[data-school-url]').hidden = school;
+    form.elements.url.disabled = school; form.elements.url.required = !school;
+    form.elements.jd.required = school; form.elements.confirmed.checked = false;
+    form.querySelector('[data-school-note]').hidden = !school;
+    delete form.association; form.querySelector('.school-association')?.remove();
+  }
   if (event.target.id === 'material-source') {
     const upload = event.target.value === 'upload', form = $('#materials-form');
     $('#manual-resume-field').hidden = !upload; form.elements.resume.required = upload; form.elements.checked.checked = false;

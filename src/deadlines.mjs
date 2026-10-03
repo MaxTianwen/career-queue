@@ -10,6 +10,7 @@ export function deadlineExpired(deadline, now = new Date()) {
 }
 
 export function extractDeadline(job) {
+  if (job.jdSource === 'school' && !job.url) return { deadline: null, deadlineEvidence: null };
   if (job.deadline) return { deadline: job.deadline, deadlineEvidence: job.deadlineEvidence || '已记录的截止日期' };
   const lines = String(job.jd || '').match(/(?:application\s+(?:submission\s+)?deadline|applications?\s+(?:close|due)|closing\s+date|apply\s+by|deadline\s+to\s+apply)\s*(?:is|on|:)?\s*[^\n]{0,160}/gi) || [];
   const found = [];

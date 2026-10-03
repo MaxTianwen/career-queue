@@ -22,11 +22,12 @@ export function canonicalUrl(value) {
   return url.toString();
 }
 
-export function normalizeJob(input) {
-  for (const field of ['company', 'title', 'url', 'jd']) {
+export function normalizeJob(input, { schoolId } = {}) {
+  if (schoolId && (typeof schoolId !== 'string' || input.jdSource !== 'school' || input.url)) throw new Error('学校正文身份无效');
+  for (const field of ['company', 'title', ...(schoolId ? [] : ['url']), 'jd']) {
     if (typeof input[field] !== 'string' || !input[field].trim()) throw new Error(`缺少 ${field}`);
   }
-  const job = { ...input, ...extractDeadline(input), company: clean(input.company), title: clean(input.title), url: canonicalUrl(input.url) };
+  const job = { ...input, ...extractDeadline(input), company: clean(input.company), title: clean(input.title), url: schoolId ? null : canonicalUrl(input.url) };
   job.term = clean(input.term) || 'Unknown';
   job.location = clean(input.location) || 'Unknown';
   job.workMode = input.workMode ?? 'unknown';
@@ -38,7 +39,7 @@ export function normalizeJob(input) {
     throw new Error('durationMonths 必须是正数或 null');
   }
   job.salary = clean(input.salary) || '未披露';
-  const identity = input.requisitionId
+  const identity = schoolId ? `tmu:${schoolId}` : input.requisitionId
     ? `${normalized(job.company)}|${normalized(input.requisitionId)}`
     : job.url;
   job.key = createHash('sha256').update(`${identity}|${normalized(job.term)}`).digest('hex').slice(0, 24);

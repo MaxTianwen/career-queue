@@ -11,11 +11,12 @@ const norm = value => String(value || '').trim().toLowerCase().replace(/\s+/g, '
 const hasMaterials = job => Boolean(job.materialVersion || Object.keys(job.materials || {}).length || job.attachments?.length);
 
 export function schoolAssociation(record, url, records) {
+  if (!url) return null;
   const matches = records.filter(j => j.key !== record.key && j.url && postingUrl(j.url) === postingUrl(url));
   if (!matches.length) return null;
   if (matches.length > 1) throw new Error('同一官网链接有多条申请，请先核对，暂不能迁移');
   const target = matches[0], conflicts = [];
-  if (!record.schoolCandidate || record.fullJd !== false || record.status !== 'Queue' || !record.portal) conflicts.push('原记录已不是待补正文的学校候选');
+  if (!(record.schoolCandidate && record.fullJd === false || record.jdSource === 'school' && !record.url) || record.status !== 'Queue' || !record.portal) conflicts.push('原记录已不是待补正文的学校候选');
   if (record.applicationDate || hasMaterials(record) || record.portal?.status === 'submitted') conflicts.push('原候选已有材料或提交记录，暂停迁移');
   if (target.schoolCandidate || target.fullJd === false || target.status === '已归档') conflicts.push('目标不是可关联的完整职位');
   if (norm(record.company) !== norm(target.company)) conflicts.push('公司不同');
@@ -74,16 +75,20 @@ export function schoolCandidate(input, records, now = new Date()) {
 }
 
 export function completeSchoolCandidate(record, details, records) {
-  if (!record.schoolCandidate || record.fullJd !== false || record.status !== 'Queue') throw new Error('仅待补 JD 的学校候选可以补齐正文');
+  const school = details.jdSource === 'school';
+  if (!(record.schoolCandidate && record.fullJd === false || !school && record.jdSource === 'school' && !record.url) || record.status !== 'Queue' || !record.portal?.id) throw new Error('仅待补 JD 的学校候选或待补官网链接的学校正文可以补齐');
+  if (school && details.url) throw new Error('学校来源正文请勿混填官网链接');
   const source = { company: record.company, title: record.title, term: record.term, location: record.location,
-    ...details, fullJd: true };
+    ...details, jdSource: school ? 'school' : details.sourceEvidence ? 'official' : 'manual', fullJd: true };
   const facts = extractFacts(source);
-  const job = normalizeJob({ ...source, ...facts, term: facts.term === 'Unknown' ? record.term : facts.term });
-  if (records.some(j => j.key !== record.key && (j.key === job.key || j.url === job.url))) {
+  const job = normalizeJob({ ...source, ...facts, term: facts.term === 'Unknown' ? record.term : facts.term }, school ? { schoolId: record.portal.id } : {});
+  if (school) Object.assign(job, { deadline: null, deadlineEvidence: null, postedAt: null, requisitionId: null });
+  if (records.some(j => j.key !== record.key && (j.key === job.key || job.url && j.url === job.url))) {
     throw new Error('此官网职位已在 Queue 中。请先解除此候选的学校关联，再将学校 ID 关联已有申请，并归档此候选');
   }
   // Keep application identity and all user-owned state. School dates remain in portal only.
   return { ...record, ...job, ...evaluateJob(job), key: record.key, schoolCandidate: false, fullJd: true,
-    sourceEvidence: details.sourceEvidence || { note: '本人补充并核对的 JD', retrievedAt: new Date().toISOString() },
+    ...(school ? { schoolJd: { text: job.jd, schoolId: record.portal.id, recordedAt: new Date().toISOString() } } : {}),
+    sourceEvidence: school ? { note: '本人复制并核对的学校 JD；未核实官网开放状态', schoolId: record.portal.id, retrievedAt: new Date().toISOString() } : details.sourceEvidence || { note: '本人补充并核对的 JD', retrievedAt: new Date().toISOString() },
     availability: undefined, eligibilityConfirmations: [], nextStep: record.nextStep === '补齐官网链接与完整 JD' ? '人工查看后指定处理' : record.nextStep };
 }

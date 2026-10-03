@@ -41,6 +41,7 @@ export async function getRecord(store, key) {
 
 export async function prepare(store, key, knowledgePath, outputRoot, { resumeTrack = 'auto', evaluationSnapshot = null } = {}) {
   const record = await getRecord(store, key);
+  if (record.jdSource === 'school' && !record.url) throw new Error('学校来源尚无官网链接，本版暂不准备材料');
   if (record.fullJd === false || !record.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   if (!['Queue', '待提交'].includes(record.status)) throw new Error('当前状态不能准备材料');
   const knowledge = await readFile(knowledgePath, 'utf8');
@@ -68,6 +69,7 @@ async function validateFile(path, extensions) {
 
 export async function complete(store, key, paths, checked, materialVersion = null) {
   const record = await getRecord(store, key);
+  if (record.jdSource === 'school' && !record.url) throw new Error('学校来源尚无官网链接，本版暂不准备材料');
   if (record.fullJd === false || !record.jd?.trim()) throw new Error('请先补齐完整 JD，再准备材料');
   if (!checked) throw new Error('需要先检查事实依据和版面，再使用 --checked');
   const inputsChanged = job => materialVersion?.assessment && (materialVersion.assessment.jdHash !== jobInputHash(job) || materialVersion.assessment.confirmationHash !== evidenceFingerprint(job));
