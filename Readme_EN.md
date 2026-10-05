@@ -1,4 +1,6 @@
-# Career Queue v2.6.0
+# Career Queue v2.7.0
+
+**v2.7.0 local build (not pushed):** compare added, removed and changed questions before explicitly activating a new set. Previous questions and answers remain in read-only history; new answers start empty. Includes rollback, owner isolation, export and backup support. v2.6.0 was published as a442aee.
 
 **v2.6.0 local build (not pushed):** select questions and save answers per account and job, restoring them after refresh. Changed resume/JD inputs require review; changed official questions preserve the existing draft without automatic replacement. No cross-job reuse or external form submission.
 

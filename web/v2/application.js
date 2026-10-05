@@ -1,3 +1,4 @@
+import { questionDiff } from './question-diff.js';
 const $ = selector => document.querySelector(selector);
 const el = (tag, text) => { const node = document.createElement(tag); node.textContent = text; return node; };
 const channels = { unknown: '待确认', employer: '官网', school: '学校', both: '官网 + 学校', 'school-only': '仅学校' };
@@ -183,13 +184,45 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const captured = revision, target = jobId;
     const result = await api('/api/jobs/' + target + '/application-form', {method:'POST',value:{basis:preparationState.basis}});
     if (captured !== revision) return;
-    if (questionState?.draft && JSON.stringify(questionState.draft.form.questions) !== JSON.stringify(result.questions)) {
-      $('#preparation-status').textContent = '官网问题已变化，旧问题和答案保持不变。本期请在官网对照核对，不自动替换。'; return;
+    if (questionState?.draft && (questionState.draft.form.source !== result.source || JSON.stringify(questionState.draft.form.questions) !== JSON.stringify(result.questions))) {
+      drawQuestionChanges(result); return;
     }
     drawQuestions(result, questionState?.draft?.answers);
     dirty.add('application-questions');
     $('#preparation-status').textContent = '问题读取完成，可直接保存逐题草稿。';
   }));
+  function drawQuestionChanges(result) {
+    const previous = questionState, target = jobId, captured = revision;
+    drawQuestions(previous.draft.form, previous.draft.answers);
+    const box = document.createElement('section');
+    const diff = questionDiff(previous.draft.form.questions,result.questions);
+    box.append(el('h4','官网问题版本对照'),el('p','请同时核对当前岗位与简历依据。旧题和答案仍在下方。启用后所有新题答案为空，旧答案可从历史查看。问题改名或重名按删除与新增列出，不猜测对应关系。'));
+    box.append(el('p','原来源：'+previous.draft.form.source),el('p','新来源：'+result.source),el('p','新读取时间：'+new Date(result.checkedAt).toLocaleString()));
+    for (const [label,rows] of [['新增',diff.added],['删除',diff.removed]]) {
+      box.append(el('h5',label + ' · ' + rows.length));
+      for (const q of rows) box.append(el('pre',describeQuestion(q)));
+    }
+    box.append(el('h5','变更 · ' + diff.changed.length));
+    for (const q of diff.changed) box.append(el('pre','原：' + describeQuestion(q.before) + '\n新：' + describeQuestion(q.after)));
+    if (!diff.added.length && !diff.removed.length && !diff.changed.length) box.append(el('p','问题顺序或来源变化，请对照官网核实。'));
+    const confirmInput = document.createElement('input'); confirmInput.type = 'checkbox';
+    const label = el('label','我已核对差异，启用新问题并保留旧答案历史'); label.className='check'; label.prepend(confirmInput);
+    const apply = el('button','确认启用新问题版本'); apply.type='button';
+    apply.addEventListener('click',()=>action('#preparation-status',async()=>{
+      if (!confirmInput.checked) throw new Error('请先核对并勾选版本确认');
+      if (questionState !== previous || dirty.has('application-questions') || jobDirty() || dirty.has('channel-form')) throw new Error('旧稿或依据有编辑，请先保存并重新读取对照');
+      const next = await api('/api/jobs/'+target+'/question-draft',{method:'PUT',value:{revision:previous.revision,basis:result.basis,replaceConfirmed:true,reconfirmed:true,draft:{form:result,answers:result.questions.map(()=>({selected:false,answer:''}))}}});
+      if (captured !== revision) return;
+      questionState=next; drawQuestions(next.draft.form,next.draft.answers);
+      $('#preparation-status').textContent='新问题版本已启用，答案为空；旧题与答案已归档。';
+    }));
+    const cancel = el('button','暂不启用，保留旧版本'); cancel.type='button'; cancel.addEventListener('click',()=>box.remove());
+    box.append(label,apply,cancel); $('#application-form-preview').prepend(box);
+    $('#preparation-status').textContent='发现官网问题变化，请核对差异；尚未替换。';
+  }
+  function describeQuestion(q) {
+    return '['+q.section+'] '+(q.required?'必填：':'选填：')+q.label+'\n'+q.fields.map(f=>({input_text:'文本',textarea:'长文本',input_file:'上传附件',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对')+(f.options.length?' · '+f.options.join(' / '):'')).join('\n');
+  }
   function drawQuestions(result, saved = []) {
     const area = $('#application-form-preview'); area.replaceChildren();
     area.append(el('h4', result.title), el('p', result.notice), el('p', '读取时间：' + new Date(result.checkedAt).toLocaleString()));
@@ -197,6 +230,17 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const source = el('a', '查看官方接口来源'); source.href = result.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
     const lines = result.questions.map(q => '[' + (q.section || '申请问题') + '] ' + (q.required ? '必填：' : '选填：') + q.label + '\n' + q.fields.map(f => '填写方式：' + ({input_file:'上传附件',textarea:'长文本',input_text:'文本',input_hidden:'官网自动处理',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对') + (f.options.length ? '；选项：' + f.options.join(' / ') : '')).join('\n'));
     area.append(el('p', '仅勾选的问题会加入草稿。这里的答案是本机草稿，不会填写到官网。附件问题可记录待办，不会上传文件。'));
+    const history = document.createElement('details'); history.append(el('summary','旧问题与答案历史 · '+(questionState?.history?.length || 0)));
+    for (const item of questionState?.history || []) {
+      const view=el('button','查看旧稿 '+item.revision+' · '+new Date(item.archived).toLocaleString()); view.type='button';
+      const content=document.createElement('div');
+      view.addEventListener('click',()=>action('#preparation-status',async()=>{
+        const captured=revision, record=await api('/api/jobs/'+jobId+'/question-history/'+item.revision);
+        if (captured!==revision) return;
+        content.replaceChildren(el('p',record.draft.form.source));
+        record.draft.form.questions.forEach((q,i)=>content.append(el('pre',describeQuestion(q)+'\n'+(record.draft.answers[i].selected?'已选择':'未选择')+' · 旧答案：'+record.draft.answers[i].answer)));
+      })); history.append(view,content);
+    } area.append(history);
     const editors = lines.map((line, index) => {
       const row = document.createElement('fieldset'), legend = el('legend', result.questions[index].label);
       const label = el('label', '加入草稿：' + result.questions[index].label), selected = document.createElement('input');

@@ -971,3 +971,32 @@ test('question drafts persist per owner and job; stale bases and changed questio
   const restored=new WorkspaceStore(resolve(restorePath,'workspaces.sqlite'));
   assert.deepEqual(restored.questionDraft(a.id,j.id).draft,draft);restored.close();
 });
+
+test('question replacement archives answers atomically and requires explicit empty replacement', async t => {
+  const f=await fixture(t),a=await f.account('alice'),b=await f.account('bob');
+  const s=new WorkspaceStore(f.database);t.after(()=>s.close());const j=s.saveJob(a.id,job);
+  const form={title:'Original',source:'https://boards-api.greenhouse.io/v1/boards/test/jobs/123?questions=true',checkedAt:'2026-10-05T00:00:00Z',notice:'Local',warnings:[],questions:[{section:'申请问题',label:'Name',required:true,fields:[{type:'input_text',options:[]}]}]};
+  const original={form,answers:[{selected:true,answer:'Original answer'}]};
+  let current=s.saveQuestionDraft(a.id,j.id,{...s.questionDraft(a.id,j.id),draft:original});
+  const changed=structuredClone(original);changed.form.questions[0].required=false;
+  assert.throws(()=>s.saveQuestionDraft(a.id,j.id,{...current,draft:changed}),{status:409});
+  assert.throws(()=>s.saveQuestionDraft(a.id,j.id,{...current,draft:changed,replaceConfirmed:true}),{status:400});
+  changed.answers=[{selected:false,answer:''}];
+  const input={...current,draft:changed,replaceConfirmed:true};
+  s.db.exec("CREATE TRIGGER fail_question_write BEFORE UPDATE ON question_drafts BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  assert.throws(()=>s.saveQuestionDraft(a.id,j.id,input),/synthetic failure/);
+  assert.equal(s.questionDraft(a.id,j.id).history.length,0);assert.deepEqual(s.questionDraft(a.id,j.id).draft,original);
+  s.db.exec('DROP TRIGGER fail_question_write');
+  const next=s.saveQuestionDraft(a.id,j.id,input);assert.deepEqual(next.draft,changed);assert.equal(next.history.length,1);
+  assert.deepEqual(s.questionHistory(a.id,j.id,current.revision).draft,original);
+  assert.throws(()=>s.saveQuestionDraft(a.id,j.id,input),{status:409});
+  const path=`/api/jobs/${j.id}/question-history/${current.revision}`;
+  assert.equal((await f.call(path,{auth:b})).status,404);
+  assert.equal((await f.call(path,{auth:a})).data.draft.answers[0].answer,'Original answer');
+  assert.equal(s.exportData(a.id).questionHistory.length,1);assert.equal(s.exportData(b.id).questionHistory.length,0);
+  const {backupWorkspace,restoreWorkspace}=await import('../src/v2/backup.mjs');
+  const backupPath=resolve('output/test-runs',randomUUID()),restorePath=resolve('output/test-runs',randomUUID());
+  await backupWorkspace(f.database,backupPath);await restoreWorkspace(backupPath,restorePath);
+  const restored=new WorkspaceStore(resolve(restorePath,'workspaces.sqlite'));
+  assert.deepEqual(restored.questionHistory(a.id,j.id,current.revision).draft,original);restored.close();
+});

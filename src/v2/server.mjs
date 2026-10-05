@@ -18,7 +18,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const assets = new Map([['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
+const assets = new Map([['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
 const cookie = (token, age = SESSION_MS / 1000) => `cq_v2_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 function tokenFrom(req) { return req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('cq_v2_session='))?.slice('cq_v2_session='.length) ?? ''; }
 async function body(req, limit) {
@@ -198,6 +198,8 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (store.preparation(owner, id).basis !== before.basis) fail(409, '读取期间依据已变化，请重试');
         return json(res, 200, { ...result, basis: before.basis });
       }
+      const questionHistory = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/question-history\/(\d+)$/);
+      if (questionHistory && req.method === 'GET') return json(res, 200, store.questionHistory(owner,questionHistory[1],Number(questionHistory[2])));
       const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|question-draft|channel|materials|submission)$/);
       if (application) {
         const [, id, operation] = application;
