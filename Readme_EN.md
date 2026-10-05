@@ -1,4 +1,8 @@
-# Career Queue v2.7.0
+# Career Queue v2.8.0
+
+**Browser extension candidate (unpublished):** a local Chrome/Edge extension and three-minute pairing codes are ready for installation testing. Real extension execution is not yet verified. See browser-extension/README.md; no automatic submission or attachment upload. This remains part of the unpublished v2.8.0 work.
+
+**v2.8.0 local rehearsal (not pushed):** review saved contact-text answers and explicitly confirm each simulated fill. Existing target values, changed inputs and failed requests stop the operation. No employer website is filled, no files uploaded and no application submitted. v2.7.0 was published as aa4d8b3.
 
 **v2.7.0 local build (not pushed):** compare added, removed and changed questions before explicitly activating a new set. Previous questions and answers remain in read-only history; new answers start empty. Includes rollback, owner isolation, export and backup support. v2.6.0 was published as a442aee.
 

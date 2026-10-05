@@ -1000,3 +1000,48 @@ test('question replacement archives answers atomically and requires explicit emp
   const restored=new WorkspaceStore(resolve(restorePath,'workspaces.sqlite'));
   assert.deepEqual(restored.questionHistory(a.id,j.id,current.revision).draft,original);restored.close();
 });
+
+test('local fill rehearsal is read-only, owner scoped and rejects stale confirmation', async t => {
+ const f=await fixture(t),a=await f.account('alice'),b=await f.account('bob');
+ const s=new WorkspaceStore(f.database);t.after(()=>s.close());const j=s.saveJob(a.id,job);
+ const draft={form:{title:'Synthetic',source:'https://boards-api.greenhouse.io/v1/boards/test/jobs/123?questions=true',checkedAt:'2026-10-05T00:00:00Z',notice:'Local',warnings:[],questions:[{section:'申请问题',label:'First Name',required:true,fields:[{type:'input_text',options:[]}]}]},answers:[{selected:true,answer:'Synthetic'}]};
+ let current=s.saveQuestionDraft(a.id,j.id,{...s.questionDraft(a.id,j.id),draft});
+ const url=`/api/jobs/${j.id}/fill-rehearsal`,value={revision:current.revision,basis:current.basis};
+ assert.equal((await f.call(url,{auth:b,method:'POST',value})).status,404);
+ assert.equal((await f.call(url,{method:'POST',value})).status,401);
+ const preview=await f.call(url,{auth:a,method:'POST',value});assert.equal(preview.status,200,preview.text);assert.equal(preview.data.fields[0].answer,'Synthetic');
+ assert.equal((await f.call(url,{auth:a,method:'POST',value:{...value,fingerprint:preview.data.fingerprint}})).status,409);
+ assert.equal((await f.call(url,{auth:a,method:'POST',value:{...value,confirmed:true,fingerprint:preview.data.fingerprint}})).status,200);
+ assert.deepEqual(s.questionDraft(a.id,j.id),current);assert.equal(s.preparation(a.id,j.id).notes,'');
+ current=s.saveQuestionDraft(a.id,j.id,{...current,draft:{...draft,answers:[{selected:true,answer:'Changed'}]}});
+ assert.equal((await f.call(url,{auth:a,method:'POST',value:{...value,confirmed:true,fingerprint:preview.data.fingerprint}})).status,409);
+ s.saveJob(a.id,{...job,jd:'Changed JD'},j.id);
+ assert.equal((await f.call(url,{auth:a,method:'POST',value:{revision:current.revision,basis:s.questionDraft(a.id,j.id).basis}})).status,409);
+});
+
+test('browser fill codes are scoped, short-lived, single-use and invalidated by changes or logout', async t => {
+ let time=Date.now();const f=await fixture(t,{now:()=>time}),a=await f.account('alice'),b=await f.account('bob');
+ const s=new WorkspaceStore(f.database,{now:()=>time});t.after(()=>s.close());
+ const url='https://job-boards.greenhouse.io/test/jobs/123';const j=s.saveJob(a.id,{...job,url});
+ const draft={form:{title:'Synthetic',source:'https://boards-api.greenhouse.io/v1/boards/test/jobs/123?questions=true',checkedAt:new Date(time).toISOString(),notice:'Local',warnings:[],questions:[{section:'申请问题',label:'First Name',required:true,fields:[{type:'input_text',options:[]}]}]},answers:[{selected:true,answer:'Synthetic'}]};
+ let state=s.saveQuestionDraft(a.id,j.id,{...s.questionDraft(a.id,j.id),draft});
+ const issue=()=>f.call(`/api/jobs/${j.id}/browser-fill-code`,{auth:a,method:'POST',value:{revision:state.revision,basis:state.basis,confirmed:true}});
+ const ext='chrome-extension://'+'a'.repeat(32);
+ const use=(code,operation='preview',value={targetUrl:url},origin=ext)=>f.call('/api/browser-fill/'+operation,{method:'POST',headers:{Origin:origin,Authorization:'Bearer '+code,'Sec-Fetch-Site':'cross-site'},value});
+ assert.equal((await f.call(`/api/jobs/${j.id}/browser-fill-code`,{auth:b,method:'POST',value:{confirmed:true}})).status,404);
+ let grant=(await issue()).data;
+ assert.equal((await use(grant.code,'preview',{targetUrl:url},'https://evil.example')).status,403);
+ assert.equal((await f.call('/api/jobs',{auth:a,headers:{Origin:ext}})).status,403);
+ assert.equal((await f.call('/api/browser-fill/preview',{method:'OPTIONS',headers:{Origin:ext}})).status,204);
+ assert.equal((await use(grant.code,'preview',{targetUrl:'https://job-boards.greenhouse.io/test/jobs/124'})).status,409);
+ let preview=await use(grant.code);assert.equal(preview.status,200);assert.equal(preview.data.fields[0].answer,'Synthetic');
+ assert.equal((await use(grant.code,'confirm',{targetUrl:url,fingerprint:preview.data.fingerprint})).status,409);
+ assert.equal((await use(grant.code,'confirm',{targetUrl:url,fingerprint:preview.data.fingerprint,confirmed:true})).status,200);
+ assert.equal((await use(grant.code)).status,403);
+ grant=(await issue()).data;time+=180001;assert.equal((await use(grant.code)).status,403);
+ grant=(await issue()).data;const replacement=(await issue()).data;assert.equal((await use(grant.code)).status,403);
+ state=s.saveQuestionDraft(a.id,j.id,{...state,draft:{...draft,answers:[{selected:true,answer:'Changed'}]}});assert.equal((await use(replacement.code)).status,409);
+ grant=(await issue()).data;await f.restart();assert.equal((await use(grant.code)).status,403);
+ grant=(await issue()).data;await f.call('/api/logout',{auth:a,method:'POST',value:{}});assert.equal((await use(grant.code)).status,403);
+ assert.equal(s.preparation(a.id,j.id).notes,'');assert.equal(s.application(a.id,j.id).submissions.length,0);
+});

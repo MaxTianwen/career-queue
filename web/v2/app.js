@@ -40,9 +40,9 @@ function setBusy(value) {
 }
 async function action(status, run) {
   if (busy) return;
-  const captured = epoch;
-  setBusy(true); $(status).textContent = '处理中…';
-  try { await run(); } catch (error) { if (captured === epoch) $(status).textContent = error.message; }
+  const captured = epoch, statusNode = $(status);
+  setBusy(true); statusNode.textContent = '处理中…';
+  try { await run(); } catch (error) { if (captured === epoch) statusNode.textContent = error.message; }
   finally { setBusy(false); }
 }
 function tab(name) {

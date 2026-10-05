@@ -1,3 +1,5 @@
+import { browserFillBridge } from './browser-fill.mjs';
+import { rehearsalFields } from './fill-rehearsal.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -38,6 +40,7 @@ function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'app
 
 export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, applicationForm = readGreenhouseForm, automationToken = null, online = networkAvailable } = {}) {
   const store = new WorkspaceStore(database, { now });
+  const bridge = browserFillBridge(store);
   const gate = availabilityGate(store, availability);
   const runner = new CatalogueRunner(store, { discover, online, configured: typeof automationToken === 'string' && /^[a-f0-9]{64}$/.test(automationToken) });
   let parsing = false;
@@ -51,10 +54,15 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
     res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     try {
       const host = `127.0.0.1:${server.address().port}`, origin = `http://${host}`;
-      if (req.headers.host !== host || (req.headers.origin && req.headers.origin !== origin) || req.headers['sec-fetch-site'] === 'cross-site') fail(403, '仅允许本机工作区访问');
       const path = new URL(req.url, origin).pathname;
+      const bridgePath = /^\/api\/browser-fill\/(preview|confirm)$/.test(path);
+      const extensionOrigin = /^chrome-extension:\/\/[a-p]{32}$/.test(req.headers.origin ?? '');
+      const extensionRequest = bridgePath && extensionOrigin && ['POST','OPTIONS'].includes(req.method);
+      if (extensionRequest) { res.setHeader('Access-Control-Allow-Origin',req.headers.origin); res.setHeader('Vary','Origin'); res.setHeader('Access-Control-Allow-Methods','POST'); res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization'); }
+      if (req.headers.host !== host || (!extensionRequest && ((req.headers.origin && req.headers.origin !== origin) || req.headers['sec-fetch-site'] === 'cross-site'))) fail(403, '仅允许本机工作区访问');
+      if (extensionRequest && req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
       const mutation = !['GET', 'HEAD'].includes(req.method);
-      if (mutation && req.headers.origin !== origin) fail(403, '请求来源不正确');
+      if (mutation && !extensionRequest && req.headers.origin !== origin) fail(403, '请求来源不正确');
       if (req.method === 'GET' && assets.has(path)) {
         const [name, type] = assets.get(path);
         res.setHeader('Content-Type', `${type}; charset=utf-8`);
@@ -75,6 +83,11 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         await jsonBody(req);
         const result = await runner.start('scheduled');
         return json(res, 200, { skipped: result.skipped, waiting: result.waiting, finishedAt: result.finishedAt });
+      }
+      if (bridgePath && req.method === 'POST') {
+        if (!extensionRequest) fail(403,'仅支持本机浏览器扩展连接');
+        const value=await jsonBody(req), code=req.headers.authorization?.replace(/^Bearer /,'');
+        return json(res,200,bridge.use(code,value,path.endsWith('/confirm')));
       }
       const token = tokenFrom(req), session = store.session(token);
       if (!session) fail(401, '请重新登录');
@@ -197,6 +210,17 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (!store.session(token)) fail(401, '请重新登录');
         if (store.preparation(owner, id).basis !== before.basis) fail(409, '读取期间依据已变化，请重试');
         return json(res, 200, { ...result, basis: before.basis });
+      }
+      const pair = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/browser-fill-code$/);
+      if (pair && req.method === 'POST') return json(res,200,bridge.issue(owner,pair[1],token,await input()));
+      const rehearsal = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/fill-rehearsal$/);
+      if (rehearsal && req.method === 'POST') {
+        const value = await input(), current = store.questionDraft(owner,rehearsal[1]);
+        if (!current.draft || current.stale || value.revision !== current.revision || value.basis !== current.basis) fail(409,'请先保存并核对当前逐题草稿，再重新预演');
+        const plan = {...rehearsalFields(current.draft), source:current.draft.form.source, revision:current.revision, basis:current.basis};
+        const fingerprint = digest(JSON.stringify(plan));
+        if (value.fingerprint !== undefined && (value.confirmed !== true || value.fingerprint !== fingerprint)) fail(409,'填写内容已变化或尚未确认，请重新预演');
+        return json(res,200,{...plan,fingerprint,mode:'local-simulation'});
       }
       const questionHistory = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/question-history\/(\d+)$/);
       if (questionHistory && req.method === 'GET') return json(res, 200, store.questionHistory(owner,questionHistory[1],Number(questionHistory[2])));

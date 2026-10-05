@@ -7,7 +7,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
   const dirty = new Set();
   const preparation = $('#preparation-form');
-  let preparationState = null, questionState = null;
+  let preparationState = null, questionState = null, rehearsalDialog = null;
   const material = $('#material-form'), submission = $('#submission-form');
   const correction = $('#submission-correction-form');
   let correctionDraft = null, submissionRequestId = crypto.randomUUID(), submissionPayload = null;
@@ -72,6 +72,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; submission.elements.staleAcknowledged.checked = false;
   });
   function reset(id) {
+    clearRehearsal();
     preparationState = null; questionState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
     revision++; jobId = id; state = null; schoolContext = null; $('#submission-school-context').textContent = ''; dirty.clear(); clearPreview();
     clearDraft(); clearEdit(); clearCorrection(); submissionRequestId = crypto.randomUUID(); submissionPayload = null;
@@ -191,6 +192,46 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     dirty.add('application-questions');
     $('#preparation-status').textContent = '问题读取完成，可直接保存逐题草稿。';
   }));
+  function clearRehearsal() {
+    if (rehearsalDialog) { rehearsalDialog.close(); rehearsalDialog.remove(); rehearsalDialog=null; }
+  }
+  async function rehearse() {
+    if (!questionState?.draft || dirty.has('application-questions') || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存岗位、渠道和逐题草稿');
+    const captured=revision, target=jobId;
+    const value={revision:questionState.revision,basis:questionState.basis};
+    const plan=await api('/api/jobs/'+target+'/fill-rehearsal',{method:'POST',value});
+    if (captured!==revision) return;
+    clearRehearsal();
+    const dialog=document.createElement('dialog'); rehearsalDialog=dialog;
+    dialog.setAttribute('aria-label','本机填写预演');
+    dialog.append(el('h3','本机填写预演'),el('p','只操作下方模拟表单，不打开招聘网站，也不会上传或提交。请逐项核对拟填写内容。关闭后预演内容丢弃，已保存草稿不变。'));
+    const targets=plan.fields.map(field=>{
+      const row=document.createElement('section'), label=el('label','模拟字段：'+field.label), input=document.createElement('input');
+      input.type='text'; input.autocomplete='off'; input.dataset.question=String(field.index); label.append(input);
+      row.append(el('p',field.label+' · 拟填写：'+field.answer),label); dialog.append(row); return input;
+    });
+    const pending=document.createElement('details'); pending.append(el('summary','需本人处理 · '+plan.manual.length));
+    for (const item of plan.manual) pending.append(el('p',(item.required?'必填：':'选填：')+item.label+' · '+item.reason)); dialog.append(pending);
+    const consent=document.createElement('input'); consent.type='checkbox';
+    const label=el('label','我已核对以上内容，确认填入本机模拟表单'); label.className='check'; label.prepend(consent);
+    const fill=el('button','确认本次模拟填写'); fill.type='button';
+    const status=el('p',''); status.id='rehearsal-status'; status.setAttribute('role','status');
+    let completed=false;
+    fill.addEventListener('click',()=>action('#rehearsal-status',async()=>{
+      if (completed) throw new Error('本次预演已完成，请关闭后重新开始');
+      if (!consent.checked) throw new Error('请先核对并勾选本次填写确认');
+      if (dirty.has('application-questions') || jobDirty() || dirty.has('channel-form')) throw new Error('工作区输入有变化，请保存后重新预演');
+      if (!targets.length) throw new Error('没有可填写的普通文本答案，请先在草稿选择并填写');
+      const next=await api('/api/jobs/'+target+'/fill-rehearsal',{method:'POST',value:{...value,fingerprint:plan.fingerprint,confirmed:true}});
+      if (captured!==revision || rehearsalDialog!==dialog || !dialog.open) return;
+      if (next.fingerprint!==plan.fingerprint || targets.some((input,i)=>!dialog.contains(input) || input.type!=='text' || input.dataset.question!==String(plan.fields[i].index) || input.value!=='')) throw new Error('模拟字段已有内容或结构变化，已暂停；不会覆盖，请关闭后重新预演');
+      targets.forEach((input,i)=>{input.value=next.fields[i].answer; input.dispatchEvent(new Event('input',{bubbles:true})); input.dispatchEvent(new Event('change',{bubbles:true}));});
+      completed=true; status.textContent='本机预演完成 · '+targets.length+' 个字段；尚未填写招聘网站或投递。';
+    }));
+    const close=el('button','关闭预演'); close.type='button'; close.addEventListener('click',clearRehearsal);
+    dialog.addEventListener('cancel',event=>{event.preventDefault();clearRehearsal();});
+    dialog.append(label,fill,close,status); document.body.append(dialog); dialog.showModal(); close.focus(); $('#preparation-status').textContent='本机预演已打开，尚未填写任何字段。';
+  }
   function drawQuestionChanges(result) {
     const previous = questionState, target = jobId, captured = revision;
     drawQuestions(previous.draft.form, previous.draft.answers);
@@ -230,6 +271,20 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const source = el('a', '查看官方接口来源'); source.href = result.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
     const lines = result.questions.map(q => '[' + (q.section || '申请问题') + '] ' + (q.required ? '必填：' : '选填：') + q.label + '\n' + q.fields.map(f => '填写方式：' + ({input_file:'上传附件',textarea:'长文本',input_text:'文本',input_hidden:'官网自动处理',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对') + (f.options.length ? '；选项：' + f.options.join(' / ') : '')).join('\n'));
     area.append(el('p', '仅勾选的问题会加入草稿。这里的答案是本机草稿，不会填写到官网。附件问题可记录待办，不会上传文件。'));
+    const connect=document.createElement('details'); connect.append(el('summary','连接 Chrome / Edge 填写助手'));
+    connect.append(el('p','先从项目 browser-extension 目录安装本机扩展。在对应 Greenhouse 页打开扩展，粘贴配对码后预览并确认。配对码3分钟有效、确认使用一次；重新生成会使旧码失效，退出登录或草稿变化也会失效。'));
+    const allowed=document.createElement('input'); allowed.type='checkbox'; const consent=el('label','允许本次扩展读取本职位的普通文本答案');consent.className='check';consent.prepend(allowed);
+    const pair=el('button','生成临时配对码');pair.type='button';const output=document.createElement('input');output.type='password';output.readOnly=true;output.setAttribute('aria-label','临时配对码');output.hidden=true;
+    const copy=el('button','复制配对码');copy.type='button';copy.hidden=true;
+    pair.addEventListener('click',()=>action('#preparation-status',async()=>{
+      if(!allowed.checked || !questionState || dirty.has('application-questions') || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存草稿，并勾选本次扩展读取确认');
+      const captured=revision;const next=await api('/api/jobs/'+jobId+'/browser-fill-code',{method:'POST',value:{revision:questionState.revision,basis:questionState.basis,confirmed:true}});
+      if(captured!==revision)return;output.value=next.code;output.hidden=copy.hidden=false;
+      $('#preparation-status').textContent='配对码已生成，3分钟有效。请仅粘贴到本机 Career Queue 扩展，不发送给他人。';
+    }));
+    copy.addEventListener('click',()=>action('#preparation-status',async()=>{await navigator.clipboard.writeText(output.value);$('#preparation-status').textContent='配对码已复制，请在对应岗位页打开扩展。';}));
+    connect.append(consent,pair,output,copy);area.append(connect);
+    const simulate=el('button','预演普通文本填写'); simulate.type='button'; simulate.addEventListener('click',()=>action('#preparation-status',rehearse)); area.append(simulate);
     const history = document.createElement('details'); history.append(el('summary','旧问题与答案历史 · '+(questionState?.history?.length || 0)));
     for (const item of questionState?.history || []) {
       const view=el('button','查看旧稿 '+item.revision+' · '+new Date(item.archived).toLocaleString()); view.type='button';

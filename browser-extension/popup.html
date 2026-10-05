@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Career Queue 填写助手</title><link rel="stylesheet" href="popup.css"></head>
+<body><h1>Career Queue</h1><p>打开对应 Greenhouse 岗位页，再粘贴 Dashboard 的临时配对码。关闭本窗口后需重新预览。</p>
+<label>临时配对码<input id="code" type="password" maxlength="64" autocomplete="off"></label>
+<button id="preview" type="button">读取当前页并预览</button><div id="plan"></div>
+<label><input id="confirmed" type="checkbox">我已核对当前岗位和全部拟填写内容</label>
+<button id="fill" type="button" disabled>确认填写普通文本</button><p id="status" role="status"></p>
+<p>电话、附件、资格、披露题及最终提交由本人处理。任何错误都会暂停；部分填写时请本人检查，不自动撤销文字。</p>
+<script type="module" src="popup.js"></script></body></html>
