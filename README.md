@@ -1,4 +1,6 @@
-# Career Queue v1.5.0
+# Career Queue v2.0.0
+
+**v2.0.0 本机版**：账号隔离、个人简历解析 / 核对 / 启用，以及基于当前简历的岗位建议已可用。运行 `npm run start:v2`，访问 `http://127.0.0.1:4322/`，使用已有本机账号登录。首批为加拿大 CS / Data co-op、intern，覆盖部分公开雇主来源。现已支持申请 PDF 在线预览、审阅版本和官网 / 学校独立提交记录；现已接入当前账号 Word 原稿的逐组重排对照、一页 DOCX / PDF 生成与材料自动关联；新增“数据与容量”、本人 ZIP 资料包和本机备份 / 独立恢复验证；现已支持本人修改密码、旧会话失效与本机维护恢复；现已支持生成稿在线修改正文并另存一页 Word / PDF，自动选入材料区；新增提交日期 / 渠道 / 回执更正，保留原记录、更正原因与所用材料；491 项回归通过，包含真实编辑、超页拒绝、审计和双账号备份恢复。新增学校列表粘贴对照、确认关联 / 保存学校候选和“官网已交、学校待补交”筛选，学校截止独立且不改原材料或提交。详见 [学校对照验收](docs/releases/v2-school-verification.md)。学校来源可预览差异后更新、解除或改绑，原因及完整历史保留；仅对应 School ID 的学校实际提交锁定解除 / 改绑，官网记录及材料不移动。见 [维护验收](docs/releases/v2-school-maintenance-verification.md)。用户选择继续本机完善，远程部署暂缓。原个人版入口、Notion 数据及日程保持原样。见 [运行说明](docs/v2-workspace.md) 与 [完整本机验收](docs/releases/v2-local-acceptance.md)、[在线编辑验收](docs/releases/v2-editing-verification.md)、[记录更正验收](docs/releases/v2-submission-corrections-verification.md)及[未来部署准备](docs/v2-trial-plan.md)。
 
 当前版本：**v1.5.0（用户已确认发布）**。岗位信息与申请流程质量升级：薪资显示金额范围 / 明确币种 / 计薪周期，保留原文和不确定标记；Match Score 可展开逐项 JD 与当前简历原句对照，显示必需 / 加分 / 任选上下文；职位详情新增状态驱动的“下一步”入口，分别跟进官网与学校材料和实际提交。权重、分数、筛选规则与历史记录不变。详见 [验收记录](docs/releases/v1.5.0-verification.md)。发布目标为现有私密仓库 main / v1.5.0。
 
@@ -170,3 +172,5 @@ Queue 过滤 Status = Queue；Applications 过滤待提交 / 已投递 / 面试�
 候选详情中填写对应官网链接，JD 留空可尝试受支持的官方读取器，或手动粘贴完整正文。本人核对后保存，之后才评分和准备材料。学校截止时间与官网截止时间分别保留；没有正文时不会按标题给分，也不会生成材料。若官网职位已经保存，先解除候选的学校关联，再关联已有申请并归档候选。
 
 Vena 主动发现使用公开 Pinpoint 列表及对应详情页，只支持已核实的 lifeatvena.com 主机，不代表全量 Pinpoint 搜索。
+
+[V2 local integration checks / 本机集成检查](docs/releases/v2-closeout-verification.md) · [Migration readiness / 迁入准备](docs/v2-migration-readiness.md)

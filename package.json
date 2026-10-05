@@ -1,6 +1,6 @@
 {
   "name": "career-queue",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,6 +9,11 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "start": "node src/dashboard.mjs",
+    "start:v2": "node src/v2/server.mjs",
+    "admin:v2": "node scripts/create-v2-admin.mjs",
+    "backup:v2": "node scripts/v2-backup.mjs create",
+    "restore:v2": "node scripts/v2-backup.mjs restore",
+    "recover:v2": "node scripts/v2-recover-account.mjs",
     "cli": "node src/cli.mjs",
     "discover": "node src/automation-client.mjs discover",
     "automation:status": "node src/automation-client.mjs status"
