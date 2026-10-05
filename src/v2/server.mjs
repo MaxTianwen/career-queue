@@ -13,6 +13,7 @@ import { availabilityGate } from './availability.mjs';
 import { workspaceId } from '../background-services.mjs';
 import { CatalogueRunner } from './discovery-runner.mjs';
 import { networkAvailable } from '../automation.mjs';
+import { readGreenhouseForm } from './greenhouse-form.mjs';
 import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
@@ -35,7 +36,7 @@ async function jsonBody(req, limit = 16384) {
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
 
-export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, automationToken = null, online = networkAvailable } = {}) {
+export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, applicationForm = readGreenhouseForm, automationToken = null, online = networkAvailable } = {}) {
   const store = new WorkspaceStore(database, { now });
   const gate = availabilityGate(store, availability);
   const runner = new CatalogueRunner(store, { discover, online, configured: typeof automationToken === 'string' && /^[a-f0-9]{64}$/.test(automationToken) });
@@ -185,6 +186,17 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
             return json(res, 200, store.saveGenerated(owner, id, context, result, fingerprint));
           } finally { generating = false; }
         }
+      }
+      const formPath = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/application-form$/);
+      if (formPath && req.method === 'POST') {
+        const value = await input(), id = formPath[1], before = store.preparation(owner, id);
+        if (value.basis !== before.basis) fail(409, '岗位依据已变化，请先刷新准备区');
+        let result;
+        try { result = await applicationForm(store.job(owner, id).url); }
+        catch { fail(422, 'Greenhouse 申请表暂无法读取；请核实官方链接，或在官网查看并手动整理问题。原草稿未改。'); }
+        if (!store.session(token)) fail(401, '请重新登录');
+        if (store.preparation(owner, id).basis !== before.basis) fail(409, '读取期间依据已变化，请重试');
+        return json(res, 200, { ...result, basis: before.basis });
       }
       const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|channel|materials|submission)$/);
       if (application) {

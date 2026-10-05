@@ -924,3 +924,18 @@ test('v2 preparation is private, revision guarded, persists and invalidates revi
   assert.equal(app.submissions.length,0);assert.equal(app.versions.length,0);
   assert.equal((await f.call('/api/jobs/'+job.id,{auth:a})).data.notes,fields.notes);
 });
+
+
+test('v2 form reading is owner scoped, never saves drafts and rejects changed inputs during reading', async t => {
+  let release; const f=await fixture(t,{applicationForm:()=>new Promise(resolve=>{release=resolve;})});
+  const a=await f.account('alice'),b=await f.account('bob');
+  const job=(await f.call('/api/jobs',{method:'POST',auth:a,value:{company:'Synthetic',title:'Intern',url:'https://job-boards.greenhouse.io/example/jobs/123'}})).data;
+  const base='/api/jobs/'+job.id, prep=(await f.call(base+'/preparation',{auth:a})).data;
+  assert.equal((await f.call(base+'/application-form',{method:'POST',auth:b,value:{basis:prep.basis}})).status,404);
+  assert.equal((await f.call(base+'/application-form',{method:'POST',auth:a,value:{basis:'old'}})).status,409);
+  const pending=f.call(base+'/application-form',{method:'POST',auth:a,value:{basis:prep.basis}});
+  while(!release) await new Promise(resolve=>setTimeout(resolve,1));
+  await f.call(base+'/channel',{method:'PUT',auth:a,value:{channel:'both'}}); release({questions:[]});
+  assert.equal((await pending).status,409);
+  assert.equal((await f.call(base+'/preparation',{auth:a})).data.revision,0);
+});

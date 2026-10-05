@@ -71,7 +71,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; submission.elements.staleAcknowledged.checked = false;
   });
   function reset(id) {
-    preparationState = null; preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
+    preparationState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
     revision++; jobId = id; state = null; schoolContext = null; $('#submission-school-context').textContent = ''; dirty.clear(); clearPreview();
     clearDraft(); clearEdit(); clearCorrection(); submissionRequestId = crypto.randomUUID(); submissionPayload = null;
     $('#generated-list').replaceChildren(); $('#generation-panel').open = false;
@@ -173,6 +173,28 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       section.append(select, view, edit, download); $('#generated-list').append(section);
     }
   }
+  $('#read-application-form').addEventListener('click', () => action('#preparation-status', async () => {
+    if (!preparationState || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存岗位和渠道并刷新准备依据');
+    const captured = revision, target = jobId;
+    $('#application-form-preview').replaceChildren();
+    const result = await api('/api/jobs/' + target + '/application-form', {method:'POST',value:{basis:preparationState.basis}});
+    if (captured !== revision) return;
+    const area = $('#application-form-preview');
+    area.append(el('h4', result.title), el('p', result.notice), el('p', '读取时间：' + new Date(result.checkedAt).toLocaleString()));
+    const source = el('a', '查看官方接口来源'); source.href = result.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
+    const lines = result.questions.map(q => (q.required ? '必填：' : '选填：') + q.label + '\n' + q.fields.map(f => '填写方式：' + ({input_file:'上传附件',textarea:'长文本',input_text:'文本',input_hidden:'官网自动处理',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对') + (f.options.length ? '；选项：' + f.options.join(' / ') : '')).join('\n'));
+    for (const line of lines) area.append(el('pre', line));
+    let adopted = false;
+    const adopt = el('button', '将问题追加到草稿（保留已有文字）'); adopt.type = 'button';
+    adopt.addEventListener('click', () => {
+      if (adopted) { $('#preparation-status').textContent = '这次读取的问题已经追加，请勿重复添加。'; return; }
+      if (jobDirty() || dirty.has('channel-form') || preparationState?.basis !== result.basis) { $('#preparation-status').textContent = '依据已变化，请重新读取'; return; }
+      const text = [preparation.elements.notes.value, 'Greenhouse：' + result.title + '\n' + result.source + '\n' + result.checkedAt, ...lines.map(line => line + '\n答案：')].filter(Boolean).join('\n\n');
+      if (text.length > 12000) { $('#preparation-status').textContent = '合并后超过12000字，请手动选取需要的问题；原草稿未改'; return; }
+      preparation.elements.notes.value = text; preparation.elements.reviewed.checked = false; dirty.add('preparation-form'); adopted = true; adopt.disabled = true;
+      $('#preparation-status').textContent = '已追加到未保存草稿，请本人填写答案并保存。';
+    }); area.append(adopt); $('#preparation-status').textContent = '问题读取完成，请先核对岗位和问题，再选择追加。';
+  }));
   $('#preparation-reload').addEventListener('click', () => action('#preparation-status', async () => {
     const captured = revision, target = jobId;
     const next = await api('/api/jobs/' + target + '/preparation');

@@ -1,4 +1,6 @@
-# Career Queue v2.4.0
+# Career Queue v2.5.0
+
+**v2.5.0 local release:** read Greenhouse main application questions and append them to a draft after review. No external form filling, uploads or submissions.
 
 **v2.4.0 local release:** job-specific application preparation and answer drafts, with review invalidation when inputs change. This does not fill or submit external forms.
 
