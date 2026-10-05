@@ -198,9 +198,11 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (store.preparation(owner, id).basis !== before.basis) fail(409, '读取期间依据已变化，请重试');
         return json(res, 200, { ...result, basis: before.basis });
       }
-      const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|channel|materials|submission)$/);
+      const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|question-draft|channel|materials|submission)$/);
       if (application) {
         const [, id, operation] = application;
+        if (operation === 'question-draft' && req.method === 'GET') return json(res, 200, store.questionDraft(owner, id));
+        if (operation === 'question-draft' && req.method === 'PUT') return json(res, 200, store.saveQuestionDraft(owner, id, await input()));
         if (operation === 'preparation' && req.method === 'GET') return json(res, 200, store.preparation(owner, id));
         if (operation === 'preparation' && req.method === 'PUT') return json(res, 200, store.savePreparation(owner, id, await input()));
         if (operation === 'application' && req.method === 'GET') return json(res, 200, store.application(owner, id));

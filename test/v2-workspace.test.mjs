@@ -939,3 +939,35 @@ test('v2 form reading is owner scoped, never saves drafts and rejects changed in
   assert.equal((await pending).status,409);
   assert.equal((await f.call(base+'/preparation',{auth:a})).data.revision,0);
 });
+
+test('question drafts persist per owner and job; stale bases and changed questions preserve old answers', async t => {
+  const f = await fixture(t), a = await f.account('alice'), b = await f.account('bob');
+  const j = (await f.call('/api/jobs',{auth:a,method:'POST',value:job})).data;
+  const url = `/api/jobs/${j.id}/question-draft`;
+  const initial = (await f.call(url,{auth:a})).data;
+  assert.equal(initial.draft,null);
+  const draft={form:{title:'Synthetic',source:'https://boards-api.greenhouse.io/v1/boards/test/jobs/123?questions=true',checkedAt:'2026-10-05T00:00:00Z',notice:'Local only',warnings:[],questions:[{label:'Name',section:'申请问题',required:true,fields:[{type:'input_text',options:[]}]}]},answers:[{selected:false,answer:'Preserve unselected answer'}]};
+  const payload={revision:initial.revision,basis:initial.basis,draft};
+  const saved=await f.call(url,{auth:a,method:'PUT',value:payload});assert.equal(saved.status,200,saved.text);
+  assert.equal((await f.call(url,{auth:b})).status,404);
+  assert.equal((await f.call(url,{auth:a,method:'PUT',value:payload})).status,409);
+  const s=new WorkspaceStore(f.database);
+  assert.deepEqual(s.questionDraft(a.id,j.id).draft,draft);
+  const other=s.saveJob(a.id,{...job,title:'Other job'});assert.equal(s.questionDraft(a.id,other.id).draft,null);
+  s.saveJob(a.id,{...job,jd:'Changed job description'},j.id);
+  const stale=s.questionDraft(a.id,j.id);assert.equal(stale.stale,true);
+  assert.throws(()=>s.saveQuestionDraft(a.id,j.id,{...stale,draft}),{status:409});
+  const next=s.saveQuestionDraft(a.id,j.id,{...stale,draft,reconfirmed:true});assert.equal(next.stale,false);
+  const changed=structuredClone(draft);changed.form.questions[0].label='Different question';
+  assert.throws(()=>s.saveQuestionDraft(a.id,j.id,{...next,draft:changed}),{status:409});
+  assert.deepEqual(s.questionDraft(a.id,j.id).draft,draft);
+  assert.equal(s.preparation(a.id,j.id).notes,'');
+  assert.deepEqual(s.exportData(a.id).questionDrafts[0].snapshot,draft);
+  assert.equal(s.exportData(b.id).questionDrafts.length,0);
+  s.close();
+  const {backupWorkspace,restoreWorkspace}=await import('../src/v2/backup.mjs');
+  const backupPath=resolve('output/test-runs',randomUUID()),restorePath=resolve('output/test-runs',randomUUID());
+  await backupWorkspace(f.database,backupPath);await restoreWorkspace(backupPath,restorePath);
+  const restored=new WorkspaceStore(resolve(restorePath,'workspaces.sqlite'));
+  assert.deepEqual(restored.questionDraft(a.id,j.id).draft,draft);restored.close();
+});

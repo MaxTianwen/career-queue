@@ -6,7 +6,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
   const dirty = new Set();
   const preparation = $('#preparation-form');
-  let preparationState = null;
+  let preparationState = null, questionState = null;
   const material = $('#material-form'), submission = $('#submission-form');
   const correction = $('#submission-correction-form');
   let correctionDraft = null, submissionRequestId = crypto.randomUUID(), submissionPayload = null;
@@ -71,7 +71,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; submission.elements.staleAcknowledged.checked = false;
   });
   function reset(id) {
-    preparationState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
+    preparationState = null; questionState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
     revision++; jobId = id; state = null; schoolContext = null; $('#submission-school-context').textContent = ''; dirty.clear(); clearPreview();
     clearDraft(); clearEdit(); clearCorrection(); submissionRequestId = crypto.randomUUID(); submissionPayload = null;
     $('#generated-list').replaceChildren(); $('#generation-panel').open = false;
@@ -90,7 +90,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   async function refresh() {
     const captured = revision, request = ++requestId, target = jobId;
     if (!target) return;
-    const [next, files, generated, nextSchool, nextPreparation] = await Promise.all([api(`/api/jobs/${target}/application`), api('/api/files'), api(`/api/jobs/${target}/generation`), api(`/api/jobs/${target}/school-context`), api(`/api/jobs/${target}/preparation`)]);
+    const [next, files, generated, nextSchool, nextPreparation, nextQuestions] = await Promise.all([api(`/api/jobs/${target}/application`), api('/api/files'), api(`/api/jobs/${target}/generation`), api(`/api/jobs/${target}/school-context`), api(`/api/jobs/${target}/preparation`), api(`/api/jobs/${target}/question-draft`)]);
     if (captured !== revision || request !== requestId) return;
     const schoolChanged = state && schoolContext?.revision !== nextSchool?.revision;
     if (schoolChanged) { submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; }
@@ -108,6 +108,10 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       preparation.elements.reviewed.checked = false;
     }
     $('#preparation-status').textContent = nextPreparation.stale ? '依据已变化，旧草稿保留，请重新核对。' : nextPreparation.reviewed ? '草稿已核对；尚不代表已投递。' : '准备草稿待核对。';
+    if (!dirty.has('application-questions')) {
+      questionState = nextQuestions;
+      if (nextQuestions.draft) drawQuestions(nextQuestions.draft.form, nextQuestions.draft.answers);
+    }
     const summary = $('#preparation-summary'); summary.replaceChildren();
     summary.append(el('p', '待完成渠道：' + (state.required.filter(c => !state.submissions.some(s => s.channel === c)).map(c => channels[c]).join('、') || (state.complete ? '均已记录提交' : '请先选择申请渠道'))));
     const latest = state.versions.find(v => !v.stale);
@@ -175,27 +179,65 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   }
   $('#read-application-form').addEventListener('click', () => action('#preparation-status', async () => {
     if (!preparationState || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存岗位和渠道并刷新准备依据');
+    if (dirty.has('application-questions')) throw new Error('问题仍有未保存的编辑，请先保存或放弃本次问题编辑');
     const captured = revision, target = jobId;
-    $('#application-form-preview').replaceChildren();
     const result = await api('/api/jobs/' + target + '/application-form', {method:'POST',value:{basis:preparationState.basis}});
     if (captured !== revision) return;
-    const area = $('#application-form-preview');
+    if (questionState?.draft && JSON.stringify(questionState.draft.form.questions) !== JSON.stringify(result.questions)) {
+      $('#preparation-status').textContent = '官网问题已变化，旧问题和答案保持不变。本期请在官网对照核对，不自动替换。'; return;
+    }
+    drawQuestions(result, questionState?.draft?.answers);
+    dirty.add('application-questions');
+    $('#preparation-status').textContent = '问题读取完成，可直接保存逐题草稿。';
+  }));
+  function drawQuestions(result, saved = []) {
+    const area = $('#application-form-preview'); area.replaceChildren();
     area.append(el('h4', result.title), el('p', result.notice), el('p', '读取时间：' + new Date(result.checkedAt).toLocaleString()));
     for (const warning of result.warnings || []) area.append(el('p', warning));
     const source = el('a', '查看官方接口来源'); source.href = result.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
     const lines = result.questions.map(q => '[' + (q.section || '申请问题') + '] ' + (q.required ? '必填：' : '选填：') + q.label + '\n' + q.fields.map(f => '填写方式：' + ({input_file:'上传附件',textarea:'长文本',input_text:'文本',input_hidden:'官网自动处理',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对') + (f.options.length ? '；选项：' + f.options.join(' / ') : '')).join('\n'));
-    for (const line of lines) area.append(el('pre', line));
+    area.append(el('p', '仅勾选的问题会加入草稿。这里的答案是本机草稿，不会填写到官网。附件问题可记录待办，不会上传文件。'));
+    const editors = lines.map((line, index) => {
+      const row = document.createElement('fieldset'), legend = el('legend', result.questions[index].label);
+      const label = el('label', '加入草稿：' + result.questions[index].label), selected = document.createElement('input');
+      selected.type = 'checkbox'; selected.checked = saved[index]?.selected ?? false; label.className = 'check'; label.prepend(selected);
+      const answerLabel = el('label', '答案草稿：' + result.questions[index].label), answer = document.createElement('textarea');
+      answer.value = saved[index]?.answer ?? ''; answer.rows = 3; answer.maxLength = 4000; answerLabel.append(answer);
+      row.append(legend, el('pre', line), label, answerLabel); area.append(row);
+      row.addEventListener('input', () => { dirty.add('application-questions'); reconfirm.checked = false; });
+      return { selected, answer, line };
+    });
+    const discard = el('button', '放弃本次问题编辑'); discard.type = 'button';
+    discard.addEventListener('click', () => {
+      if (dirty.has('application-questions') && !confirm('放弃尚未保存的问题选择和答案？已保存的草稿保持不变。')) return;
+      area.replaceChildren(); dirty.delete('application-questions'); if (questionState?.draft) drawQuestions(questionState.draft.form, questionState.draft.answers); $('#preparation-status').textContent = '本次问题编辑已放弃，原草稿保留。';
+    }); area.append(discard);
+    const reconfirm = document.createElement('input'); reconfirm.type = 'checkbox';
+    const confirmation = el('label', '我已重新核对当前岗位与简历依据'); confirmation.className = 'check'; confirmation.prepend(reconfirm);
+    area.append(el('p', questionState?.stale ? '依据已变化，旧答案保留；保存前请重新核对。' : '逐题草稿仅属于当前账号、当前职位。'), confirmation);
+    const save = el('button', '保存逐题草稿'); save.type = 'button';
+    save.addEventListener('click', () => action('#preparation-status', async () => {
+      if (!questionState || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存岗位和渠道，再刷新材料区核对依据');
+      const captured = revision;
+      const next = await api('/api/jobs/' + jobId + '/question-draft', {method:'PUT',value:{revision:questionState.revision,basis:questionState.basis,reconfirmed:reconfirm.checked,draft:{form:{...result,warnings:result.warnings || []},answers:editors.map(row=>({selected:row.selected.checked,answer:row.answer.value}))}}});
+      if (captured !== revision) return;
+      questionState = next; dirty.delete('application-questions'); drawQuestions(next.draft.form,next.draft.answers);
+      $('#preparation-status').textContent = '逐题草稿已保存，刷新后可继续编辑；尚未投递。';
+    })); area.append(save);
     let adopted = false;
-    const adopt = el('button', '将问题追加到草稿（保留已有文字）'); adopt.type = 'button';
+    const adopt = el('button', '追加所选问题与答案'); adopt.type = 'button';
     adopt.addEventListener('click', () => {
       if (adopted) { $('#preparation-status').textContent = '这次读取的问题已经追加，请勿重复添加。'; return; }
-      if (jobDirty() || dirty.has('channel-form') || preparationState?.basis !== result.basis) { $('#preparation-status').textContent = '依据已变化，请重新读取'; return; }
-      const text = [preparation.elements.notes.value, 'Greenhouse：' + result.title + '\n' + result.source + '\n' + result.checkedAt, ...lines.map(line => line + '\n答案：')].filter(Boolean).join('\n\n');
+      if (jobDirty() || dirty.has('channel-form') || questionState?.stale) { $('#preparation-status').textContent = '依据已变化，请重新读取'; return; }
+      const selected = editors.filter(row => row.selected.checked);
+      if (!selected.length) { $('#preparation-status').textContent = '请先勾选需要加入草稿的问题。'; return; }
+      if (editors.some(row => !row.selected.checked && row.answer.value.trim())) { $('#preparation-status').textContent = '有未勾选的问题填写了答案，请勾选或清空该答案后再追加，避免丢失。'; return; }
+      const text = [preparation.elements.notes.value, 'Greenhouse：' + result.title + '\n' + result.source + '\n' + result.checkedAt, ...selected.map(row => row.line + '\n答案：' + row.answer.value.trim())].filter(Boolean).join('\n\n');
       if (text.length > 12000) { $('#preparation-status').textContent = '合并后超过12000字，请手动选取需要的问题；原草稿未改'; return; }
       preparation.elements.notes.value = text; preparation.elements.reviewed.checked = false; dirty.add('preparation-form'); adopted = true; adopt.disabled = true;
-      $('#preparation-status').textContent = '已追加到未保存草稿，请本人填写答案并保存。';
-    }); area.append(adopt); $('#preparation-status').textContent = '问题读取完成，请先核对岗位和问题，再选择追加。';
-  }));
+      $('#preparation-status').textContent = '所选问题和答案已追加，请在下方草稿继续修改并保存。';
+    }); area.append(adopt);
+  }
   $('#preparation-reload').addEventListener('click', () => action('#preparation-status', async () => {
     const captured = revision, target = jobId;
     const next = await api('/api/jobs/' + target + '/preparation');
@@ -205,6 +247,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     await refresh(); $('#preparation-status').textContent = '已刷新依据并保留文字，请核对后保存。';
   }));
   preparation.addEventListener('submit', event => { event.preventDefault(); action('#preparation-status', async () => {
+    if (dirty.has('application-questions')) throw new Error('请先保存逐题草稿；逐题编辑仍保留');
     if (!preparationState || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存岗位和渠道，再刷新准备依据；文字已保留');
     const captured = revision;
     const next = await api('/api/jobs/' + jobId + '/preparation', { method: 'PUT', value: { revision: preparationState.revision, basis: preparationState.basis, notes: preparation.elements.notes.value, reviewed: preparation.elements.reviewed.checked } });

@@ -104,6 +104,7 @@ export class WorkspaceStore {
       source_key TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES jobs(id), fingerprint TEXT NOT NULL, snapshot TEXT NOT NULL,
       created INTEGER NOT NULL, UNIQUE(user_id,source_key));`);
     this.db.exec('CREATE TABLE IF NOT EXISTS application_preparation (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, notes TEXT NOT NULL, basis TEXT NOT NULL, reviewed INTEGER NOT NULL, updated INTEGER NOT NULL)');
+    this.db.exec('CREATE TABLE IF NOT EXISTS question_drafts (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL)');
     // Record the association known at upgrade, never claim it existed at the submission date.
     this.db.prepare(`INSERT OR IGNORE INTO school_submission_sources
       SELECT s.id,s.user_id,l.school_id,l.snapshot,'existing-association',? FROM submissions s
@@ -470,14 +471,16 @@ export class WorkspaceStore {
       const jdSize = this.db.prepare('SELECT coalesce(sum(length(CAST(jd AS BLOB))),0) n FROM jobs WHERE user_id=?').get(owner).n;
       const schoolSize = this.db.prepare('SELECT coalesce(sum(length(CAST(before_snapshot || after_snapshot AS BLOB))),0) n FROM school_changes WHERE user_id=?').get(owner).n;
       const migrationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM migration_receipts WHERE user_id=?').get(owner).n;
+      const questionSize = this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM question_drafts WHERE user_id=?').get(owner).n;
       const preparationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(notes AS BLOB))),0) n FROM application_preparation WHERE user_id=?').get(owner).n;
-      if (historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
+      if (historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize + questionSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
       const rows = (table, columns) => this.db.prepare(`SELECT ${columns} FROM ${table} WHERE user_id=? ORDER BY rowid`).all(owner);
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
         jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
         resumeText: rows('resume_text', 'file_id,text,text_hash,pages,parser'),
         channels: rows('application_plans', 'job_id,channel'),
+        questionDrafts: rows('question_drafts', 'job_id,revision,basis,snapshot,updated').map(row => ({...row, snapshot:JSON.parse(row.snapshot)})),
         preparation: rows('application_preparation', 'job_id,revision,notes,basis,reviewed,updated'),
         schoolLinks: this.schoolLinks(owner),
         schoolHistory: this.schoolHistory(owner), schoolSubmissionSources: this.schoolSubmissionSources(owner),
@@ -555,6 +558,35 @@ export class WorkspaceStore {
     this.db.prepare('INSERT INTO application_preparation VALUES (?,?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET revision=excluded.revision,notes=excluded.notes,basis=excluded.basis,reviewed=excluded.reviewed,updated=excluded.updated')
       .run(id, owner, current.revision + 1, notes, current.basis, Number(input.reviewed), this.now());
     return this.preparation(owner, id);
+  }
+  questionDraft(owner, id) {
+    const basis = this.preparation(owner, id).basis;
+    const row = this.db.prepare('SELECT revision,basis,snapshot,updated FROM question_drafts WHERE user_id=? AND job_id=?').get(owner, id);
+    return { revision: row?.revision ?? 0, basis, stale: Boolean(row && row.basis !== basis), updated: row?.updated ?? null, draft: row ? JSON.parse(row.snapshot) : null };
+  }
+  saveQuestionDraft(owner, id, input) {
+    const current = this.questionDraft(owner, id);
+    if (input.revision !== current.revision || input.basis !== current.basis) fail(409, '逐题草稿或依据已变化，请刷新核对；旧答案未改');
+    if (current.stale && input.reconfirmed !== true) fail(409, '岗位或简历等依据已变化，请重新核对答案');
+    const value = input.draft;
+    if (!value || JSON.stringify(value).length > 60000 || !Array.isArray(value.answers) || !Array.isArray(value.form?.questions) || value.answers.length !== value.form.questions.length || value.answers.length > 400) fail(400, '逐题草稿大小或格式不正确');
+    const text = (v, n) => textField(v, n);
+    const source = text(value.form.source, 500);
+    if (!/^https:\/\/boards-api\.greenhouse\.io\/v1\/boards\/[a-z0-9_-]+\/jobs\/\d+\?questions=true$/i.test(source)) fail(400, '问题来源不正确');
+    const form = {title:text(value.form.title,10000),source,checkedAt:text(value.form.checkedAt,100),notice:text(value.form.notice,2000),warnings:[],questions:value.form.questions.map(q => {
+      if (!q || typeof q.required !== 'boolean' || !Array.isArray(q.fields) || q.fields.length > 20) fail(400, '问题格式不正确');
+      return {section:text(q.section ?? '申请问题',100),label:text(q.label,10000),required:q.required,fields:q.fields.map(f => {
+        if (!f || !Array.isArray(f.options) || f.options.length > 200) fail(400, '选项格式不正确');
+        return {type:text(f.type,100),options:f.options.map(v=>text(v,10000))};
+      })};
+    })};
+    if (!Array.isArray(value.form.warnings) || value.form.warnings.length > 20) fail(400, '来源提示不正确');
+    form.warnings = value.form.warnings.map(v=>text(v,2000));
+    const answers = value.answers.map(a => { if (!a || typeof a.selected !== 'boolean') fail(400,'答案选择不正确'); return {selected:a.selected,answer:text(a.answer,4000)}; });
+    if (current.draft && JSON.stringify(current.draft.form.questions) !== JSON.stringify(form.questions)) fail(409, '官网问题与已保存版本不同，保留旧答案；本期请在原草稿中核对，不自动替换问题');
+    this.db.prepare('INSERT INTO question_drafts VALUES (?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET revision=excluded.revision,basis=excluded.basis,snapshot=excluded.snapshot,updated=excluded.updated')
+      .run(id,owner,current.revision+1,current.basis,JSON.stringify({form,answers}),this.now());
+    return this.questionDraft(owner,id);
   }
   setApplicationChannel(owner, id, input) {
     this.job(owner, id);
