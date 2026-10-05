@@ -14,3 +14,25 @@ test('Greenhouse form rejects unsafe URLs before network and rejects missing or 
   await assert.rejects(readGreenhouseForm(url,async()=>new Response('',{status:404})),/404/);
   await assert.rejects(readGreenhouseForm(url,async()=>new Response('x'.repeat(2000001))),/过大/);
 });
+
+
+test('additional Greenhouse sections preserve requirement flags but omit hidden fields and flag consent', async () => {
+  const result=await readGreenhouseForm(url,async()=>Response.json({...data,
+    location_questions:[{label:'Location',required:true,fields:[{type:'input_text'}]},{label:'Latitude',required:true,fields:[{type:'input_hidden'}]}],
+    compliance:[{label:'Disclosure',required:false,fields:[{type:'multi_value_single_select',values:[{label:'Decline'}]}]}],
+    demographic_questions:{questions:[{label:'Self description',required:false,type:'multi_value_single_select',answer_options:[{label:'Other',free_form:true}]}]},
+    data_compliance:[{requires_consent:true}]}));
+  assert.equal(result.questions.length,5);assert.equal(result.questions[2].section,'地址信息');
+  assert.equal(result.questions[3].required,false);assert.match(result.questions[4].fields[0].options[0],/可补充文字/);
+  assert.equal(result.questions.some(q=>q.label==='Latitude'),false);assert.equal(result.warnings.length,2);
+});
+test('malformed optional sections keep main questions and visibly report missing coverage', async () => {
+  const result=await readGreenhouseForm(url,async()=>Response.json({...data,location_questions:{},compliance:[null],demographic_questions:{questions:[{label:'Unknown'}]}}));
+  assert.equal(result.questions.length,2);assert.equal(result.warnings.length,3);
+});
+
+
+test('actual nested compliance groups are flattened without changing optional flags', async () => {
+  const result=await readGreenhouseForm(url,async()=>Response.json({...data,compliance:[{type:'eeoc',description:'Read on official site',questions:[{label:'VeteranStatus',required:false,fields:[{type:'multi_value_single_select',values:[{label:'Decline'}]}]}]}]}));
+  assert.equal(result.questions.at(-1).section,'合规披露');assert.equal(result.questions.at(-1).required,false);assert.deepEqual(result.warnings,[]);
+});

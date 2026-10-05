@@ -1,4 +1,6 @@
-# Career Queue v2.5.0
+# Career Queue v2.5.1
+
+**v2.5.1 local update:** read-only location, compliance and demographic question groups; consent remains a manual decision on the official site.
 
 **v2.5.0 local release:** read Greenhouse main application questions and append them to a draft after review. No external form filling, uploads or submissions.
 
