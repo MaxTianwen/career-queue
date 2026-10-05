@@ -895,3 +895,32 @@ test('migration audit endpoint is owner scoped and has no HTTP write operation',
   assert.deepEqual((await f.call('/api/data/migrations', { auth: b })).data, []);
   assert.equal((await f.call('/api/data/migrations', { auth: a, method: 'POST', value: {} })).status, 404);
 });
+
+
+test('v2 preparation is private, revision guarded, persists and invalidates review when inputs change', async t => {
+  const f = await fixture(t, { archive: async data => Buffer.from(JSON.stringify(data)) });
+  const a = await f.account('alice'), b = await f.account('bob');
+  const fields = { company:'Synthetic',title:'Intern',jd:'Python developer',notes:'Original note' };
+  const job = (await f.call('/api/jobs',{method:'POST',auth:a,value:fields})).data;
+  const path='/api/jobs/'+job.id+'/preparation';
+  assert.equal((await f.call(path)).status,401);
+  assert.equal((await f.call(path,{auth:b})).status,404);
+  const initial=(await f.call(path,{auth:a})).data;
+  const value={...initial,notes:'Question: availability? Answer: to confirm.',reviewed:true};
+  assert.equal((await f.call(path,{method:'PUT',auth:b,value})).status,404);
+  assert.equal((await f.call(path,{method:'PUT',auth:a,value:{...value,notes:'x'.repeat(12001)}})).status,400);
+  const saved=await f.call(path,{method:'PUT',auth:a,value}); assert.equal(saved.status,200,saved.text);assert.equal(saved.data.reviewed,true);
+  assert.equal((await f.call(path,{method:'PUT',auth:a,value})).status,409);
+  await f.restart();assert.equal((await f.call(path,{auth:a})).data.notes,value.notes);
+  await f.call('/api/jobs/'+job.id+'/channel',{method:'PUT',auth:a,value:{channel:'both'}});
+  const changed=(await f.call(path,{auth:a})).data;assert.equal(changed.stale,true);assert.equal(changed.reviewed,false);
+  assert.equal((await f.call(path,{method:'PUT',auth:a,value:{...saved.data,reviewed:true}})).status,409);
+  const current=await f.call(path,{method:'PUT',auth:a,value:{...changed,reviewed:true}});assert.equal(current.status,200,current.text);
+  // Archive test double uses ZIP content-type, so parse its text explicitly.
+  const exported=JSON.parse((await f.call('/api/data/export',{method:'POST',auth:a})).text);
+  assert.equal(exported.preparation[0].notes,value.notes);
+  assert.equal(JSON.parse((await f.call('/api/data/export',{method:'POST',auth:b})).text).preparation.length,0);
+  const app=(await f.call('/api/jobs/'+job.id+'/application',{auth:a})).data;
+  assert.equal(app.submissions.length,0);assert.equal(app.versions.length,0);
+  assert.equal((await f.call('/api/jobs/'+job.id,{auth:a})).data.notes,fields.notes);
+});

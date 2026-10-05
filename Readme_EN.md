@@ -1,4 +1,6 @@
-# Career Queue v2.3.0
+# Career Queue v2.4.0
+
+**v2.4.0 local release:** job-specific application preparation and answer drafts, with review invalidation when inputs change. This does not fill or submit external forms.
 
 **v2.3.0 local release:** includes v2.2 job availability checks and v2.3 persistent daily discovery tracking. The approved cutover enables v2 daily discovery and pauses the original schedule; the next natural 09:00 run remains to be verified. See [cutover plan](docs/v2-daily-discovery-plan.md) and [verification](docs/releases/v2.3.0-verification.md).
 

@@ -5,6 +5,8 @@ const channels = { unknown: '待确认', employer: '官网', school: '学校', b
 export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloadFile, filesChanged }) {
   let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
   const dirty = new Set();
+  const preparation = $('#preparation-form');
+  let preparationState = null;
   const material = $('#material-form'), submission = $('#submission-form');
   const correction = $('#submission-correction-form');
   let correctionDraft = null, submissionRequestId = crypto.randomUUID(), submissionPayload = null;
@@ -37,9 +39,10 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const r = previewDialog.getBoundingClientRect();
     if (event.target === previewDialog && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom)) clearPreview();
   });
-  for (const id of ['channel-form', 'material-form', 'submission-form', 'material-upload', 'generation-form', 'word-edit-form', 'submission-correction-form']) {
+  for (const id of ['channel-form', 'material-form', 'submission-form', 'material-upload', 'generation-form', 'word-edit-form', 'submission-correction-form', 'preparation-form']) {
     $(`#${id}`).addEventListener('input', () => dirty.add(id));
   }
+  preparation.elements.notes.addEventListener('input', () => { preparation.elements.reviewed.checked = false; });
   submission.addEventListener('input', () => { submissionRequestId = crypto.randomUUID(); submissionPayload = null; });
   correction.addEventListener('input', () => { if (correctionDraft) correctionDraft.requestId = crypto.randomUUID(); });
   function clearCorrection() {
@@ -68,6 +71,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; submission.elements.staleAcknowledged.checked = false;
   });
   function reset(id) {
+    preparationState = null; preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
     revision++; jobId = id; state = null; schoolContext = null; $('#submission-school-context').textContent = ''; dirty.clear(); clearPreview();
     clearDraft(); clearEdit(); clearCorrection(); submissionRequestId = crypto.randomUUID(); submissionPayload = null;
     $('#generated-list').replaceChildren(); $('#generation-panel').open = false;
@@ -86,7 +90,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   async function refresh() {
     const captured = revision, request = ++requestId, target = jobId;
     if (!target) return;
-    const [next, files, generated, nextSchool] = await Promise.all([api(`/api/jobs/${target}/application`), api('/api/files'), api(`/api/jobs/${target}/generation`), api(`/api/jobs/${target}/school-context`)]);
+    const [next, files, generated, nextSchool, nextPreparation] = await Promise.all([api(`/api/jobs/${target}/application`), api('/api/files'), api(`/api/jobs/${target}/generation`), api(`/api/jobs/${target}/school-context`), api(`/api/jobs/${target}/preparation`)]);
     if (captured !== revision || request !== requestId) return;
     const schoolChanged = state && schoolContext?.revision !== nextSchool?.revision;
     if (schoolChanged) { submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; }
@@ -96,6 +100,21 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     if (draft && draft.contextHash !== next.context.hash) clearDraft();
     if (editDraft && editDraft.contextHash !== next.context.hash) $('#word-edit-status').textContent = '岗位或简历已变化，不能保存此修改；文字已保留供你复制，请取消后重新生成。';
     state = next;
+    if (!dirty.has('preparation-form')) {
+      preparation.elements.notes.value = nextPreparation.notes;
+      preparation.elements.reviewed.checked = nextPreparation.reviewed;
+      preparationState = nextPreparation;
+    } else if (preparationState?.basis !== nextPreparation.basis || preparationState?.revision !== nextPreparation.revision) {
+      preparation.elements.reviewed.checked = false;
+    }
+    $('#preparation-status').textContent = nextPreparation.stale ? '依据已变化，旧草稿保留，请重新核对。' : nextPreparation.reviewed ? '草稿已核对；尚不代表已投递。' : '准备草稿待核对。';
+    const summary = $('#preparation-summary'); summary.replaceChildren();
+    summary.append(el('p', '待完成渠道：' + (state.required.filter(c => !state.submissions.some(s => s.channel === c)).map(c => channels[c]).join('、') || (state.complete ? '均已记录提交' : '请先选择申请渠道'))));
+    const latest = state.versions.find(v => !v.stale);
+    summary.append(el('p', latest ? '当前已审阅材料：' + latest.snapshot.resume.name : '尚无对应当前依据的已审阅材料'));
+    if (latest) { const view = el('button', '预览当前已审阅简历'); view.type = 'button'; view.addEventListener('click', () => action('#preparation-status', () => preview(latest.snapshot.resume.id))); summary.append(view); }
+    if (state.context.job.url) { const link = el('a', '打开官网申请入口'); link.href = state.context.job.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; summary.append(link); }
+    if (nextSchool) summary.append(el('p', '学校入口请在本人 portal 打开 School ID ' + nextSchool.schoolId));
     if (correctionDraft) correctionChannels(correction.elements.channel.value);
     if (correctionDraft && schoolChanged) $('#correction-status').textContent = '学校关联已变化；更正输入已保留，首次改为学校渠道前请取消并重新核对。';
     if (correctionDraft && state.submissions.find(row => row.id === correctionDraft.id)?.revision !== correctionDraft.revision) {
@@ -154,6 +173,22 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       section.append(select, view, edit, download); $('#generated-list').append(section);
     }
   }
+  $('#preparation-reload').addEventListener('click', () => action('#preparation-status', async () => {
+    const captured = revision, target = jobId;
+    const next = await api('/api/jobs/' + target + '/preparation');
+    if (captured !== revision) return;
+    preparationState = next; preparation.elements.reviewed.checked = false;
+    dirty.add('preparation-form');
+    await refresh(); $('#preparation-status').textContent = '已刷新依据并保留文字，请核对后保存。';
+  }));
+  preparation.addEventListener('submit', event => { event.preventDefault(); action('#preparation-status', async () => {
+    if (!preparationState || jobDirty() || dirty.has('channel-form')) throw new Error('请先保存岗位和渠道，再刷新准备依据；文字已保留');
+    const captured = revision;
+    const next = await api('/api/jobs/' + jobId + '/preparation', { method: 'PUT', value: { revision: preparationState.revision, basis: preparationState.basis, notes: preparation.elements.notes.value, reviewed: preparation.elements.reviewed.checked } });
+    if (captured !== revision) return;
+    preparationState = next; dirty.delete('preparation-form');
+    $('#preparation-status').textContent = next.reviewed ? '准备草稿已保存并核对，尚未投递。' : '准备草稿已保存，待核对。';
+  }); });
   async function preview(fileId) {
     if (!fileId) throw new Error('请先选择 PDF 文件');
     const result = await api(`/api/files/${fileId}/preview`, { method: 'POST', value: {} });

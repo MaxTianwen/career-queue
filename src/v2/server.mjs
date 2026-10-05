@@ -186,9 +186,11 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
           } finally { generating = false; }
         }
       }
-      const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|channel|materials|submission)$/);
+      const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|channel|materials|submission)$/);
       if (application) {
         const [, id, operation] = application;
+        if (operation === 'preparation' && req.method === 'GET') return json(res, 200, store.preparation(owner, id));
+        if (operation === 'preparation' && req.method === 'PUT') return json(res, 200, store.savePreparation(owner, id, await input()));
         if (operation === 'application' && req.method === 'GET') return json(res, 200, store.application(owner, id));
         if (operation === 'channel' && req.method === 'PUT') return json(res, 200, store.setApplicationChannel(owner, id, await input()));
         if (operation === 'materials' && req.method === 'POST') return json(res, 200, store.reviewMaterial(owner, id, await input(), session.csrf));

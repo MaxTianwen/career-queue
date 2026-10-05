@@ -103,6 +103,7 @@ export class WorkspaceStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS migration_receipts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
       source_key TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES jobs(id), fingerprint TEXT NOT NULL, snapshot TEXT NOT NULL,
       created INTEGER NOT NULL, UNIQUE(user_id,source_key));`);
+    this.db.exec('CREATE TABLE IF NOT EXISTS application_preparation (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, notes TEXT NOT NULL, basis TEXT NOT NULL, reviewed INTEGER NOT NULL, updated INTEGER NOT NULL)');
     // Record the association known at upgrade, never claim it existed at the submission date.
     this.db.prepare(`INSERT OR IGNORE INTO school_submission_sources
       SELECT s.id,s.user_id,l.school_id,l.snapshot,'existing-association',? FROM submissions s
@@ -469,13 +470,15 @@ export class WorkspaceStore {
       const jdSize = this.db.prepare('SELECT coalesce(sum(length(CAST(jd AS BLOB))),0) n FROM jobs WHERE user_id=?').get(owner).n;
       const schoolSize = this.db.prepare('SELECT coalesce(sum(length(CAST(before_snapshot || after_snapshot AS BLOB))),0) n FROM school_changes WHERE user_id=?').get(owner).n;
       const migrationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM migration_receipts WHERE user_id=?').get(owner).n;
-      if (historySize + correctionSize + jdSize + schoolSize + migrationSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
+      const preparationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(notes AS BLOB))),0) n FROM application_preparation WHERE user_id=?').get(owner).n;
+      if (historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
       const rows = (table, columns) => this.db.prepare(`SELECT ${columns} FROM ${table} WHERE user_id=? ORDER BY rowid`).all(owner);
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
         jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
         resumeText: rows('resume_text', 'file_id,text,text_hash,pages,parser'),
         channels: rows('application_plans', 'job_id,channel'),
+        preparation: rows('application_preparation', 'job_id,revision,notes,basis,reviewed,updated'),
         schoolLinks: this.schoolLinks(owner),
         schoolHistory: this.schoolHistory(owner), schoolSubmissionSources: this.schoolSubmissionSources(owner),
         materials: rows('materials', 'id,job_id,fingerprint,snapshot,created').map(row => ({ ...row, snapshot: JSON.parse(row.snapshot) })),
@@ -534,6 +537,24 @@ export class WorkspaceStore {
     const complete = required.length > 0 && required.every(value => submissions.some(record => record.channel === value));
     return { context, channel, versions, submissions, required, complete,
       status: channel === 'unknown' ? '待确认申请渠道' : complete ? '已记录提交' : submissions.length ? '还有渠道待处理' : versions.some(version => !version.stale) ? '材料已审阅，待本人提交' : versions.length ? '材料需重新审阅' : '待准备材料' };
+  }
+  preparation(owner, id) {
+    const app = this.application(owner, id);
+    const school = this.schoolContext(owner, id);
+    const basis = hash(JSON.stringify({ context: app.context.hash, channel: app.channel, school,
+      materials: app.versions.map(v => v.id) }));
+    const row = this.db.prepare('SELECT revision,notes,basis,reviewed,updated FROM application_preparation WHERE user_id=? AND job_id=?').get(owner, id);
+    return { revision: row?.revision ?? 0, notes: row?.notes ?? '', basis,
+      reviewed: Boolean(row?.reviewed && row.basis === basis), stale: Boolean(row && row.basis !== basis), updated: row?.updated ?? null };
+  }
+  savePreparation(owner, id, input) {
+    const current = this.preparation(owner, id);
+    if (input.revision !== current.revision || input.basis !== current.basis) fail(409, '申请准备或依据已变化；输入保留，请刷新核对后再保存');
+    const notes = textField(input.notes, 12000);
+    if (typeof input.reviewed !== 'boolean') fail(400, '请核对准备状态');
+    this.db.prepare('INSERT INTO application_preparation VALUES (?,?,?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET revision=excluded.revision,notes=excluded.notes,basis=excluded.basis,reviewed=excluded.reviewed,updated=excluded.updated')
+      .run(id, owner, current.revision + 1, notes, current.basis, Number(input.reviewed), this.now());
+    return this.preparation(owner, id);
   }
   setApplicationChannel(owner, id, input) {
     this.job(owner, id);
