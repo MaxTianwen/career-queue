@@ -11,7 +11,7 @@ function clearPrivate(message = '') {
   $('#workspace').hidden = true; $('#account').hidden = true; $('#auth').hidden = false;
   $('#admin-panel').hidden = true; $('#admin-panel').open = false;
   $('#username').textContent = ''; $('#jobs-list').replaceChildren(); $('#files-list').replaceChildren();
-  $('#data-usage').replaceChildren();
+  $('#data-usage').replaceChildren(); $('#migration-history').replaceChildren();
   for (const option of document.querySelectorAll('[data-legacy-type]')) option.remove();
   for (const form of document.forms) form.reset();
   for (const node of document.querySelectorAll('[role=status]')) node.textContent = '';
@@ -182,7 +182,16 @@ $('#job-form').elements.jd.addEventListener('input', () => { $('#job-match').rep
 $('#new-job').addEventListener('click', () => { if (allowJobSwitch()) { tab('jobs'); selectJob(null); $('#job-form').elements.company.focus(); } });
 for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'data') action('#data-status', refreshUsage); if (button.dataset.tab === 'school') action('#school-status', school.refresh); });
 async function refreshUsage() {
-  const usage = await api('/api/data/usage');
+  const [usage, migrations] = await Promise.all([api('/api/data/usage'), api('/api/data/migrations')]);
+  $('#migration-history').replaceChildren(...(migrations.length ? migrations.map(entry => {
+    const detail = node('details'), summary = node('summary', `${entry.targetAtMigration.company} · ${entry.targetAtMigration.title} · ${new Date(entry.created).toLocaleString()}`);
+    detail.append(summary, node('p', `来源：v1 Notion · Key ${entry.sourceKey}`), node('p', `迁入记录：${entry.id}`));
+    const original = node('details'); original.append(node('summary', '查看旧版职位快照'));
+    for (const [key, label] of [['company','公司'],['title','职位'],['term','入职批次'],['status','旧版状态'],['location','地点'],['url','链接'],['notes','备注'],['jd','JD']]) original.append(node('p', `${label}：${entry.original[key] || '未记录'}`));
+    detail.append(original);
+    for (const file of entry.documents) { const item = node('details'); item.append(node('summary', `${file.name} · 历史生成稿，未审阅`), node('p', `旧版本：${file.version} · 旧基准：${file.baseline}`), node('p', `SHA-256：${file.sha256}`)); detail.append(item); }
+    return detail;
+  }) : [node('p', '尚无旧版迁入记录。', 'muted')]));
   $('#data-usage').replaceChildren(
     node('p', `文件：${usage.files.count} / ${usage.files.maxCount} 个 · ${(usage.files.bytes / 1048576).toFixed(2)} / ${usage.files.maxBytes / 1048576} MB`),
     node('p', `已保存职位：${usage.jobs.count} / ${usage.jobs.maxCount}`),

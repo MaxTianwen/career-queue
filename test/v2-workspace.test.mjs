@@ -808,3 +808,15 @@ test('v2 fresh login requires a fresh PDF preview even for the same account', as
   await f.call(`/api/files/${file.id}/preview`, { method: 'POST', auth: fresh, value: {} });
   assert.equal((await f.call(`/api/jobs/${saved.id}/materials`, { method: 'POST', auth: fresh, value })).status, 200);
 });
+
+
+test('migration audit endpoint is owner scoped and has no HTTP write operation', async t => {
+  const f = await fixture(t), a = await f.account('alice'), b = await f.account('bob');
+  const s = new WorkspaceStore(f.database);
+  const saved = s.saveJob(a.id, job);
+  s.recordMigration(a.id, { source: 'v1-notion', sourceKey: 'a'.repeat(24), jobId: saved.id, original: job, documents: [] }); s.close();
+  assert.equal((await f.call('/api/data/migrations')).status, 401);
+  assert.equal((await f.call('/api/data/migrations', { auth: a })).data.length, 1);
+  assert.deepEqual((await f.call('/api/data/migrations', { auth: b })).data, []);
+  assert.equal((await f.call('/api/data/migrations', { auth: a, method: 'POST', value: {} })).status, 404);
+});

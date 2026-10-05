@@ -1,4 +1,6 @@
-# Career Queue v2.0.0
+# Career Queue v2.1.0
+
+**v2.1.0 更新**：新增旧版来源记录查看，以及本机维护人员使用的有限范围迁入工具。支持无学校关联、无审阅/提交历史的 Queue 职位和历史生成文件；先预览确认，再整体写入，重复执行不产生副本。不会自动启用旧简历或导入正式资料。详见 [迁入操作](docs/v2-migration-operation.md)。
 
 **v2.0.0 本机版**：账号隔离、个人简历解析 / 核对 / 启用，以及基于当前简历的岗位建议已可用。运行 `npm run start:v2`，访问 `http://127.0.0.1:4322/`，使用已有本机账号登录。首批为加拿大 CS / Data co-op、intern，覆盖部分公开雇主来源。现已支持申请 PDF 在线预览、审阅版本和官网 / 学校独立提交记录；现已接入当前账号 Word 原稿的逐组重排对照、一页 DOCX / PDF 生成与材料自动关联；新增“数据与容量”、本人 ZIP 资料包和本机备份 / 独立恢复验证；现已支持本人修改密码、旧会话失效与本机维护恢复；现已支持生成稿在线修改正文并另存一页 Word / PDF，自动选入材料区；新增提交日期 / 渠道 / 回执更正，保留原记录、更正原因与所用材料；491 项回归通过，包含真实编辑、超页拒绝、审计和双账号备份恢复。新增学校列表粘贴对照、确认关联 / 保存学校候选和“官网已交、学校待补交”筛选，学校截止独立且不改原材料或提交。详见 [学校对照验收](docs/releases/v2-school-verification.md)。学校来源可预览差异后更新、解除或改绑，原因及完整历史保留；仅对应 School ID 的学校实际提交锁定解除 / 改绑，官网记录及材料不移动。见 [维护验收](docs/releases/v2-school-maintenance-verification.md)。用户选择继续本机完善，远程部署暂缓。原个人版入口、Notion 数据及日程保持原样。见 [运行说明](docs/v2-workspace.md) 与 [完整本机验收](docs/releases/v2-local-acceptance.md)、[在线编辑验收](docs/releases/v2-editing-verification.md)、[记录更正验收](docs/releases/v2-submission-corrections-verification.md)及[未来部署准备](docs/v2-trial-plan.md)。
 

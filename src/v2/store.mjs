@@ -49,11 +49,12 @@ function requestIdentifier(value) {
 // This store is independent of v1's Notion, knowledge base and material directories.
 // Owner IDs always come from a validated session, never request body fields.
 export class WorkspaceStore {
-  constructor(filename, { now = Date.now } = {}) {
-    mkdirSync(dirname(filename), { recursive: true });
-    this.db = new DatabaseSync(filename);
+  constructor(filename, { now = Date.now, readOnly = false } = {}) {
+    if (!readOnly) mkdirSync(dirname(filename), { recursive: true });
+    this.db = new DatabaseSync(filename, { readOnly });
     this.now = now;
     this.authBusy = 0;
+    if (readOnly) return;
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, salt TEXT NOT NULL,
@@ -99,12 +100,47 @@ export class WorkspaceStore {
       request_id TEXT NOT NULL, request_hash TEXT NOT NULL, UNIQUE(user_id,request_id));
       CREATE TABLE IF NOT EXISTS school_submission_sources (submission_id TEXT PRIMARY KEY REFERENCES submissions(id), user_id TEXT NOT NULL REFERENCES users(id),
         school_id TEXT NOT NULL, snapshot TEXT NOT NULL, basis TEXT NOT NULL, captured INTEGER NOT NULL);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS migration_receipts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
+      source_key TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES jobs(id), fingerprint TEXT NOT NULL, snapshot TEXT NOT NULL,
+      created INTEGER NOT NULL, UNIQUE(user_id,source_key));`);
     // Record the association known at upgrade, never claim it existed at the submission date.
     this.db.prepare(`INSERT OR IGNORE INTO school_submission_sources
       SELECT s.id,s.user_id,l.school_id,l.snapshot,'existing-association',? FROM submissions s
       JOIN school_links l ON l.user_id=s.user_id AND l.job_id=s.job_id WHERE s.channel='school'`).run(this.now());
   }
   close() { this.db.close(); }
+  migrationReceipts(owner) {
+    return this.db.prepare('SELECT id,source_key sourceKey,job_id jobId,snapshot,created FROM migration_receipts WHERE user_id=? ORDER BY created,id').all(owner)
+      .map(({ snapshot, ...row }) => ({ ...row, ...JSON.parse(snapshot) }));
+  }
+  // Operator-only provenance entry; never imports files, reviews or submission state.
+  recordMigration(owner, input) {
+    const job = this.job(owner, input.jobId), sourceKey = textField(input.sourceKey, 24, true);
+    if (!/^[a-f0-9]{24}$/.test(sourceKey) || input.source !== 'v1-notion') fail(400, '迁入来源无效');
+    const source = {};
+    for (const field of ['company', 'title', 'location', 'url', 'notes', 'jd', 'term', 'status'])
+      source[field] = textField(input.original?.[field] ?? '', field === 'jd' ? 60000 : field === 'notes' ? 5000 : field === 'url' ? 2000 : 200, ['company', 'title'].includes(field));
+    if (!Array.isArray(input.documents) || input.documents.length > 20) fail(400, '历史文件映射无效');
+    const ids = new Set();
+    const documents = input.documents.map(item => {
+      const file = this.file(owner, item.fileId);
+      if (ids.has(file.id) || item.sha256 !== file.sha256) fail(409, '历史文件重复或哈希不符');
+      ids.add(file.id);
+      return { fileId: file.id, name: file.name, sha256: file.sha256, format: file.format,
+        version: textField(item.version, 100, true), baseline: textField(item.baseline ?? '未知旧基准', 200, true),
+        classification: 'historical-generated-unreviewed' };
+    });
+    const snapshot = { source: 'v1-notion', original: source, documents, targetAtMigration: { company: job.company, title: job.title } };
+    if (input.migration) {
+      if (![input.migration.bundleHash, input.migration.previewFingerprint].every(x => /^[a-f0-9]{64}$/.test(x ?? ''))) fail(400, '迁入预览标识无效');
+      snapshot.migration = { bundleHash: input.migration.bundleHash, previewFingerprint: input.migration.previewFingerprint };
+    }
+    const fingerprint = hash(JSON.stringify({ jobId: job.id, source, documents, ...(snapshot.migration ? { migration: snapshot.migration } : {}) }));
+    const existing = this.db.prepare('SELECT fingerprint FROM migration_receipts WHERE user_id=? AND source_key=?').get(owner, sourceKey);
+    if (existing && existing.fingerprint !== fingerprint) fail(409, '来源或映射已变化，不能覆盖迁入记录');
+    if (!existing) this.db.prepare('INSERT INTO migration_receipts VALUES (?,?,?,?,?,?,?)').run(randomUUID(), owner, sourceKey, job.id, fingerprint, JSON.stringify(snapshot), this.now());
+    return this.migrationReceipts(owner).find(row => row.sourceKey === sourceKey);
+  }
   registrationOpen() { return this.db.prepare("SELECT value FROM settings WHERE name='registration_open'").get().value === 1; }
   setRegistration(owner, open) {
     if (this.db.prepare('SELECT role FROM users WHERE id=?').get(owner)?.role !== 'admin') fail(403, '仅管理员可调整注册入口');
@@ -432,11 +468,12 @@ export class WorkspaceStore {
       const correctionSize = this.db.prepare('SELECT coalesce(sum(length(CAST(before_snapshot || after_snapshot || reason || actor AS BLOB))),0) n FROM submission_corrections WHERE user_id=?').get(owner).n;
       const jdSize = this.db.prepare('SELECT coalesce(sum(length(CAST(jd AS BLOB))),0) n FROM jobs WHERE user_id=?').get(owner).n;
       const schoolSize = this.db.prepare('SELECT coalesce(sum(length(CAST(before_snapshot || after_snapshot AS BLOB))),0) n FROM school_changes WHERE user_id=?').get(owner).n;
-      if (historySize + correctionSize + jdSize + schoolSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
+      const migrationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM migration_receipts WHERE user_id=?').get(owner).n;
+      if (historySize + correctionSize + jdSize + schoolSize + migrationSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
       const rows = (table, columns) => this.db.prepare(`SELECT ${columns} FROM ${table} WHERE user_id=? ORDER BY rowid`).all(owner);
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
-        jobs: this.jobs(owner), activeResume: this.activeResume(owner),
+        jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
         resumeText: rows('resume_text', 'file_id,text,text_hash,pages,parser'),
         channels: rows('application_plans', 'job_id,channel'),
         schoolLinks: this.schoolLinks(owner),

@@ -82,6 +82,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return json(res, 200, { ok: true });
       }
       if (path === '/api/preferences' && ['GET', 'PUT'].includes(req.method)) return json(res, 200, store.preferences(owner, req.method === 'PUT' ? await input() : undefined));
+      if (path === '/api/data/migrations' && req.method === 'GET') return json(res, 200, store.migrationReceipts(owner));
       if (path === '/api/data/usage' && req.method === 'GET') {
         const work = await workUsage(owner);
         if (!store.session(token)) fail(401, '请重新登录');

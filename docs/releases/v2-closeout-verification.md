@@ -23,3 +23,5 @@
 ## 本机更新结果
 
 更新前备份：`private/<local-evidence>`。核实旧 PID 6956 为项目服务后停止，隐藏启动新 PID 17352；4322 与 4317 健康接口均 200。只读比较 16 张业务表与备份完全一致，外键错误 0，见 `output/v2-acceptance/closeout-upgrade.json`。未变更原后台调度配置。
+
+后续补核：上述新增页面交互已于同日后续轮次完成，详见 [发布后页面验收](v2-postrelease-ui-verification.md)。此前未验收的历史记录保留。
