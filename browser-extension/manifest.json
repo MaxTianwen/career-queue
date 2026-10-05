@@ -1,9 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Career Queue · 本机填写助手",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "经本人确认，在当前 Greenhouse 页填写普通文本；不上传或提交。",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["http://127.0.0.1:4322/*"],
-  "action": { "default_popup": "popup.html" }
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:4322/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
 }

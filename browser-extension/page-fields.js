@@ -26,7 +26,9 @@ export function pageFields(mode, targetUrl, fields, expected) {
   let filled=0;
   for (let i=0;i<targets.length;i++) {
     const e=targets[i];
-    if (!e.isConnected || !visible(e) || e.disabled || e.readOnly || e.value!=='') throw Error('填写中页面变化，已暂停；已填写 '+filled+' 项，请本人检查');
+    const matches=[...document.querySelectorAll('input')].filter(input=>visible(input) && [...input.labels||[]].some(l=>normalize(l.textContent)===normalize(fields[i].label)));
+    let samePage=false; try { samePage=target(location.href)===target(targetUrl); } catch { /* Navigation is handled as an interrupted fill. */ }
+    if (!samePage || matches.length!==1 || matches[0]!==e || e.id!==bindings[i].id || e.type!==bindings[i].type || e.getAttribute('role') && e.getAttribute('role')!=='textbox' || !e.isConnected || !visible(e) || e.disabled || e.readOnly || e.value!=='') throw Error('填写中页面变化，已暂停；已填写 '+filled+' 项，请本人检查');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,fields[i].answer);
     e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true}));
     filled++;

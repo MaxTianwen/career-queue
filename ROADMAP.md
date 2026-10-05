@@ -1,5 +1,9 @@
 # 后续版本路线图 — 当前进展与待确认项
 
+## v2.8.1 动态字段保护
+
+v2.8.0 已推送 main / v2.8.0，f6b28d449f19e97a2e4843528e40adfd279fcfcf。继续复查时复现填写过程中下一字段改变角色、类型、标签或ID后仍可能被写入的问题；已补逐字段身份、唯一性及页面校验。扩展版本0.1.1，需在浏览器扩展页重新加载。用户已确认安装在 Brave；安装后实机验收仍待完成。7 项定向检查通过，见 docs/releases/v2.8.1-verification.md。以下旧阶段记录保留当时状态，以本节为准。
+
 ## Greenhouse 浏览器接入候选（2026-10-05，未推送）
 
 用户已确认 Chrome / Edge 本机扩展。browser-extension 目录可加载；Dashboard 提供3分钟临时配对码，逐次预览确认后只填写普通文本。电话组合控件、附件、资格/披露、验证码和提交由本人处理。扩展安装及真实 Chrome/Edge 完整验收尚待完成，不能宣称官网自动填写已正式可用。本阶段并入尚未发布的 v2.8.0，不另起补丁号。安装说明见 browser-extension/README.md，证据见 docs/releases/browser-extension-readiness.md。

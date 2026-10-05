@@ -33,3 +33,17 @@ test('browser page adapter reports partial progress instead of overwriting a dyn
   const p=f.call('preview');f.input.onEvent=()=>{last.value='Inserted by page';};
   assert.throws(()=>f.call('fill',p.bindings),/已填写 1 项/);assert.equal(last.value,'Inserted by page');
 });
+test('browser page adapter stops when a previous input changes the next control identity or role',()=>{
+  for(const mutate of [e=>e.role='combobox',e=>e.type='password',e=>e.id='replacement',e=>e.labels[0].textContent='Work authorization']) {
+    const f=fixture(),last=new f.Input('Last Name');last.id='last_name';f.inputs.push(last);f.fields.push({index:1,label:'Last Name',answer:'Second'});
+    const p=f.call('preview');f.input.onEvent=()=>mutate(last);
+    assert.throws(()=>f.call('fill',p.bindings),/已填写 1 项/);assert.equal(last.value,'');
+  }
+});
+test('browser page adapter stops after navigation or a new duplicate field during filling',()=>{
+  for(const mutate of [f=>f.context.location.href='https://job-boards.greenhouse.io/test/jobs/999',f=>f.inputs.push(new f.Input('Last Name'))]) {
+    const f=fixture(),last=new f.Input('Last Name');last.id='last_name';f.inputs.push(last);f.fields.push({index:1,label:'Last Name',answer:'Second'});
+    const p=f.call('preview');f.input.onEvent=()=>mutate(f);
+    assert.throws(()=>f.call('fill',p.bindings),/已填写 1 项/);assert.equal(last.value,'');
+  }
+});

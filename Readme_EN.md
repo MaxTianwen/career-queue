@@ -1,4 +1,6 @@
-# Career Queue v2.8.0
+# Career Queue v2.8.1
+
+**v2.8.1:** revalidate each target immediately before writing when an earlier field changes the page. v2.8.0 is published as f6b28d4. Extension 0.1.1 requires reload; The user installed it in Brave; installed-browser validation is still pending. Seven targeted checks passed. Earlier sections below are historical snapshots.
 
 **Browser extension candidate (unpublished):** a local Chrome/Edge extension and three-minute pairing codes are ready for installation testing. Real extension execution is not yet verified. See browser-extension/README.md; no automatic submission or attachment upload. This remains part of the unpublished v2.8.0 work.
 
