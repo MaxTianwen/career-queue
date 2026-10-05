@@ -80,7 +80,7 @@ print(json.dumps({'word':base64.b64encode(word.getvalue()).decode(),'pdf':base64
   assert.equal((await call(`/api/files/${fa.id}`, { auth: b })).status, 404);
   assert.equal((await call(`/api/jobs/${ja.id}`, { auth: operator })).status, 404);
   const draft = await ok(`/api/jobs/${ja.id}/generation-draft`, { auth: a, method: 'POST', value: {} });
-  const generated = await ok(`/api/jobs/${ja.id}/generation`, { auth: a, method: 'POST', value: { fingerprint: draft.fingerprint, contextHash: draft.contextHash, decisions: draft.groups.map(g => ({ id: g.id, accepted: true })), confirmed: true, openConfirmed: true } });
+  const generated = await ok(`/api/jobs/${ja.id}/generation`, { auth: a, method: 'POST', value: { fingerprint: draft.fingerprint, contextHash: draft.contextHash, availability: draft.availability, decisions: draft.groups.map(g => ({ id: g.id, accepted: true })), confirmed: true, openConfirmed: true } });
   assert.equal((await call(`/api/jobs/${jb.id}/generation-draft`, { auth: b, method: 'POST', value: {} })).status, 409);
   async function reviewAndSubmit(auth, job, fileId, channel) {
     await ok(`/api/jobs/${job.id}/channel`, { auth, method: 'PUT', value: { channel: channel === 'school' ? 'school-only' : 'both' } });

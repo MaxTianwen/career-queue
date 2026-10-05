@@ -9,6 +9,11 @@ import { renderPdf } from './pdf-preview.mjs';
 import { prepareWord, generateWord, prepareWordEdit, editWord } from './generation.mjs';
 import { digest } from './resume.mjs';
 import { deadlineExpired, extractDeadline } from '../deadlines.mjs';
+import { availabilityGate } from './availability.mjs';
+import { workspaceId } from '../background-services.mjs';
+import { CatalogueRunner } from './discovery-runner.mjs';
+import { networkAvailable } from '../automation.mjs';
+import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -30,9 +35,11 @@ async function jsonBody(req, limit = 16384) {
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
 
-export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage } = {}) {
+export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, automationToken = null, online = networkAvailable } = {}) {
   const store = new WorkspaceStore(database, { now });
-  let parsing = false, refreshing = false, lastRefresh = 0;
+  const gate = availabilityGate(store, availability);
+  const runner = new CatalogueRunner(store, { discover, online, configured: typeof automationToken === 'string' && /^[a-f0-9]{64}$/.test(automationToken) });
+  let parsing = false;
   let generating = false;
   let exporting = false;
   const scored = (owner, job) => ({ ...job, match: scoreFor(job, store.activeResume(owner)) });
@@ -52,7 +59,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         res.setHeader('Content-Type', `${type}; charset=utf-8`);
         return res.end(await readFile(resolve(root, 'web/v2', name)));
       }
-      if (req.method === 'GET' && path === '/api/health') return json(res, 200, { app: 'career-queue-v2-local', stage: 'workspace-preview' });
+      if (req.method === 'GET' && path === '/api/health') return json(res, 200, { app: 'career-queue-v2-local', stage: 'workspace-preview', workspaceId: workspaceId(root), ready: true });
       if (req.method === 'GET' && path === '/api/registration') return json(res, 200, { registrationOpen: store.registrationOpen() });
       if (req.method === 'POST' && ['/api/register', '/api/login'].includes(path)) {
         const account = await store.authenticate(await jsonBody(req), path === '/api/register');
@@ -60,6 +67,13 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (previous) store.logout(previous);
         res.setHeader('Set-Cookie', cookie(account.token));
         return json(res, 200, { user: account.user, csrf: account.csrf, expires: account.expires });
+      }
+      if (path === '/api/discovery/tick' && req.method === 'POST') {
+        const supplied = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+        if (!runner.configured || !/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(automationToken))) fail(403, '后台入口认证失败');
+        await jsonBody(req);
+        const result = await runner.start('scheduled');
+        return json(res, 200, { skipped: result.skipped, waiting: result.waiting, finishedAt: result.finishedAt });
       }
       const token = tokenFrom(req), session = store.session(token);
       if (!session) fail(401, '请重新登录');
@@ -110,6 +124,13 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       if (path === '/api/school/import' && req.method === 'POST') return json(res, 200, store.importSchool(owner, await input()));
       const correction = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/submissions\/([a-f0-9-]{36})\/corrections$/);
       if (correction && req.method === 'POST') return json(res, 200, store.correctSubmission(owner, correction[1], correction[2], await input()));
+      const availabilityPath = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/availability$/);
+      if (availabilityPath && req.method === 'POST') {
+        await input();
+        const result = await gate.refresh(owner, availabilityPath[1], session.csrf);
+        if (!store.session(token)) fail(401, '请重新登录');
+        return json(res, 200, result);
+      }
       const editing = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/generation\/([a-f0-9-]{36})\/(edit-draft|edit)$/);
       if (editing && req.method === 'POST') {
         const [, id, parentId, operation] = editing, value = await input();
@@ -120,13 +141,18 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (deadlineExpired(extractDeadline(context.job).deadline, new Date(store.now()))) fail(409, 'JD 中的明确截止时间已过，不能继续准备材料');
         if (operation === 'edit' && (value.contextHash !== context.hash || value.confirmed !== true || value.openConfirmed !== true)) fail(409, '请核对修改、当前依据，并确认岗位仍开放');
         if (generating) fail(409, '另一个 Word 任务正在处理，请稍后重试');
+        const checked = operation === 'edit-draft' ? await gate.refresh(owner, id, session.csrf) : (gate.require(owner, id, session.csrf, value), value.availability);
+        if (checked.status === 'closed') fail(409, `岗位已关闭：${checked.evidence}`);
+        if (!store.session(token)) fail(401, '请重新登录');
         const file = store.file(owner, parent.docxId);
+        if (generating) fail(409, '另一个 Word 任务正在处理，请稍后重试');
         generating = true;
         try {
           const result = operation === 'edit-draft' ? await prepareEdit(owner, context, file) : await edit(owner, context, file, value);
           if (!store.session(token)) fail(401, '请重新登录；未保存修改稿');
           if (store.materialContext(owner, id).hash !== context.hash) fail(409, '岗位或简历已变化，未保存修改稿');
-          if (operation === 'edit-draft') return json(res, 200, { ...result, contextHash: context.hash, parentId });
+          if (operation === 'edit-draft') return json(res, 200, { ...result, contextHash: context.hash, parentId, availability: checked });
+          gate.require(owner, id, session.csrf, value);
           const fingerprint = digest(JSON.stringify({ context: context.hash, parentId, review: result.review }));
           return json(res, 200, store.saveGenerated(owner, id, context, result, fingerprint, parentId));
         } finally { generating = false; }
@@ -144,12 +170,17 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
           if (file.format !== 'docx') fail(409, '严格版式生成需要启用同版 Word；不会沿用旧模板');
           if (generating) fail(409, '另一个简历正在生成，请稍后重试');
           if (operation === 'generation' && (value.contextHash !== context.hash || value.openConfirmed !== true)) fail(409, '请核对岗位与简历，并确认岗位仍开放');
+          const checked = operation === 'generation-draft' ? await gate.refresh(owner, id, session.csrf) : (gate.require(owner, id, session.csrf, value), value.availability);
+          if (checked.status === 'closed') fail(409, `岗位已关闭：${checked.evidence}`);
+          if (!store.session(token)) fail(401, '请重新登录');
+          if (generating) fail(409, '另一个 Word 任务正在处理，请稍后重试');
           generating = true;
           try {
             const result = operation === 'generation-draft' ? await prepare(owner, context, file) : await generate(owner, context, file, value);
             if (!store.session(token)) fail(401, '请重新登录；未保存生成材料');
             if (store.materialContext(owner, id).hash !== context.hash) fail(409, '岗位或简历已变化，请重新准备对照');
-            if (operation === 'generation-draft') return json(res, 200, { ...result, contextHash: context.hash });
+            if (operation === 'generation-draft') return json(res, 200, { ...result, contextHash: context.hash, availability: checked });
+            gate.require(owner, id, session.csrf, value);
             const fingerprint = digest(JSON.stringify({ context: context.hash, fingerprint: value.fingerprint, decisions: value.decisions }));
             return json(res, 200, store.saveGenerated(owner, id, context, result, fingerprint));
           } finally { generating = false; }
@@ -191,20 +222,21 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
           return json(res, 200, store.saveParsed(owner, file.id, result));
         } finally { parsing = false; }
       }
+      if (path === '/api/discovery/status' && req.method === 'GET') return json(res, 200, { ...runner.status(), canManage: session.role === 'admin' });
+      if (path === '/api/discovery/settings' && req.method === 'PUT') {
+        if (session.role !== 'admin') fail(403, '仅管理员可调整自动发现');
+        return json(res, 200, runner.setEnabled((await input()).enabled));
+      }
       if (path === '/api/recommendations' && req.method === 'GET') {
         const data = store.catalogue(), preferences = store.preferences(owner);
-        return json(res, 200, { ...data, refreshing, jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
+        return json(res, 200, { ...data, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
           unsupportedType: Boolean(preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) });
       }
       if (path === '/api/recommendations/refresh' && req.method === 'POST') {
-        if (refreshing) fail(409, '公开列表正在刷新，请稍后查看');
-        if (lastRefresh && store.now() - lastRefresh < 60000) fail(429, '请间隔一分钟后再刷新公开来源');
-        refreshing = true; lastRefresh = store.now();
-        try {
-          const result = store.saveCatalogue(await discover());
-          if (!store.session(token)) fail(401, '请重新登录');
-          return json(res, 200, { sources: result.sources, finishedAt: result.finishedAt });
-        } finally { refreshing = false; }
+        await input();
+        const result = await runner.start('manual');
+        if (!store.session(token)) fail(401, '请重新登录');
+        return json(res, 200, { sources: result.sources, finishedAt: result.finishedAt });
       }
       const suggested = path.match(/^\/api\/recommendations\/([a-f0-9]{64})\/save$/);
       if (suggested && req.method === 'POST') return json(res, 200, scored(owner, store.saveSuggested(owner, suggested[1])));
@@ -241,7 +273,10 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const server = workspaceServer();
+  let automationToken;
+  try { automationToken = JSON.parse(await readFile(resolve(root, 'private/v2-local/discovery-trigger.json'), 'utf8')).token; }
+  catch (error) { if (error.code !== 'ENOENT') throw new Error('后台入口配置不可读'); }
+  const server = workspaceServer({ automationToken });
   server.on('error', error => { console.error(error.code === 'EADDRINUSE' ? '4322 端口已被占用，请检查已有本机预览' : '本机预览启动失败'); process.exitCode = 1; });
   server.listen(4322, '127.0.0.1', () => console.log('Career Queue v2 本机工作区预览：http://127.0.0.1:4322/'));
 }

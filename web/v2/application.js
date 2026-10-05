@@ -13,9 +13,23 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   const generationForm = $('#generation-form');
   let editDraft = null;
   const editForm = $('#word-edit-form');
-  function clearEdit() { editDraft = null; editForm.reset(); editForm.hidden = true; $('#word-edit-fields').replaceChildren(); $('#word-edit-source').textContent = ''; $('#word-edit-status').textContent = ''; dirty.delete('word-edit-form'); }
+  function showAvailability(kind, data) {
+    const form = kind === 'generation' ? generationForm : editForm;
+    form.elements.openConfirmed.checked = false;
+    document.querySelector('#' + kind + '-availability').textContent = data ?
+      ({ open: '官方仍提供岗位正文', closed: '已关闭', unknown: '需本人核实' }[data.status] + ' · ' + new Date(data.checkedAt).toLocaleString() + ' · ' + data.evidence + '（15 分钟内有效）') : '';
+  }
+  for (const kind of ['generation', 'edit']) document.querySelector('#' + kind + '-recheck').addEventListener('click', () => action(kind === 'generation' ? '#application-status' : '#word-edit-status', async () => {
+    const current = kind === 'generation' ? draft : editDraft, captured = revision, target = jobId;
+    if (!current || jobDirty()) throw new Error('请先保存岗位并准备对照');
+    const next = await api('/api/jobs/' + target + '/availability', { method: 'POST', value: {} });
+    if (captured !== revision || current !== (kind === 'generation' ? draft : editDraft)) return;
+    current.availability = next; showAvailability(kind, next);
+    document.querySelector(kind === 'generation' ? '#application-status' : '#word-edit-status').textContent = '核查完成，修改内容已保留，请重新核对开放结果。';
+  }));
+  function clearEdit() { editDraft = null; showAvailability('edit', null); editForm.reset(); editForm.hidden = true; $('#word-edit-fields').replaceChildren(); $('#word-edit-source').textContent = ''; $('#word-edit-status').textContent = ''; dirty.delete('word-edit-form'); }
   $('#cancel-word-edit').addEventListener('click', () => { clearEdit(); $('#prepare-word').focus(); });
-  function clearDraft() { draft = null; generationForm.reset(); generationForm.hidden = true; $('#generation-groups').replaceChildren(); $('#generation-baseline').textContent = ''; dirty.delete('generation-form'); }
+  function clearDraft() { draft = null; showAvailability('generation', null); generationForm.reset(); generationForm.hidden = true; $('#generation-groups').replaceChildren(); $('#generation-baseline').textContent = ''; dirty.delete('generation-form'); }
   function clearPreview() { previewDialog.close(); $('#pdf-pages').replaceChildren(); $('#pdf-title').textContent = 'PDF 预览'; }
   $('#close-pdf').addEventListener('click', clearPreview);
   previewDialog.addEventListener('cancel', event => { event.preventDefault(); clearPreview(); });
@@ -126,7 +140,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
         if (editDraft) throw new Error('请先保存或取消当前文字编辑');
         const next = await api(`/api/jobs/${jobId}/generation/${row.id}/edit-draft`, { method: 'POST', value: {} });
         if (!next.fields.length) throw new Error('此稿没有可安全编辑的正文段落，请修改自己的 Word 原稿后重新上传');
-        editDraft = next; editForm.hidden = false;
+        editDraft = next; editForm.hidden = false; showAvailability('edit', next.availability);
         $('#word-edit-source').textContent = `来源生成稿：${new Date(row.created).toLocaleString()} · ${row.id.slice(0, 8)}`;
         for (const field of next.fields) {
           const label = el('label', field.label), input = document.createElement('textarea');
@@ -215,7 +229,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     if (!editDraft || jobDirty()) throw new Error('请先保存职位信息，再核对编辑依据');
     const edits = editDraft.fields.map(field => ({ paragraph: field.paragraph, text: editForm.elements[`paragraph-${field.paragraph}`].value })).filter((change, index) => change.text.trim() !== editDraft.fields[index].original);
     if (!edits.length) throw new Error('没有文字变化，无需保存新版本');
-    const value = { fingerprint: editDraft.fingerprint, contextHash: editDraft.contextHash, edits, confirmed: editForm.elements.confirmed.checked, openConfirmed: editForm.elements.openConfirmed.checked };
+    const value = { availability: editDraft.availability, fingerprint: editDraft.fingerprint, contextHash: editDraft.contextHash, edits, confirmed: editForm.elements.confirmed.checked, openConfirmed: editForm.elements.openConfirmed.checked };
     $('#word-edit-status').textContent = '正在检查字体、版式和一页限制；失败会保留输入…';
     const saved = await api(`/api/jobs/${jobId}/generation/${editDraft.parentId}/edit`, { method: 'POST', value });
     clearEdit(); await afterSave('修改稿已另存并选入材料；旧稿与提交记录保留，请重新预览后审阅');
@@ -225,7 +239,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   $('#prepare-word').addEventListener('click', () => action('#application-status', async () => {
     if (jobDirty()) throw new Error('请先保存职位信息，再准备修改对照');
     const next = await api(`/api/jobs/${jobId}/generation-draft`, { method: 'POST', value: {} });
-    clearDraft(); draft = next; generationForm.hidden = false;
+    clearDraft(); draft = next; generationForm.hidden = false; showAvailability('generation', next.availability);
     $('#generation-baseline').textContent = `当前原稿：${draft.baseline.name} · ${draft.engine}`;
     for (const group of draft.groups) {
       const section = document.createElement('fieldset'); section.append(el('legend', group.label));
@@ -241,7 +255,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   }));
   generationForm.addEventListener('submit', event => { event.preventDefault(); action('#application-status', async () => {
     if (jobDirty() || !draft) throw new Error('请保存职位并重新准备对照');
-    const value = { contextHash: draft.contextHash, fingerprint: draft.fingerprint,
+    const value = { availability: draft.availability, contextHash: draft.contextHash, fingerprint: draft.fingerprint,
       decisions: draft.groups.map(group => ({ id: group.id, accepted: generationForm.elements[group.id].value === 'accept' })),
       confirmed: generationForm.elements.confirmed.checked, openConfirmed: generationForm.elements.openConfirmed.checked };
     $('#application-status').textContent = '正在生成并检查一页版式，请稍候…';

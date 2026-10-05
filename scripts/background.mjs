@@ -1,20 +1,25 @@
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
-import { mkdirSync, openSync, closeSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openclaw, openclawArgs, openclawEnv } from '../src/automation.mjs';
-import { dashboardReady, serviceMonitor } from '../src/background-services.mjs';
+import { dashboardReady, serviceMonitor, workspaceId } from '../src/background-services.mjs';
 import { atomicJson } from '../src/discovery-runner.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const lock = createServer(socket => socket.destroy());
 lock.on('error', error => { if (error.code !== 'EADDRINUSE') console.error(error.message); process.exit(error.code === 'EADDRINUSE' ? 0 : 1); });
 const services = [
+    ...(existsSync(resolve(root, 'private/v2-local/discovery-trigger.json')) ? [['workspace', 4322, [resolve(root, 'src/v2/server.mjs')], process.env]] : []),
     ['dashboard', 4317, [resolve(root, 'src/dashboard.mjs')], process.env],
     ['gateway', 18791, openclawArgs(root, ['gateway', 'run']), openclawEnv(root)]
   ].map(([name, port, argv, env]) => ({ name, port,
-    ready: name === 'dashboard' ? () => dashboardReady(root, port) : async () => {
+    ready: name === 'workspace' ? async () => {
+      const response = await fetch('http://127.0.0.1:4322/api/health', {redirect:'error',signal:AbortSignal.timeout(2000)});
+      const data = await response.json();
+      return response.ok && data.app === 'career-queue-v2-local' && data.workspaceId === workspaceId(root) && data.ready === true;
+    } : name === 'dashboard' ? () => dashboardReady(root, port) : async () => {
       const result = await openclaw(root, ['automations', 'list'], { timeout: 10000 });
       return Array.isArray(result.jobs);
     },

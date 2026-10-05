@@ -1,6 +1,6 @@
 {
   "name": "career-queue",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,6 +16,7 @@
     "recover:v2": "node scripts/v2-recover-account.mjs",
     "cli": "node src/cli.mjs",
     "discover": "node src/automation-client.mjs discover",
-    "automation:status": "node src/automation-client.mjs status"
+    "automation:status": "node src/automation-client.mjs status",
+    "test:serial": "node --test --test-concurrency=1 test/*.test.mjs"
   }
 }

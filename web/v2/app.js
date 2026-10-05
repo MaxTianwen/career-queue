@@ -2,7 +2,7 @@ import { applicationWorkspace } from './application.js';
 import { schoolWorkspace } from './school.js';
 const $ = selector => document.querySelector(selector);
 let reviewedResume = null, recommendations = [], visibleRecommendations = 20;
-let account = null, csrf = '', epoch = 0, registering = false, jobs = [], busy = false, expiryTimer;
+let account = null, csrf = '', epoch = 0, registering = false, jobs = [], busy = false, expiryTimer, discoveryConfigured = false;
 const channel = new BroadcastChannel('career-queue-v2-account');
 function clearPrivate(message = '') {
   clearTimeout(expiryTimer); applications.clear(); school.clear();
@@ -11,6 +11,7 @@ function clearPrivate(message = '') {
   $('#workspace').hidden = true; $('#account').hidden = true; $('#auth').hidden = false;
   $('#admin-panel').hidden = true; $('#admin-panel').open = false;
   $('#username').textContent = ''; $('#jobs-list').replaceChildren(); $('#files-list').replaceChildren();
+  discoveryConfigured = false; $('#discovery-history').replaceChildren(); $('#discovery-status').textContent = ''; $('#discovery-toggle').hidden = true;
   $('#data-usage').replaceChildren(); $('#migration-history').replaceChildren();
   for (const option of document.querySelectorAll('[data-legacy-type]')) option.remove();
   for (const form of document.forms) form.reset();
@@ -35,6 +36,7 @@ async function api(path, { method = 'GET', value, file } = {}) {
 function setBusy(value) {
   busy = value;
   for (const element of document.querySelectorAll('button,input,select,textarea')) element.disabled = value;
+  $('#discovery-toggle').disabled = value || !discoveryConfigured;
 }
 async function action(status, run) {
   if (busy) return;
@@ -180,7 +182,7 @@ $('#file-form').addEventListener('submit', event => { event.preventDefault(); ac
 }); });
 $('#job-form').elements.jd.addEventListener('input', () => { $('#job-match').replaceChildren(node('p', 'JD 已修改；保存后重新计算匹配度', 'muted')); });
 $('#new-job').addEventListener('click', () => { if (allowJobSwitch()) { tab('jobs'); selectJob(null); $('#job-form').elements.company.focus(); } });
-for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'data') action('#data-status', refreshUsage); if (button.dataset.tab === 'school') action('#school-status', school.refresh); });
+for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'recommendations') action('#recommendation-status', loadRecommendations); if (button.dataset.tab === 'data') action('#data-status', refreshUsage); if (button.dataset.tab === 'school') action('#school-status', school.refresh); });
 async function refreshUsage() {
   const [usage, migrations] = await Promise.all([api('/api/data/usage'), api('/api/data/migrations')]);
   $('#migration-history').replaceChildren(...(migrations.length ? migrations.map(entry => {
@@ -260,7 +262,26 @@ function matchView(match) {
   }
   return box;
 }
+let discoveryRevision = 0, discoveryEnabled = false;
+async function loadDiscoveryStatus() {
+  const revision = ++discoveryRevision;
+  try {
+    const data = await api('/api/discovery/status'); if (revision !== discoveryRevision) return;
+    discoveryEnabled = data.enabled; discoveryConfigured = data.configured;
+    const state = data.running ? '正在刷新' : data.broken ? '运行记录异常，已停止' : !data.configured ? '后台入口未配置' : data.enabled ? '允许后台触发' : '已暂停';
+    $('#discovery-status').textContent = state + ' · 每天多伦多09:00' + (data.waiting ? ' · ' + data.waiting : '') + (data.enabled && data.configured ? (data.due ? ' · 等待当天补跑' : ' · 下次计划 ' + new Date(data.nextScheduledAt).toLocaleString()) : '');
+    $('#discovery-toggle').hidden = !data.canManage; $('#discovery-toggle').disabled = !data.configured || busy;
+    $('#discovery-toggle').textContent = data.enabled ? '暂停自动发现' : '启用自动发现';
+    $('#discovery-history').replaceChildren(...data.runs.slice(-10).reverse().map(run => node('p', new Date(run.startedAt).toLocaleString() + ' · ' + (run.trigger === 'manual' ? '手动' : run.catchUp ? '当天补跑' : '定时') + ' · ' + ({running:'运行中',done:'完成',partial:'部分成功',failed:'失败',interrupted:'中断'}[run.status]) + (run.count != null ? ' · '+run.count+'条，新增'+run.added+'条' : '') + (run.error ? ' · '+run.error : ''))));
+  } catch (error) { if (revision !== discoveryRevision || !account) return; discoveryConfigured = false; $('#discovery-status').textContent = '运行状态暂无法读取：' + error.message; $('#discovery-toggle').disabled = true; }
+}
+$('#discovery-reload').addEventListener('click', () => action('#recommendation-status', loadRecommendations));
+$('#discovery-toggle').addEventListener('click', () => action('#recommendation-status', async () => {
+  await api('/api/discovery/settings', {method:'PUT',value:{enabled:!discoveryEnabled}}); await loadDiscoveryStatus();
+  $('#recommendation-status').textContent = '日程开关已更新；已开始的搜索会完成，不会中断保存。';
+}));
 async function loadRecommendations() {
+  await loadDiscoveryStatus();
   const data = await api('/api/recommendations'); recommendations = data.jobs; visibleRecommendations = 20;
   $('#recommendation-status').textContent = data.unsupportedType ? '已保存的职位类型超出本期范围，请在求职偏好中重新选择。' : data.finishedAt ? `${data.jobs.length} 个符合当前偏好的机会 · 最近刷新 ${new Date(data.finishedAt).toLocaleString()}` : '尚未读取公开列表，点击“刷新公开来源”开始。';
   $('#source-status').replaceChildren(...data.sources.map(source => node('p', `${source.name} · ${{ complete: '完整读取', partial: '部分读取', failed: '读取失败' }[source.status] || '待核实'} · ${source.count} 条本次结果 · ${source.detailed ?? 0} 条正文${source.error ? ' · ' + source.error : ''}`)));
@@ -305,7 +326,7 @@ $('#clear-resume').addEventListener('click', () => action('#file-status', async 
 }));
 $('#refresh-sources').addEventListener('click', () => action('#recommendation-status', async () => {
   $('#recommendation-status').textContent = '正在读取雇主公开列表，可能需要一两分钟…';
-  await api('/api/recommendations/refresh', { method: 'POST', value: {} });
+  try { await api('/api/recommendations/refresh', { method: 'POST', value: {} }); } finally { await loadDiscoveryStatus(); }
   try { await loadRecommendations(); } catch { $('#recommendation-status').textContent = '公开列表已刷新，页面读取失败；重新登录查看即可，无需重复刷新'; }
 }));
 $('#more-recommendations').addEventListener('click', () => { visibleRecommendations += 20; drawRecommendations(); });

@@ -1,4 +1,6 @@
-# Career Queue v2.1.0
+# Career Queue v2.3.0
+
+**v2.3.0 local release:** includes v2.2 job availability checks and v2.3 persistent daily discovery tracking. The approved cutover enables v2 daily discovery and pauses the original schedule; the next natural 09:00 run remains to be verified. See [cutover plan](docs/v2-daily-discovery-plan.md) and [verification](docs/releases/v2.3.0-verification.md).
 
 **v2.1.0 update:** adds account-scoped legacy provenance and a local operator migration tool for Queue jobs without school links, reviewed materials or submission history. Preview-bound confirmation, atomic writes and idempotent retries preserve historical files without activating them as current resumes. Production data is not imported automatically. See [migration operation](docs/v2-migration-operation.md).
 

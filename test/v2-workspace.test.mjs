@@ -13,6 +13,80 @@ import { scoreFor } from '../src/v2/resume.mjs';
 const password = 'Synthetic test password 2026!';
 const changedPassword = 'Another synthetic password 2026!';
 
+test('v2 scheduler requires independent credentials and admin settings; users can read only public status', async t => {
+  const secret = 'c'.repeat(64);
+  const f = await fixture(t, { automationToken: secret, online: async () => true, discover: async () => ({jobs:[],sources:[{id:'test',status:'complete'}],finishedAt:new Date().toISOString()}) });
+  const a = await f.account('alice');
+  assert.equal((await f.call('/api/discovery/status')).status, 401);
+  assert.equal((await f.call('/api/discovery/status', {auth:a})).data.canManage, false);
+  assert.equal((await f.call('/api/discovery/settings', {method:'PUT',auth:a,value:{enabled:true}})).status,403);
+  const db = new WorkspaceStore(f.database);db.db.prepare("UPDATE users SET role='admin' WHERE id=?").run(a.id);db.close();
+  assert.equal((await f.call('/api/discovery/settings', {method:'PUT',auth:a,value:{enabled:true}})).status,200);
+  for (const headers of [{},{Authorization:'Bearer invalid'}]) assert.equal((await f.call('/api/discovery/tick',{method:'POST',value:{},headers})).status,403);
+  assert.equal((await f.call('/api/discovery/tick',{method:'POST',value:{},headers:{Authorization:`Bearer ${secret}`}})).status,200);
+  const status=await f.call('/api/discovery/status',{auth:a}); assert.equal(JSON.stringify(status.data).includes(secret),false);
+  await f.call('/api/discovery/settings',{method:'PUT',auth:a,value:{enabled:false}});
+  assert.equal((await f.call('/api/discovery/tick',{method:'POST',value:{},headers:{Authorization:`Bearer ${secret}`}})).data.skipped,true);
+});
+
+test('v2 no-link school checks preserve independent school deadline and never fetch a missing URL', async t => {
+  let calls = 0;
+  const f = await fixture(t, { ...wordOptions, availability: async () => { calls++; return { status: 'open' }; } }), a = await f.account('alice'), p = await wordApplication(f, a);
+  const base = `/api/jobs/${p.job.id}`;
+  await f.call(base, { method: 'PUT', auth: a, value: { ...p.job, url: '' } });
+  const before = calls;
+  let result = await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} });
+  assert.equal(result.data.status, 'unknown'); assert.equal(calls, before);
+  const text = '|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2028 - Summer|900222|Developer|Synthetic Company|Toronto, ON|Jan 1, 2020 11:59 PM|';
+  const preview = (await f.call('/api/school/preview', { auth: a, method: 'POST', value: { text } })).data;
+  const linked = await f.call('/api/school/import', { auth: a, method: 'POST', value: { text, fingerprint: preview.fingerprint, selections: [{ index: 0, target: `saved:${p.job.id}` }], confirmed: true, requestId: randomUUID() } });
+  assert.equal(linked.status, 200, linked.text);
+  result = await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} });
+  assert.equal(result.data.status, 'closed'); assert.equal(calls, before);
+  await f.call(base, { method: 'PUT', auth: a, value: p.job });
+  result = await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} });
+  assert.equal(result.data.status, 'open');
+});
+
+test('v2 availability binds session, inputs and time; unknown requires confirmation and closed cannot be forged', async t => {
+  let time = Date.now(), status = 'unknown';
+  const f = await fixture(t, { ...wordOptions, now: () => time, availability: async () => ({ status, evidence: 'Synthetic official result' }) });
+  const a = await f.account('alice'), b = await f.account('bob'), p = await wordApplication(f, a);
+  const base = `/api/jobs/${p.job.id}`, send = value => f.call(`${base}/generation`, { method: 'POST', auth: a, value });
+  assert.equal((await f.call(`${base}/availability`, { method: 'POST', auth: b, value: {} })).status, 404);
+  assert.equal((await send({ ...p.input, availability: undefined })).status, 409);
+  assert.equal((await send({ ...p.input, openConfirmed: false })).status, 409);
+  time += 15 * 60000 + 1;
+  assert.equal((await send(p.input)).status, 409);
+  p.input.availability = (await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} })).data;
+  assert.equal((await send(p.input)).status, 200);
+  status = 'closed';
+  p.input.availability = (await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} })).data;
+  assert.equal((await send({ ...p.input, availability: { ...p.input.availability, status: 'open' } })).status, 409);
+  assert.equal((await f.call(`${base}/generation-draft`, { method: 'POST', auth: a, value: {} })).status, 409);
+  status = 'open';
+  p.input.availability = (await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} })).data;
+  await f.restart();
+  assert.equal((await send(p.input)).status, 409);
+});
+
+test('v2 availability failure is unknown, late source changes reject the check without rewriting JD', async t => {
+  let release, started, delayed = false;
+  const f = await fixture(t, { ...wordOptions, availability: async () => {
+    if (!delayed) throw Error('Network failure');
+    started(); await new Promise(resolve => { release = resolve; });
+    return { status: 'open', evidence: 'Synthetic', job: { jd: 'Must not overwrite saved JD' } };
+  } });
+  const a = await f.account('alice'), p = await wordApplication(f, a), base = `/api/jobs/${p.job.id}`;
+  assert.equal(p.input.availability.status, 'unknown');
+  delayed = true; const waiting = new Promise(resolve => { started = resolve; });
+  const pending = f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} }); await waiting;
+  assert.equal((await f.call(`${base}/availability`, { method: 'POST', auth: a, value: {} })).status, 409);
+  await f.call(base, { method: 'PUT', auth: a, value: { ...p.job, jd: 'Updated saved JD' } });
+  release(); assert.equal((await pending).status, 409);
+  assert.equal((await f.call(`${base}/application`, { auth: a })).data.context.job.jd, 'Updated saved JD');
+});
+
 test('v2 password changes require own credentials and CSRF, revoke old sessions and preserve private data', async t => {
   const f = await fixture(t, materialOptions), a = await f.account('alice'), b = await f.account('bob');
   const prepared = await prepareApplication(f, a);
@@ -123,7 +197,7 @@ async function wordApplication(f, auth) {
   await f.call('/api/resume/activate', { method: 'POST', auth, value: { ...parsed, confirmed: true } });
   const saved = (await f.call('/api/jobs', { method: 'POST', auth, value: { ...job, jd: 'Python SQL required.' } })).data;
   const draft = (await f.call(`/api/jobs/${saved.id}/generation-draft`, { method: 'POST', auth, value: {} })).data;
-  return { job: saved, file, input: { fingerprint: draft.fingerprint, contextHash: draft.contextHash, decisions: [], confirmed: true, openConfirmed: true } };
+  return { job: saved, file, input: { fingerprint: draft.fingerprint, contextHash: draft.contextHash, availability: draft.availability, decisions: [], confirmed: true, openConfirmed: true } };
 }
 
 test('v2 generated files are private, atomic, versioned and never auto-reviewed or activated', async t => {
@@ -152,6 +226,7 @@ test('v2 refuses publishing after logout or baseline/JD changes during Word work
   await f.call(`/api/jobs/${prepared.job.id}`, { method: 'PUT', auth: a, value: { ...prepared.job, jd: 'Updated JD' } }); release();
   assert.equal((await pending).status, 409); assert.equal((await f.call('/api/files', { auth: a })).data.length, 1);
   const context = (await f.call(`/api/jobs/${prepared.job.id}/application`, { auth: a })).data.context;
+  prepared.input.availability = (await f.call(`/api/jobs/${prepared.job.id}/availability`, { method: 'POST', auth: a, value: {} })).data;
   waiting = begin(); pending = f.call(path, { method: 'POST', auth: a, value: { ...prepared.input, contextHash: context.hash } }); await waiting;
   await f.call('/api/logout', { method: 'POST', auth: a, value: {} }); release(); assert.equal((await pending).status, 401);
   const db = new WorkspaceStore(f.database); assert.equal(db.files(a.id).length, 1); assert.equal(db.generatedResumes(a.id, prepared.job.id).length, 0); db.close();
@@ -507,9 +582,9 @@ test('v2 public refresh and repeated saves are independent from owner notes and 
   assert.equal(repeated.id, saved.id); assert.equal(repeated.notes, 'Keep private note'); assert.equal(repeated.jd, 'My corrected JD');
   assert.deepEqual((await f.call('/api/jobs', { auth: b })).data, []);
   time += 61000;
-  await f.call('/api/recommendations/refresh', { method: 'POST', auth: a, value: {} });
+  assert.equal((await f.call('/api/recommendations/refresh', { method: 'POST', auth: a, value: {} })).status, 503);
   const results = (await f.call('/api/recommendations', { auth: b })).data;
-  assert.equal(results.jobs.length, 1); assert.equal(results.jobs[0].stale, true); assert.equal(results.jobs[0].notes, undefined);
+  assert.equal(results.jobs.length, 1); assert.equal(results.jobs[0].stale, false); assert.equal(results.jobs[0].notes, undefined);
 });
 
 test('v2 source collection reports partial failures and deduplicates normalized URLs', async () => {
