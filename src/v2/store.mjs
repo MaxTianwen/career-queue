@@ -105,6 +105,8 @@ export class WorkspaceStore {
       created INTEGER NOT NULL, UNIQUE(user_id,source_key));`);
     this.db.exec('CREATE TABLE IF NOT EXISTS application_preparation (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, notes TEXT NOT NULL, basis TEXT NOT NULL, reviewed INTEGER NOT NULL, updated INTEGER NOT NULL)');
     this.db.exec('CREATE TABLE IF NOT EXISTS question_drafts (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL)');
+    if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'hidden')) this.db.exec('ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
+    if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'returned')) this.db.exec('ALTER TABLE jobs ADD COLUMN returned INTEGER NOT NULL DEFAULT 0');
     this.db.exec('CREATE TABLE IF NOT EXISTS question_history (job_id TEXT NOT NULL REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL, archived INTEGER NOT NULL, PRIMARY KEY(job_id,revision))');
     // Record the association known at upgrade, never claim it existed at the submission date.
     this.db.prepare(`INSERT OR IGNORE INTO school_submission_sources
@@ -252,7 +254,18 @@ export class WorkspaceStore {
     }
     return JSON.parse(this.db.prepare('SELECT preferences FROM users WHERE id=?').get(owner).preferences);
   }
-  jobs(owner) { return this.db.prepare('SELECT id,company,title,location,url,notes,created,jd FROM jobs WHERE user_id=? ORDER BY created DESC,id').all(owner); }
+  setJobHidden(owner, id, hidden) {
+    this.job(owner, id);
+    if (typeof hidden !== 'boolean') fail(400, '隐藏状态必须为布尔值');
+    this.db.prepare('UPDATE jobs SET hidden=?,returned=0 WHERE user_id=? AND id=?').run(Number(hidden), owner, id);
+    return this.job(owner, id);
+  }
+  returnJob(owner, id) {
+    this.job(owner, id);
+    this.db.prepare('UPDATE jobs SET returned=1,hidden=0 WHERE user_id=? AND id=?').run(owner,id);
+    return this.job(owner,id);
+  }
+  jobs(owner) { return this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned FROM jobs WHERE user_id=? ORDER BY created DESC,id').all(owner); }
   schoolLinks(owner) {
     return this.db.prepare('SELECT school_id schoolId,job_id jobId,snapshot,created FROM school_links WHERE user_id=? ORDER BY rowid').all(owner)
       .map(({ snapshot, ...link }) => ({ ...link, row: JSON.parse(snapshot), revision: schoolHash({ link, snapshot,
@@ -401,7 +414,7 @@ export class WorkspaceStore {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   job(owner, id) {
-    const row = this.db.prepare('SELECT id,company,title,location,url,notes,created,jd FROM jobs WHERE user_id=? AND id=?').get(owner, id);
+    const row = this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned FROM jobs WHERE user_id=? AND id=?').get(owner, id);
     if (!row) fail(404, '未找到这条职位');
     return row;
   }
@@ -706,7 +719,7 @@ export class WorkspaceStore {
   saveCatalogue(result) {
     // A partial/failed source cannot erase its last successful records.
     const old = this.catalogue(), sources = new Map(result.sources.map(source => [source.id, source]));
-    const jobs = new Map(old.jobs.filter(job => sources.get(job.source.id)?.status !== 'complete').map(job => [job.id, { ...job, stale: true }]));
+    const jobs = new Map(old.jobs.filter(job => (job.sources || [job.source]).some(source => sources.get(source.id)?.status !== 'complete')).map(job => [job.id, { ...job, stale: true }]));
     const previous = new Map(old.jobs.map(job => [job.id, job]));
     for (const job of result.jobs) {
       const cached = previous.get(job.id);
@@ -720,6 +733,6 @@ export class WorkspaceStore {
     const job = this.catalogue().jobs.find(job => job.id === id);
     if (!job) fail(404, '岗位已变化，请刷新建议列表');
     const existing = this.jobs(owner).find(saved => saved.url === job.url);
-    return existing ?? this.saveJob(owner, { ...job, location: job.location.slice(0, 200), notes: '' });
+    return existing ? this.setJobHidden(owner, existing.id, false) : this.saveJob(owner, { ...job, location: job.location.slice(0, 200), notes: '' });
   }
 }

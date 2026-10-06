@@ -1,4 +1,6 @@
-# Career Queue v2.8.1
+# Career Queue v2.9.0
+
+**v2.9.0:** Restores the public internship index with normalized-URL deduplication and provenance; local snapshot contains 118 jobs. Saved opportunities can be returned, hidden and restored without deleting application history. 60 workspace/index checks passed; visual and installed Brave acceptance remain pending. Earlier sections are historical.
 
 **v2.8.1:** revalidate each target immediately before writing when an earlier field changes the page. v2.8.0 is published as f6b28d4. Extension 0.1.1 requires reload; The user installed it in Brave; installed-browser validation is still pending. Seven targeted checks passed. Earlier sections below are historical snapshots.
 

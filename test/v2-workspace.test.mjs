@@ -1045,3 +1045,40 @@ test('browser fill codes are scoped, short-lived, single-use and invalidated by 
  grant=(await issue()).data;await f.call('/api/logout',{auth:a,method:'POST',value:{}});assert.equal((await use(grant.code)).status,403);
  assert.equal(s.preparation(a.id,j.id).notes,'');assert.equal(s.application(a.id,j.id).submissions.length,0);
 });
+
+test('saved jobs can be hidden and restored without changing history; visibility is owner scoped and persistent', async t => {
+  const f=await fixture(t), a=await f.account('alice'), b=await f.account('bob');
+  const j=(await f.call('/api/jobs',{auth:a,method:'POST',value:{company:'Example',title:'Developer',notes:'Keep notes',url:'https://example.com/job'}})).data;
+  const path='/api/jobs/'+j.id+'/visibility';
+  const before=(await f.call('/api/jobs/'+j.id+'/application',{auth:a})).data;
+  assert.equal((await f.call(path,{auth:b,method:'PUT',value:{hidden:true}})).status,404);
+  assert.equal((await f.call(path,{auth:a,method:'PUT',value:{hidden:'true'}})).status,400);
+  for(const hidden of [true,true,false]) {
+    const result=await f.call(path,{auth:a,method:'PUT',value:{hidden}});
+    assert.equal(result.status,200,result.text); assert.equal(result.data.hidden,Number(hidden));
+    assert.equal(result.data.notes,j.notes);
+    const db=new WorkspaceStore(f.database); assert.equal(db.job(a.id,j.id).hidden,Number(hidden)); db.close();
+    assert.deepEqual((await f.call('/api/jobs/'+j.id+'/application',{auth:a})).data,before);
+    assert.equal((await f.call('/api/jobs',{auth:a})).data.find(row=>row.id===j.id).hidden,Number(hidden));
+  }
+});
+
+test('returning opportunities preserves identity and application history and is owner scoped', async t => {
+  const f=await fixture(t), a=await f.account('alice'), b=await f.account('bob');
+  const j=(await f.call('/api/jobs',{auth:a,method:'POST',value:{company:'Example',title:'Developer',notes:'Keep original',url:'https://example.com/job'}})).data;
+  const before=(await f.call('/api/jobs/'+j.id+'/application',{auth:a})).data;
+  const path='/api/jobs/'+j.id+'/return';
+  assert.equal((await f.call(path,{auth:b,method:'PUT',value:{}})).status,404);
+  for(let i=0;i<2;i++) {
+    const result=await f.call(path,{auth:a,method:'PUT',value:{}});
+    assert.equal(result.status,200,result.text); assert.equal(result.data.returned,1); assert.equal(result.data.hidden,0);
+    assert.equal(result.data.notes,j.notes); assert.equal(result.data.id,j.id);
+  }
+  const db=new WorkspaceStore(f.database); assert.equal(db.job(a.id,j.id).returned,1); db.close();
+  assert.deepEqual((await f.call('/api/jobs/'+j.id+'/application',{auth:a})).data,before);
+  for(const hidden of [true,false]) {
+    const result=await f.call('/api/jobs/'+j.id+'/visibility',{auth:a,method:'PUT',value:{hidden}});
+    assert.equal(result.data.returned,0); assert.equal(result.data.hidden,Number(hidden));
+    assert.deepEqual((await f.call('/api/jobs/'+j.id+'/application',{auth:a})).data,before);
+  }
+});

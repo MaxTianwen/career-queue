@@ -271,7 +271,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       }
       if (path === '/api/recommendations' && req.method === 'GET') {
         const data = store.catalogue(), preferences = store.preferences(owner);
-        return json(res, 200, { ...data, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
+        return json(res, 200, { ...data, total: data.jobs.length, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
           unsupportedType: Boolean(preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) });
       }
       if (path === '/api/recommendations/refresh' && req.method === 'POST') {
@@ -284,6 +284,10 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       if (suggested && req.method === 'POST') return json(res, 200, scored(owner, store.saveSuggested(owner, suggested[1])));
       if (path === '/api/jobs' && req.method === 'GET') return json(res, 200, store.jobs(owner).map(job => scored(owner, job)));
       if (path === '/api/jobs' && req.method === 'POST') return json(res, 201, scored(owner, store.saveJob(owner, await input())));
+      const returned = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/return$/);
+      if (returned && req.method === 'PUT') { await input(); return json(res, 200, scored(owner, store.returnJob(owner, returned[1]))); }
+      const visibility = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/visibility$/);
+      if (visibility && req.method === 'PUT') return json(res, 200, scored(owner, store.setJobHidden(owner, visibility[1], (await input()).hidden)));
       const job = path.match(/^\/api\/jobs\/([a-f0-9-]{36})$/);
       if (job && req.method === 'GET') return json(res, 200, scored(owner, store.job(owner, job[1])));
       if (job && req.method === 'PUT') return json(res, 200, scored(owner, store.saveJob(owner, await input(), job[1])));

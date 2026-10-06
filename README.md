@@ -1,4 +1,10 @@
-# Career Queue v2.8.1
+# Career Queue v2.9.0
+
+## v2.9.0 来源恢复与机会清单管理
+
+恢复公共实习索引，与官网规范 URL 去重并保留来源；本机实测 118 条。支持职位放回、隐藏及恢复，历史材料不删除。60 项工作区/索引检查通过；界面视觉验收与 Brave 实机填写仍待补齐。见 docs/releases/public-index-restoration.md 和 opportunity-list-management.md。10 月 6 日自然 09:00 运行已完成（修复前 24 条），118 条为之后手动核验缓存。
+
+以下为历史阶段记录。
 
 ## v2.8.1 动态字段保护
 
