@@ -107,6 +107,7 @@ export class WorkspaceStore {
     this.db.exec('CREATE TABLE IF NOT EXISTS question_drafts (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL)');
     if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'hidden')) this.db.exec('ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
     if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'returned')) this.db.exec('ALTER TABLE jobs ADD COLUMN returned INTEGER NOT NULL DEFAULT 0');
+    this.db.exec('CREATE TABLE IF NOT EXISTS school_opportunities (user_id TEXT NOT NULL REFERENCES users(id),school_id TEXT NOT NULL,snapshot TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(user_id,school_id))');
     this.db.exec('CREATE TABLE IF NOT EXISTS question_history (job_id TEXT NOT NULL REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL, archived INTEGER NOT NULL, PRIMARY KEY(job_id,revision))');
     // Record the association known at upgrade, never claim it existed at the submission date.
     this.db.prepare(`INSERT OR IGNORE INTO school_submission_sources
@@ -265,7 +266,7 @@ export class WorkspaceStore {
     this.db.prepare('UPDATE jobs SET returned=1,hidden=0 WHERE user_id=? AND id=?').run(owner,id);
     return this.job(owner,id);
   }
-  jobs(owner) { return this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned FROM jobs WHERE user_id=? ORDER BY created DESC,id').all(owner); }
+  jobs(owner) { return this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned,(SELECT school_id FROM school_links WHERE school_links.job_id=jobs.id AND school_links.user_id=jobs.user_id LIMIT 1) schoolId FROM jobs WHERE user_id=? ORDER BY created DESC,id').all(owner); }
   schoolLinks(owner) {
     return this.db.prepare('SELECT school_id schoolId,job_id jobId,snapshot,created FROM school_links WHERE user_id=? ORDER BY rowid').all(owner)
       .map(({ snapshot, ...link }) => ({ ...link, row: JSON.parse(snapshot), revision: schoolHash({ link, snapshot,
@@ -358,6 +359,46 @@ export class WorkspaceStore {
       this.db.exec('COMMIT'); return { saved: true };
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
+  schoolOpportunities(owner) {
+    const links=this.schoolLinks(owner);
+    const items=this.db.prepare('SELECT school_id,snapshot,updated FROM school_opportunities WHERE user_id=? ORDER BY updated DESC,school_id').all(owner).map(item=>({schoolId:item.school_id,row:JSON.parse(item.snapshot),fingerprint:schoolHash(JSON.parse(item.snapshot)),updated:item.updated,jobId:links.find(link=>link.schoolId===item.school_id)?.jobId || null}));
+    for(const link of links) if(!items.some(item=>item.schoolId===link.schoolId)) items.push({schoolId:link.schoolId,row:link.row,fingerprint:schoolHash(link.row),updated:link.created,jobId:link.jobId});
+    return items;
+  }
+  syncSchoolOpportunities(owner, text) {
+    textField(text,150000,true);
+    const preview=this.schoolPreview(owner,text);
+    if (preview.errors.length || preview.rows.some(item=>!item.row)) fail(400,'列表有无法识别的行，请修正后更新；原学校职位保留');
+    const rows=preview.rows.map(item=>item.row);
+    if (!rows.length || new Set(rows.map(row=>row.id)).size!==rows.length) fail(400,'没有有效职位或 School ID 重复，请核对');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const row of rows) {
+        const link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
+        if(link && schoolHash(link.row)!==schoolHash(row)) {
+          const job=this.job(owner,link.jobId), before={schoolId:row.id,jobId:job.id,row:link.row,job}, after={...before,row};
+          this.schoolAudit(owner,row.id,'update',before,after,'本人粘贴更新学校列表',randomUUID(),schoolHash(row));
+          this.db.prepare('UPDATE school_links SET snapshot=? WHERE user_id=? AND school_id=?').run(JSON.stringify(row),owner,row.id);
+        }
+        this.db.prepare('INSERT INTO school_opportunities VALUES (?,?,?,?) ON CONFLICT(user_id,school_id) DO UPDATE SET snapshot=excluded.snapshot,updated=excluded.updated').run(owner,row.id,JSON.stringify(row),this.now());
+      }
+      this.db.exec('COMMIT'); return {updated:rows.length};
+    } catch(error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  startSchoolOpportunity(owner, schoolId, fingerprint) {
+    const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
+    if (!item) fail(404,'学校职位不存在');
+    if (schoolHash(item.row)!==fingerprint) fail(409,'学校列表已更新，请刷新后重新选择');
+    if (item.jobId) return this.job(owner,item.jobId);
+    if (this.schoolSubmissionSources(owner,schoolId).some(s=>s.channel==='school')) fail(409,'已有学校提交历史，请在学校对照核查原关联');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const job=this.saveJob(owner,{company:item.row.company,title:item.row.title,location:item.row.location,url:'',jd:'',notes:''});
+      this.db.prepare('INSERT INTO school_links VALUES (?,?,?,?,?)').run(owner,schoolId,job.id,JSON.stringify(item.row),this.now());
+      this.schoolAudit(owner,schoolId,'link',null,{schoolId,jobId:job.id,row:item.row,job},'本人从学校职位开始准备',randomUUID(),fingerprint);
+      this.db.exec('COMMIT'); return job;
+    } catch(error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   schoolPreview(owner, text) {
     const jobs = this.jobs(owner).map(job => ({ ...job, submissions: this.application(owner, job.id).submissions.map(({ channel, date }) => ({ channel, date })) }));
     const preview = previewSchool(text, { jobs, links: this.schoolLinks(owner), catalogue: this.catalogue(), preferences: this.preferences(owner), now: new Date(this.now()) });
@@ -414,7 +455,7 @@ export class WorkspaceStore {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   job(owner, id) {
-    const row = this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned FROM jobs WHERE user_id=? AND id=?').get(owner, id);
+    const row = this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned,(SELECT school_id FROM school_links WHERE school_links.job_id=jobs.id AND school_links.user_id=jobs.user_id LIMIT 1) schoolId FROM jobs WHERE user_id=? AND id=?').get(owner, id);
     if (!row) fail(404, '未找到这条职位');
     return row;
   }
@@ -491,7 +532,7 @@ export class WorkspaceStore {
       const rows = (table, columns) => this.db.prepare(`SELECT ${columns} FROM ${table} WHERE user_id=? ORDER BY rowid`).all(owner);
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
-        jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
+        schoolOpportunities: this.schoolOpportunities(owner), jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
         resumeText: rows('resume_text', 'file_id,text,text_hash,pages,parser'),
         channels: rows('application_plans', 'job_id,channel'),
         questionHistory: rows('question_history', 'job_id,revision,basis,snapshot,updated,archived').map(row => ({...row, snapshot:JSON.parse(row.snapshot)})),

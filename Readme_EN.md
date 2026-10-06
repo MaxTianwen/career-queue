@@ -1,4 +1,6 @@
-# Career Queue v2.9.0
+# Career Queue v2.10.0
+
+Independent school opportunities: update pasted listings by School ID, retain absent rows and application history, and reuse material preparation. Includes the visible browser pairing entry. 58 regression checks passed; interactive acceptance is still pending.
 
 **v2.9.0:** Restores the public internship index with normalized-URL deduplication and provenance; local snapshot contains 118 jobs. Saved opportunities can be returned, hidden and restored without deleting application history. 60 workspace/index checks passed; visual and installed Brave acceptance remain pending. Earlier sections are historical.
 

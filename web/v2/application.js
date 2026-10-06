@@ -8,6 +8,18 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   const dirty = new Set();
   const preparation = $('#preparation-form');
   let preparationState = null, questionState = null, rehearsalDialog = null;
+  $('#pairing-entry').addEventListener('click', () => {
+    const status=$('#pairing-entry-status');
+    if (!jobId) { status.textContent='请先在机会清单选择一个已保存的职位。'; return; }
+    let supported=false;
+    try { const u=new URL($('#job-form').elements.url.value); supported=u.protocol==='https:' && !u.port && !u.username && !u.password && ['boards.greenhouse.io','job-boards.greenhouse.io'].includes(u.hostname) && /^\/[\w-]+\/jobs\/\d+\/?$/.test(u.pathname); } catch {}
+    if (!supported) { status.textContent='当前职位不是支持的 Greenhouse 官网链接，暂时不能配对。学校 Portal 仍使用学校对照功能。'; return; }
+    $('#preparation-panel').open=true;
+    const connect=$('#browser-pairing');
+    if (connect) { connect.open=true; connect.scrollIntoView({block:'center'}); connect.querySelector('input').focus(); status.textContent='请保存并核对逐题草稿，然后勾选允许读取并生成临时配对码。'; }
+    else { status.textContent='第一步：点击“读取 Greenhouse 申请问题”，填写并保存逐题草稿后，再生成临时配对码。'; $('#read-application-form').scrollIntoView({block:'center'}); $('#read-application-form').focus(); }
+  });
+
   const material = $('#material-form'), submission = $('#submission-form');
   const correction = $('#submission-correction-form');
   let correctionDraft = null, submissionRequestId = crypto.randomUUID(), submissionPayload = null;
@@ -73,7 +85,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   });
   function reset(id) {
     clearRehearsal();
-    preparationState = null; questionState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
+    $('#pairing-entry-status').textContent=''; preparationState = null; questionState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
     revision++; jobId = id; state = null; schoolContext = null; $('#submission-school-context').textContent = ''; dirty.clear(); clearPreview();
     clearDraft(); clearEdit(); clearCorrection(); submissionRequestId = crypto.randomUUID(); submissionPayload = null;
     $('#generated-list').replaceChildren(); $('#generation-panel').open = false;
@@ -271,7 +283,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const source = el('a', '查看官方接口来源'); source.href = result.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
     const lines = result.questions.map(q => '[' + (q.section || '申请问题') + '] ' + (q.required ? '必填：' : '选填：') + q.label + '\n' + q.fields.map(f => '填写方式：' + ({input_file:'上传附件',textarea:'长文本',input_text:'文本',input_hidden:'官网自动处理',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对') + (f.options.length ? '；选项：' + f.options.join(' / ') : '')).join('\n'));
     area.append(el('p', '仅勾选的问题会加入草稿。这里的答案是本机草稿，不会填写到官网。附件问题可记录待办，不会上传文件。'));
-    const connect=document.createElement('details'); connect.append(el('summary','连接 Chrome / Edge 填写助手'));
+    const connect=document.createElement('details'); connect.id='browser-pairing'; connect.append(el('summary','连接 Brave / Chrome / Edge 填写助手'));
     connect.append(el('p','先从项目 browser-extension 目录安装本机扩展。在对应 Greenhouse 页打开扩展，粘贴配对码后预览并确认。配对码3分钟有效、确认使用一次；重新生成会使旧码失效，退出登录或草稿变化也会失效。'));
     const allowed=document.createElement('input'); allowed.type='checkbox'; const consent=el('label','允许本次扩展读取本职位的普通文本答案');consent.className='check';consent.prepend(allowed);
     const pair=el('button','生成临时配对码');pair.type='button';const output=document.createElement('input');output.type='password';output.readOnly=true;output.setAttribute('aria-label','临时配对码');output.hidden=true;

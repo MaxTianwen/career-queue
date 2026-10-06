@@ -1082,3 +1082,22 @@ test('returning opportunities preserves identity and application history and is 
     assert.deepEqual((await f.call('/api/jobs/'+j.id+'/application',{auth:a})).data,before);
   }
 });
+
+test('school opportunities sync by ID, retain absent rows and reuse linked application history',async t=>{
+ const f=await fixture(t),a=await f.account('alice'),b=await f.account('bob');
+ const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|123456|Software Developer Intern|Example|Toronto, ON|Oct 31, 2026 11:59 PM|';
+ const sync=text=>f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}});
+ assert.equal((await sync(text)).status,200);assert.equal((await sync(text)).status,200);
+ let items=(await f.call('/api/school/opportunities',{auth:a})).data;assert.equal(items.length,1);
+ assert.deepEqual((await f.call('/api/school/opportunities',{auth:b})).data,[]);
+ const start=(auth,item)=>f.call('/api/school/opportunities/start',{auth,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}});
+ assert.equal((await start(b,items[0])).status,404);
+ const job=(await start(a,items[0])).data;assert.equal((await start(a,items[0])).data.id,job.id);
+ const before=(await f.call('/api/jobs/'+job.id+'/application',{auth:a})).data;
+ await sync(text.replace('Toronto, ON','Ottawa, ON'));
+ assert.equal((await start(a,items[0])).status,409);
+ items=(await f.call('/api/school/opportunities',{auth:a})).data;assert.equal(items[0].row.location,'Ottawa, ON');assert.equal(items[0].jobId,job.id);
+ assert.deepEqual((await f.call('/api/jobs/'+job.id+'/application',{auth:a})).data,before);
+ await sync(text.replace('123456','123457')); assert.equal((await f.call('/api/school/opportunities',{auth:a})).data.length,2);
+ assert.equal((await sync('invalid')).status,400);assert.equal((await f.call('/api/school/opportunities',{auth:a})).data.length,2);
+});

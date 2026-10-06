@@ -127,6 +127,9 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         } finally { exporting = false; }
       }
       if (path === '/api/applications' && req.method === 'GET') return json(res, 200, store.applications(owner));
+      if (path === '/api/school/opportunities' && req.method === 'GET') return json(res,200,store.schoolOpportunities(owner));
+      if (path === '/api/school/opportunities' && req.method === 'POST') return json(res,200,store.syncSchoolOpportunities(owner,(await input()).text));
+      if (path === '/api/school/opportunities/start' && req.method === 'POST') { const value=await input(); return json(res,200,store.startSchoolOpportunity(owner,value.schoolId,value.fingerprint)); }
       if (path === '/api/school' && req.method === 'GET') return json(res, 200, store.schoolRecords(owner));
       if (path === '/api/school/history' && req.method === 'GET') return json(res, 200, { events: store.schoolHistory(owner), sources: store.schoolSubmissionSources(owner) });
       const schoolContext = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/school-context$/);

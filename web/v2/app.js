@@ -49,7 +49,7 @@ async function action(status, run) {
 function tab(name) {
   if (name !== 'security') $('#password-form').reset();
   $('#resume-review').hidden = name !== 'files' || !reviewedResume;
-  for (const item of ['jobs', 'preferences', 'files', 'recommendations', 'applications', 'school', 'data', 'security']) {
+  for (const item of ['jobs', 'preferences', 'files', 'recommendations', 'applications', 'school', 'school-jobs', 'data', 'security']) {
     $(`#${item}-tab`).hidden = item !== name;
     const button = $(`[data-tab="${item}"]`);
     if (item === name) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
@@ -72,8 +72,8 @@ function jobDirty() {
 }
 function allowJobSwitch() { return (!jobDirty() && !applications.dirty()) || window.confirm('这个职位或材料区有未保存的内容。放弃修改并切换？'); }
 function drawJobs() {
-  $('#job-count').textContent = String(jobs.filter(job => !job.hidden && !job.returned).length);
-  const visible = jobs.filter(job => !job.returned && Boolean(job.hidden) === $('#show-hidden-jobs').checked);
+  $('#job-count').textContent = String(jobs.filter(job => !job.hidden && !job.returned && !job.schoolId).length);
+  const visible = jobs.filter(job => !job.returned && !job.schoolId && Boolean(job.hidden) === $('#show-hidden-jobs').checked);
   $('#jobs-list').replaceChildren();
   if (!visible.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = $('#show-hidden-jobs').checked ? '没有已隐藏职位。' : '清单为空。可保存新职位，或在“查看已隐藏”中恢复。'; $('#jobs-list').append(p); }
   for (const job of visible) {
@@ -211,7 +211,7 @@ $('#file-form').addEventListener('submit', event => { event.preventDefault(); ac
 }); });
 $('#job-form').elements.jd.addEventListener('input', () => { $('#job-match').replaceChildren(node('p', 'JD 已修改；保存后重新计算匹配度', 'muted')); });
 $('#new-job').addEventListener('click', () => { if (allowJobSwitch()) { tab('jobs'); selectJob(null); $('#job-form').elements.company.focus(); } });
-for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'recommendations') action('#recommendation-status', loadRecommendations); if (button.dataset.tab === 'data') action('#data-status', refreshUsage); if (button.dataset.tab === 'school') action('#school-status', school.refresh); });
+for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'recommendations') action('#recommendation-status', loadRecommendations); if (button.dataset.tab === 'data') action('#data-status', refreshUsage); if (button.dataset.tab === 'school-jobs') action('#school-jobs-status', school.refreshOpportunities); if (button.dataset.tab === 'school') action('#school-status', school.refresh); });
 async function refreshUsage() {
   const [usage, migrations] = await Promise.all([api('/api/data/usage'), api('/api/data/migrations')]);
   $('#migration-history').replaceChildren(...(migrations.length ? migrations.map(entry => {

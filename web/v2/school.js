@@ -164,13 +164,28 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged }) {
     if (!visible.length) $('#school-records').append(node('p', pending ? '目前没有“官网已交、学校待补交”的记录。需先为岗位确认包含学校的申请渠道。' : '尚未保存学校关联。请粘贴学校列表后预览。'));
   }
   async function refresh() { records = await api('/api/school'); const history = await api('/api/school/history'); drawRecords(); drawHistory(history); $('#school-status').textContent = `已读取 ${records.length} 条学校关联。${maintenance ? '维护草稿已保留；不会自动接受新的记录版本。' : ''}`; }
+  async function refreshOpportunities() {
+    const items=await api('/api/school/opportunities'); const list=$('#school-jobs-list'); list.replaceChildren();
+    for(const item of items) {
+      const card=node('article',''); card.className='recommendation-card';
+      card.append(node('small',`学校 ID ${item.schoolId} · 更新 ${new Date(item.updated).toLocaleString()}`),node('h3',item.row.title),facts(item.row));
+      const start=node('button',item.jobId?'查看与继续申请':'准备申请');
+      start.addEventListener('click',()=>action('#school-jobs-status',async()=>{
+        const job=await api('/api/school/opportunities/start',{method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}});
+        await jobsChanged(); await chooseJob(job.id);
+      })); card.append(start); list.append(card);
+    }
+    $('#school-jobs-status').textContent=items.length?`${items.length} 条学校职位`:'请先到“学校对照”粘贴学校职位列表。';
+  }
+  $('#school-jobs-reload').addEventListener('click',()=>action('#school-jobs-status',refreshOpportunities));
   form.addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {
     const text = form.elements.text.value;
     const result = await api('/api/school/preview', { method: 'POST', value: { text } });
+    await api('/api/school/opportunities',{method:'POST',value:{text}});
     invalidate(); preview = result; originalText = text; limit = 20;
     $('#school-preview').hidden = false;
     $('#school-warnings').replaceChildren(...[...result.warnings, ...result.errors].map(message => node('p', message)));
-    drawPreview(); $('#school-status').textContent = `识别 ${result.parsedCount} 条；只预览，尚未保存。`;
+    drawPreview(); $('#school-status').textContent = `识别 ${result.parsedCount} 条；学校职位列表已更新，关联与申请状态尚未改变。`;
   }); });
   $('#school-save-form').addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {
     if (!preview || form.elements.text.value !== originalText) throw new Error('请先预览当前原文');
@@ -185,5 +200,5 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged }) {
   $('#school-clear-choices').addEventListener('click', () => { choices.clear(); confirmation.checked = false; requestId = crypto.randomUUID(); drawPreview(); });
   $('#school-record-filter').addEventListener('change', drawRecords);
   $('#school-reload').addEventListener('click', () => action('#school-status', refresh));
-  return { refresh, clear: () => { closeMaintenance(); invalidate(); records = []; originalText = ''; form.reset(); $('#school-preview-filter').value = 'all'; $('#school-record-filter').value = 'all'; $('#school-records').replaceChildren(); $('#school-history').replaceChildren(); } };
+  return { refresh, refreshOpportunities, clear: () => { $('#school-jobs-list').replaceChildren(); $('#school-jobs-status').textContent=''; closeMaintenance(); invalidate(); records = []; originalText = ''; form.reset(); $('#school-preview-filter').value = 'all'; $('#school-record-filter').value = 'all'; $('#school-records').replaceChildren(); $('#school-history').replaceChildren(); } };
 }
