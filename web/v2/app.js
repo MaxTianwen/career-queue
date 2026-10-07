@@ -59,8 +59,9 @@ function selectJob(job, preserveApplication = false) {
   if (preserveApplication) applications.refresh().catch(error => { $('#application-status').textContent = `职位已保存；材料区刷新失败：${error.message}`; }); else applications.reset(job?.id ?? null);
   const form = $('#job-form'); form.reset();
   for (const name of ['id', 'company', 'title', 'location', 'url', 'notes', 'jd']) form.elements[name].value = job?.[name] ?? '';
-  $('#job-mode').textContent = job ? 'SAVED OPPORTUNITY' : 'NEW OPPORTUNITY';
-  $('#job-title').textContent = job ? '职位与备注' : '保存职位';
+  $('#job-mode').textContent = job?.schoolId ? '学校职位 · School ID '+job.schoolId : job ? 'SAVED OPPORTUNITY' : 'NEW OPPORTUNITY';
+  $('#back-school-jobs').hidden = !job?.schoolId;
+  $('#job-title').textContent = job?.schoolId ? '学校职位与申请准备' : job ? '职位与备注' : '保存职位';
   $('#job-status').textContent = ''; $('#job-match').replaceChildren(matchView(job?.match));
   $('#job-link').hidden = !job?.url;
   if (job?.url) $('#job-link').href = job.url; else $('#job-link').removeAttribute('href');
@@ -110,6 +111,7 @@ function drawJobs() {
   }
 }
 $('#show-hidden-jobs').addEventListener('change', drawJobs);
+$('#back-school-jobs').addEventListener('click',()=>{ tab('school-jobs'); action('#school-jobs-status',school.refreshOpportunities); });
 function drawFiles(files) {
   $('#files-list').replaceChildren();
   if (!files.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = '暂未保存原始文件。'; $('#files-list').append(p); }

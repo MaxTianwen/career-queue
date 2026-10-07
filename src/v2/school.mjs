@@ -36,7 +36,7 @@ export function previewSchool(text, { jobs, links, catalogue, preferences, now }
         sourceNote: publicJob ? `${publicJob.stale ? '上次公开结果，本次未确认' : '公开来源'}${visible.has(publicJob.id) ? '' : ' · 当前偏好或截止筛选未显示'}` : '本人已保存职位' };
     }).sort((a, b) => Number(b.strong) - Number(a.strong) || Number(b.kind === 'saved') - Number(a.kind === 'saved') || a.conflicts.length - b.conflicts.length);
     return { index: item.index, row, category: linked ? 'linked' : candidates.length ? 'candidates' : 'unmatched', candidates,
-      linked: linked || null, sourceChanged: Boolean(linked && schoolHash(linked.row) !== schoolHash(row)),
+      linked: linked || null, sourceChanged: Boolean(linked && schoolHash(linked.row) !== schoolHash({ ...row, url: row.url || linked.row.url, externalUrl: row.externalUrl || linked.row.externalUrl })),
       expired: deadlineExpired(row.deadline, now), relatedSchoolIds: item.relatedSchoolIds,
       warning: parsed.rows[item.index].parseWarning || '' };
   });

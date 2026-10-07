@@ -180,12 +180,14 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged }) {
   $('#school-jobs-reload').addEventListener('click',()=>action('#school-jobs-status',refreshOpportunities));
   form.addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {
     const text = form.elements.text.value;
-    const result = await api('/api/school/preview', { method: 'POST', value: { text } });
-    await api('/api/school/opportunities',{method:'POST',value:{text}});
+    const updated = await api('/api/school/opportunities',{method:'POST',value:{text}});
+    const result = updated.preview;
     invalidate(); preview = result; originalText = text; limit = 20;
     $('#school-preview').hidden = false;
     $('#school-warnings').replaceChildren(...[...result.warnings, ...result.errors].map(message => node('p', message)));
-    drawPreview(); $('#school-status').textContent = `识别 ${result.parsedCount} 条；学校职位列表已更新，关联与申请状态尚未改变。`;
+    drawPreview();
+    try { await refresh(); $('#school-status').textContent = `识别 ${result.parsedCount} 条；学校来源资料已更新，关联目标、材料与提交记录保持不变。`; }
+    catch { $('#school-status').textContent = '学校资料已更新，对照可继续使用；下方关联列表暂未刷新，请稍后重试。'; }
   }); });
   $('#school-save-form').addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {
     if (!preview || form.elements.text.value !== originalText) throw new Error('请先预览当前原文');

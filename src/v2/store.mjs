@@ -373,8 +373,12 @@ export class WorkspaceStore {
     if (!rows.length || new Set(rows.map(row=>row.id)).size!==rows.length) fail(400,'没有有效职位或 School ID 重复，请核对');
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      for (const row of rows) {
+      for (const pasted of rows) {
+        const row={...pasted};
         const link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
+        const previous=link?.row || this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row;
+        // Copied lists omit URLs; explicit removal remains in school maintenance.
+        for (const key of ['url','externalUrl']) if(!row[key] && previous?.[key]) row[key]=previous[key];
         if(link && schoolHash(link.row)!==schoolHash(row)) {
           const job=this.job(owner,link.jobId), before={schoolId:row.id,jobId:job.id,row:link.row,job}, after={...before,row};
           this.schoolAudit(owner,row.id,'update',before,after,'本人粘贴更新学校列表',randomUUID(),schoolHash(row));
@@ -382,7 +386,8 @@ export class WorkspaceStore {
         }
         this.db.prepare('INSERT INTO school_opportunities VALUES (?,?,?,?) ON CONFLICT(user_id,school_id) DO UPDATE SET snapshot=excluded.snapshot,updated=excluded.updated').run(owner,row.id,JSON.stringify(row),this.now());
       }
-      this.db.exec('COMMIT'); return {updated:rows.length};
+      const nextPreview=this.schoolPreview(owner,text);
+      this.db.exec('COMMIT'); return {updated:rows.length,preview:nextPreview};
     } catch(error) { this.db.exec('ROLLBACK'); throw error; }
   }
   startSchoolOpportunity(owner, schoolId, fingerprint) {

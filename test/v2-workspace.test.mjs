@@ -1101,3 +1101,19 @@ test('school opportunities sync by ID, retain absent rows and reuse linked appli
  await sync(text.replace('123456','123457')); assert.equal((await f.call('/api/school/opportunities',{auth:a})).data.length,2);
  assert.equal((await sync('invalid')).status,400);assert.equal((await f.call('/api/school/opportunities',{auth:a})).data.length,2);
 });
+
+test('school repaste preserves missing links and returns a fresh matching preview after updating linked rows',async t=>{
+ const f=await fixture(t),a=await f.account('alice');
+ const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|223456|Software Developer Intern|Example|Toronto, ON|Oct 31, 2026 11:59 PM|';
+ await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}});
+ const item=(await f.call('/api/school/opportunities',{auth:a})).data[0];
+ await f.call('/api/school/opportunities/start',{auth:a,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}});
+ const db=new WorkspaceStore(f.database);const link=db.schoolLinks(a.id)[0];link.row.url='https://school.example/jobs/223456';link.row.externalUrl='https://example.com/job';db.db.prepare('UPDATE school_links SET snapshot=? WHERE user_id=? AND school_id=?').run(JSON.stringify(link.row),a.id,item.schoolId);db.close();
+ const changed=text.replace('Toronto, ON','Ottawa, ON');
+ const response=await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text:changed}});
+ assert.equal(response.status,200,response.text);
+ const records=(await f.call('/api/school',{auth:a})).data;assert.equal(records[0].row.externalUrl,link.row.externalUrl);assert.equal(records[0].row.url,link.row.url);
+ const preview=(await f.call('/api/school/preview',{auth:a,method:'POST',value:{text:changed}})).data;
+ assert.equal(response.data.preview.fingerprint,preview.fingerprint);
+ assert.equal(preview.rows[0].sourceChanged,false);
+});

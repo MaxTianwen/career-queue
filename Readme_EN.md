@@ -1,4 +1,4 @@
-# Career Queue v2.10.0
+# Career Queue v2.10.1
 
 Independent school opportunities: update pasted listings by School ID, retain absent rows and application history, and reuse material preparation. Includes the visible browser pairing entry. 58 regression checks passed; interactive acceptance is still pending.
 
