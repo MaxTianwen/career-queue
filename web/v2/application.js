@@ -6,7 +6,7 @@ const channels = { unknown: '待确认', employer: '官网', school: '学校', b
 export function localDate(date=new Date()) {
   return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
 }
-export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloadFile, filesChanged }) {
+export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloadFile, filesChanged, readView=(_key,load)=>load(()=>true) }) {
   let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
   const dirty = new Set();
   const preparation = $('#preparation-form');
@@ -457,8 +457,9 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     editor.append(status);container.append(editor);
     if(record.corrections?.length){const history=document.createElement('details');history.append(el('summary','变更历史 · '+record.corrections.length));for(const change of record.corrections)history.append(el('p',`${{correct:'更正',withdraw:'撤回',restore:'重新确认'}[change.action]} · ${change.before.date} → ${change.after.date} · ${change.reason} · ${new Date(change.created).toLocaleString()}`));container.append(history);}
   }
-  async function records() {
-    const [rows,withdrawn]=await Promise.all([api('/api/applications'),api('/api/withdrawn-applications')]);$('#applications-list').replaceChildren();
+  function records(force=true){return readView('applications',readRecords,{force});}
+  async function readRecords(current) {
+    const [rows,withdrawn]=await Promise.all([api('/api/applications'),api('/api/withdrawn-applications')]);if(!current())return;$('#applications-list').replaceChildren();
     for(const [channel,title] of [['school','学校申请'],['employer','外部申请']]) {
       const group=document.createElement('section');group.append(el('h3',title));
       const entries=rows.filter(row=>row.submissions.some(record=>record.channel===channel));

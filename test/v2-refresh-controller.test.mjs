@@ -23,7 +23,7 @@ test('editorial secondary filters remain in DOM, accessible to filtering and res
  const oldDoc=globalThis.document,oldOption=globalThis.Option;
  class Node{constructor(tag){this.tag=tag;this.children=[];this.events={};this.value='';}append(...children){this.children.push(...children);}add(child){this.children.push(child);}addEventListener(k,fn){this.events[k]=fn;}querySelectorAll(){return this.children.flatMap(c=>c instanceof Node?[...(['input','select'].includes(c.tag)?[c]:[]),...c.querySelectorAll()]:[]);}}
  globalThis.document={createElement:tag=>new Node(tag)};globalThis.Option=class {constructor(text,value){this.text=text;this.value=value;}};
- try{const root=new Node('div'),read=mountFilters(root,()=>{}),extra=root.children.find(c=>c.tag==='details');assert.ok(extra);assert.equal(extra.children[0].tag,'summary');assert.deepEqual(extra.children.filter(c=>c.tag==='label').flatMap(c=>c.children.filter(x=>x.tag==='select').map(x=>x.name)),['months','platform']);
+ try{const root=new Node('div'),read=mountFilters(root,()=>{}),extra=root.children.find(c=>c.tag==='details');assert.ok(extra);assert.equal(extra.children[0].tag,'summary');assert.deepEqual(extra.children.filter(c=>c.tag==='label').flatMap(c=>c.children.filter(x=>x.tag==='select').map(x=>x.name)),['source','platform']);
  const month=root.querySelectorAll().find(c=>c.name==='months');month.value='8';assert.equal(read().months,'8');root.children.find(c=>c.tag==='button').events.click();assert.equal(read().months,'');
  }finally{globalThis.document=oldDoc;globalThis.Option=oldOption;}
 });

@@ -7,7 +7,7 @@ const $ = selector => document.querySelector(selector);
 const node = (tag, text) => { const el = document.createElement(tag); el.textContent = text; return el; };
 const channelName = channel => channel === 'employer' ? '官网' : '学校';
 
-export function schoolWorkspace({ api, action, chooseJob, jobsChanged }) {
+export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=(_key,load)=>load(()=>true) }) {
   let preview = null, originalText = '', requestId = crypto.randomUUID(), limit = 20, records = [];
   const choices = new Map(), form = $('#school-paste-form'), confirmation = $('#school-confirmed');
   let maintenance = null;
@@ -176,7 +176,8 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged }) {
   const schoolFilters=mountFilters($('#school-filters'),drawOpportunities,{schoolOnly:true});
   const schoolView=mountView($('#school-jobs-list'),'school',drawOpportunities);
   let refreshRevision=0;
-  async function refreshOpportunities() {const revision=++refreshRevision;const [rows,excluded]=await Promise.all([api('/api/school/opportunities'),api('/api/eligibility/exclusions')]);if(revision!==refreshRevision)return;opportunities=rows;const schoolExcluded=excluded.filter(r=>r.schoolIds.length);$('#school-eligibility-note').hidden=!schoolExcluded.length;$('#school-eligibility-exclusions').replaceChildren(...schoolExcluded.map(r=>node('p',`已排除 · 学校 ${r.schoolIds.join(' / ')} · ${r.title} · ${(r.reason.evidence||[]).join(' ')}`)));preserveList($('#school-jobs-list'),drawOpportunities); }
+  function refreshOpportunities(force=true){return readView('school',readOpportunities,{force});}
+  async function readOpportunities(current) {const revision=++refreshRevision;const [rows,excluded]=await Promise.all([api('/api/school/opportunities'),api('/api/eligibility/exclusions')]);if(!current()||revision!==refreshRevision)return;opportunities=rows;const schoolExcluded=excluded.filter(r=>r.schoolIds.length);$('#school-eligibility-note').hidden=!schoolExcluded.length;$('#school-eligibility-exclusions').replaceChildren(...schoolExcluded.map(r=>node('p',`已排除 · 学校 ${r.schoolIds.join(' / ')} · ${r.title} · ${(r.reason.evidence||[]).join(' ')}`)));preserveList($('#school-jobs-list'),drawOpportunities); }
   function drawOpportunities() {
     const items=opportunities.filter(item=>matchesOpportunity({...item.facts,...item.row,hasSchool:true},schoolFilters()));const list=$('#school-jobs-list');list.replaceChildren();
     for(const item of items) {
@@ -196,8 +197,8 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged }) {
       })); start.className='primary';const actions=node('div','');actions.className='card-actions';actions.append(start);card.append(actions);list.append(card);
     }
     if(!items.length){const empty=node('p',opportunities.length?'没有符合筛选的学校职位。':'展开上方导入入口，粘贴学校职位表格即可开始。');empty.className='empty';list.append(empty);}
-    schoolView();
-    $('#school-jobs-status').textContent=`${items.length} / ${opportunities.length} 条学校职位`+(opportunities.length?'':' · 在上方粘贴学校列表即可开始。');
+    const count=node('p',`${items.length} / ${opportunities.length} 条学校职位`);count.className='list-meta';list.prepend(count);schoolView();
+    $('#school-jobs-status').textContent='';
   }
   $('#school-jobs-reload').addEventListener('click',()=>action('#school-jobs-status',refreshOpportunities));
   form.addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {

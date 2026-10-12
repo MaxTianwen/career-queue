@@ -14,3 +14,20 @@ export function preserveList(container,render,{window:win=window,document:doc=do
  const frame=container.querySelector?.('.table-scroll');if(frame)frame.scrollLeft=horizontal;
  const target=anchor&&next.find(c=>c.dataset.jobId===anchor.dataset.jobId);win.scrollTo(x,target?y+target.getBoundingClientRect().top-top:y);
 }
+
+// Account-session memory only: keep rendered views, coalesce reads, invalidate on writes/logout.
+export function viewLoader({now=Date.now,maxAge=60000}={}) {
+ const entries=new Map();
+ return {
+  invalidate(key){if(key)entries.delete(key);else entries.clear();},
+  run(key,load,{force=false}={}){
+   const previous=entries.get(key);
+   if(previous?.pending)return previous.pending;
+   if(!force&&previous?.done&&now()-previous.at<maxAge)return Promise.resolve();
+   const entry={done:false,at:0,pending:null};entries.set(key,entry);
+   const current=()=>entries.get(key)===entry;
+   entry.pending=Promise.resolve().then(()=>load(current)).then(value=>{if(current()){entry.done=true;entry.at=now();}return value;}).catch(error=>{if(current())entries.delete(key);throw error;}).finally(()=>{entry.pending=null;});
+   return entry.pending;
+  }
+ };
+}

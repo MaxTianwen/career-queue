@@ -28,9 +28,9 @@ export function unifiedOpportunities(owner,catalogue,schools,saved) {
  for(const item of [...schools].sort((a,b)=>a.schoolId.localeCompare(b.schoolId))) {
   const row=item.officialFacts || item.row,linked=saved.find(s=>s.id===item.jobId);
   const explicit=item.explicitMatch && linked?.url ? result.filter(j=>j.hasPublic && identityUrl(j.url)===identityUrl(linked.url)):[];
-  const candidates=result.filter(j=>!identityConflicts(row,j).length && (
+  const candidates=result.filter(j=>(
    (identityUrl(row.externalUrl)&&identityUrl(row.externalUrl)===identityUrl(j.url)) ||
-   (norm(row.company)&&norm(row.company)===norm(j.company)&&norm(row.requisitionId)&&norm(row.requisitionId)===norm(j.requisitionId))));
+   (norm(row.company)&&norm(row.company)===norm(j.company)&&norm(row.requisitionId)&&norm(row.requisitionId)===norm(j.requisitionId))) && !identityConflicts(row,j).length);
   const matches=explicit.length===1?explicit:candidates;
   let job=matches.length===1?matches[0]:null;
   const evidence={schoolId:item.schoolId,updated:item.updated,jobId:item.jobId,requirement:item.requirement,row:{...row},match:explicit.length===1?'explicit':job?'identifier':'unmatched',conflicts:job?identityConflicts(row,job):[]};

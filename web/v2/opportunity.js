@@ -19,6 +19,8 @@ export function opportunityFacts(job) {
 }
 export function normalizeCountry(value) {return value==='CA-US'?'all':['CA','US','all'].includes(value)?value:'CA';}
 export function matchesOpportunity(job,filters={}) {
+ const query=String(filters.query||'').trim().toLocaleLowerCase();
+ if(query&&!query.split(/\s+/).every(word=>[job.company,job.title,job.requisitionId,job.schoolId,...(job.schoolSources||[]).map(s=>s.schoolId)].join(' ').toLocaleLowerCase().includes(word)))return false;
  const f=opportunityFacts(job),unknown=filters.unknown===true;
  const countries=jobCountries(job),country=filters.country?normalizeCountry(filters.country):'all';if(country!=='all'&&!(country==='US'?usRemoteEligibility(job).eligible:countries.includes(country)))return false;
  if(filters.source==='school'&&!job.hasSchool)return false;
@@ -42,15 +44,16 @@ export function factsLabel(job) {
 }
 export function mountFilters(container,onChange,{schoolOnly=false,country='CA'}={}) {
  container.className='opportunity-filters';
- const extra=document.createElement('details');extra.className='filter-extra';const title=document.createElement('summary');title.textContent='更多筛选';extra.append(title);
- for(const [name,label,choices] of [['country','工作地点国家',[['CA','加拿大'],['US','美国'],['all','全部']]],['source','职位来源',[['','全部来源'],['school','学校职位'],['public','网络发现']]],['season','开始学期',[['','所有学期'],['winter','Winter'],['summer','Summer'],['fall','Fall']]],['months','时长（月；含原文范围）',[['','所有时长'],...[3,4,8,12,16].map(n=>[String(n),n+' 个月'])]],['category','职位类别',[['','所有类别'],['cs','CS / Software'],['embedded','Firmware / Embedded'],['data','数据 / 分析']]],['platform','申请方式',[['','所有平台'],['Greenhouse','Greenhouse'],['Ashby','Ashby'],['Lever','Lever'],['Workday','Workday'],['公司官网','公司官网'],['学校 Portal','学校 Portal']]]]) {
+ const search=document.createElement('label');search.className='filter-search';search.textContent='搜索职位';const query=document.createElement('input');query.type='search';query.name='query';query.placeholder='职位、公司或编号';search.append(query);container.append(search);
+ const extra=document.createElement('details');extra.className='filter-extra';const title=document.createElement('summary');title.textContent='更多条件';extra.append(title);
+ for(const [name,label,choices] of [['category','职位类别',[['','所有类别'],['cs','CS / Software'],['embedded','Firmware / Embedded'],['data','数据 / 分析']]],['season','开始学期',[['','所有学期'],['winter','Winter'],['summer','Summer'],['fall','Fall']]],['months','时长（月）',[['','所有时长'],...[3,4,8,12,16].map(n=>[String(n),n+' 个月'])]],['country','工作地点国家',[['CA','加拿大'],['US','美国'],['all','全部']]],['source','职位来源',[['','全部来源'],['school','学校职位'],['public','网络发现']]],['platform','申请方式',[['','所有平台'],['Greenhouse','Greenhouse'],['Ashby','Ashby'],['Lever','Lever'],['Workday','Workday'],['公司官网','公司官网'],['学校 Portal','学校 Portal']]]]) {
   if(schoolOnly&&name==='source')continue;
-  const l=document.createElement('label');l.textContent=label;const s=document.createElement('select');s.name=name;for(const [v,t] of choices)s.add(new Option(t,v));if(name==='country')s.value=normalizeCountry(country);l.append(s);(['months','platform'].includes(name)?extra:container).append(l);
+  const l=document.createElement('label');l.textContent=label;const select=document.createElement('select');select.name=name;for(const [v,t] of choices)select.add(new Option(t,v));if(name==='country')select.value=normalizeCountry(country);l.append(select);(['source','platform'].includes(name)?extra:container).append(l);
  }
- const l=document.createElement('label');l.textContent='地点';const input=document.createElement('input');input.name='location';input.placeholder='城市 / remote';l.append(input);container.append(l);
+ const l=document.createElement('label');l.textContent='城市 / 地点';const input=document.createElement('input');input.name='location';input.placeholder='城市 / remote';l.append(input);extra.append(l);
  const u=document.createElement('label');u.className='check';const c=document.createElement('input');c.type='checkbox';c.name='unknown';u.append(c,'同时保留相关条件未知的职位');extra.append(u);container.append(extra);
- const reset=document.createElement('button');reset.type='button';reset.textContent='清空筛选';reset.addEventListener('click',()=>{for(const e of container.querySelectorAll('input,select')){if(e.type==='checkbox')e.checked=false;else e.value=e.name==='country'?'CA':'';}onChange();});container.append(reset);
- container.addEventListener('input',onChange);container.addEventListener('change',onChange);
+ const reset=document.createElement('button');reset.type='button';reset.className='filter-reset quiet';reset.textContent='清空筛选';reset.addEventListener('click',()=>{for(const e of container.querySelectorAll('input,select')){if(e.type==='checkbox')e.checked=false;else e.value=e.name==='country'?'CA':'';}onChange();});container.append(reset);
+ container.addEventListener('input',event=>{if(event.target.tagName!=='SELECT')onChange();});container.addEventListener('change',onChange);
  return ()=>Object.fromEntries([...container.querySelectorAll('input,select')].map(e=>{if(e.name==='country')e.value=normalizeCountry(e.value);return [e.name,e.type==='checkbox'?e.checked:e.value];}));
 }
 
@@ -67,7 +70,6 @@ export function factBadges(job) {
  for(const item of facts.durationInfo.intervals)token('unknown',`${item.start} 至 ${item.end}`);
  if(!facts.durations.length&&!facts.durationInfo.ranges.length&&!facts.durationInfo.other.length&&!facts.durationInfo.intervals.length)token('unknown','时长未知');
  if(facts.durationInfo.placements.length){const choices=document.createElement('div');choices.className='placement-options';for(const p of facts.durationInfo.placements){const line=document.createElement('p');line.textContent=`${p.season[0].toUpperCase()+p.season.slice(1)} · ${p.months.kind==='range'?p.months.min+'–'+p.months.max+' 个月':p.months.min+' 个月'} · ${p.start}${p.end?' 至 '+p.end:' 起'}`;choices.append(line);}box.append(choices);}
- if(/^user-provided/.test(job.durationEvidence?.sourceKind || '')){const source=document.createElement('span');source.className='badge duration-source';source.textContent='时长依据：用户提供官网摘录（非完整 JD）'+(job.jd&&job.sourceEvidence?.url?'；另已读取官网正文':'');box.append(source);}
  if(job.eligibilityReview)token('unknown','资格待核实');
  const countries=jobCountries(job),remote=remoteFacts(job);const country=document.createElement('span');country.className='badge country-badge';country.textContent=countries.map(c=>c==='CA'?'加拿大':'美国').join(' / ')||'工作地点国家待核实';box.append(country);
  if(countries.includes('US')){const warning=document.createElement('div');warning.className='country-restrictions';warning.textContent=(/2027/.test(job.title||'')&&/\b(?:Summer|Winter|Fall) 2026\b/i.test(job.jd||'')?'标题与正文年份不一致，学期需核实。 ':'')+(remote.fullyRemote?'全远程 · ':'')+'美国岗位：不代表可从加拿大工作。'+(remote.restrictions.length?' '+remote.restrictions.join(' '):' 居住及工作授权要求待核实。');box.append(warning);}

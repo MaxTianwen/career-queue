@@ -1,4 +1,4 @@
-import { returnGuard, preserveList } from './page-stability.js';
+import { returnGuard, preserveList, viewLoader } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
 import { factBadges, factsLabel, matchesOpportunity, mountFilters, platform } from './opportunity.js';
@@ -6,10 +6,15 @@ import { applicationWorkspace } from './application.js';
 import { schoolWorkspace } from './school.js';
 import { refreshController } from './refresh-controller.js';
 const $ = selector => document.querySelector(selector);
+const viewReads=viewLoader();
+const readView=(key,load,options)=>viewReads.run(key,load,options);
+const reading=new WeakMap();
+async function backgroundRead(selector,run){const status=$(selector),ticket={epoch};reading.set(status,ticket);try{await run();if(ticket.epoch===epoch&&reading.get(status)===ticket)status.dataset.state='success';}catch(error){if(ticket.epoch===epoch&&reading.get(status)===ticket){status.dataset.state='error';status.textContent='读取未完成，已有内容保留；可重新切页或手动刷新重试。'+error.message;}}}
 let reviewedResume = null, recommendations = [], visibleRecommendations = 20;
 let account = null, csrf = '', epoch = 0, registering = false, jobs = [], busy = false, expiryTimer;
 const channel = new BroadcastChannel('career-queue-v2-account');
 function clearPrivate(message = '') {
+  viewReads.invalidate();
   document.body.classList.remove('session-check');$('#workspace').inert=false;sessionReturn.stop();
   clearTimeout(expiryTimer); updates.stop(); applications.clear(); school.clear();
   reviewedResume = null; recommendations = []; $('#resume-text').textContent = ''; $('#resume-name').textContent = ''; $('#resume-review').hidden = true; $('#job-match').replaceChildren(); $('#recommendations-list').replaceChildren(); $('#source-status').replaceChildren(); $('#active-resume').textContent = '尚未启用简历';
@@ -37,6 +42,7 @@ async function api(path, { method = 'GET', value, file } = {}) {
     if (account && [401, 403].includes(response.status)) clearPrivate('会话已结束或账号已切换，请重新登录。');
     throw new Error(data.error || '请求失败，请重试');
   }
+  if(method!=='GET'&&path!=='/api/recommendations/update')viewReads.invalidate();
   return data;
 }
 function setBusy(value) {
@@ -150,15 +156,22 @@ async function enter(session) {
   account = session.user; csrf = session.csrf;
   clearTimeout(expiryTimer);
   expiryTimer = setTimeout(() => clearPrivate('会话已过期，请重新登录。'), Math.max(0, session.expires - Date.now()));
-  const [rows, files] = await Promise.all([api('/api/jobs'), api('/api/files')]);
-  jobs = rows; drawJobs(); drawFiles(files); selectJob(null); await refreshAssessment();
-  $('#username').textContent = account.username + (account.role === 'admin' ? ' · 管理员' : '');
-  $('#admin-panel').hidden = account.role !== 'admin';
-  if (account.role === 'admin') $('#admin-form').elements.registrationOpen.value = String((await api('/api/registration')).registrationOpen);
-  $('#auth-form').reset(); $('#auth').hidden = true; $('#workspace').hidden = false; $('#account').hidden = false; $('#notice').textContent = '';
-  document.body.classList.add('signed-in'); tab('recommendations');
+  const captured=epoch;
+  selectJob(null);
+  $('#username').textContent=account.username+(account.role==='admin'?' · 管理员':'');
+  $('#admin-panel').hidden=account.role!=='admin';
+  $('#auth-form').reset();$('#auth').hidden=true;$('#workspace').hidden=false;$('#account').hidden=false;$('#notice').textContent='';
+  document.body.classList.add('signed-in');tab('recommendations');
+  void backgroundRead('#notice',()=>readView('basics',async current=>{
+   const [rows,files,resume,registration]=await Promise.all([api('/api/jobs'),api('/api/files'),api('/api/resume'),account.role==='admin'?api('/api/registration'):null]);
+   if(captured!==epoch||!current())return;
+   jobs=rows;drawJobs();drawFiles(files);$('#active-resume').textContent=resume?`当前评分基准：${resume.name} · ${resume.textHash.slice(0,8)}`:'尚未启用简历；可以浏览职位，暂不评分';
+   if(registration)$('#admin-form').elements.registrationOpen.value=String(registration.registrationOpen);
+   try{const draft=jobs.find(job=>job.id===sessionStorage.getItem('cq-draft-'+account.id));if(draft&&document.body.dataset.view==='recommendations'&&!jobDirty())openPreparation(draft);}catch{}
+  }));
+  void backgroundRead('#recommendation-status',()=>loadRecommendations(false));
   void updates.refresh('open');
-  try { const draft=jobs.find(job=>job.id===sessionStorage.getItem('cq-draft-'+account.id)); if(draft)openPreparation(draft); } catch {}
+
 }
 function authMode(value) {
   registering = value;
@@ -211,7 +224,7 @@ $('#file-form').addEventListener('submit', event => { event.preventDefault(); ac
 }); });
 $('#job-form').elements.jd.addEventListener('input', () => { $('#job-match').replaceChildren(node('p', 'JD 已修改；保存后重新计算匹配度', 'muted')); });
 $('#new-job').addEventListener('click', () => { if (allowJobSwitch()) { tab('jobs'); selectJob(null); $('#job-form').elements.company.focus(); } });
-for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'recommendations') action('#recommendation-status', loadRecommendations); if (button.dataset.tab === 'school-jobs') action('#school-jobs-status', school.refreshOpportunities); if (button.dataset.tab === 'school') action('#school-status', school.refresh); });
+for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'recommendations') void backgroundRead('#recommendation-status',()=>loadRecommendations(false)); if (button.dataset.tab === 'school-jobs') void backgroundRead('#school-jobs-status',()=>school.refreshOpportunities(false)); if (button.dataset.tab === 'applications') void backgroundRead('#applications-status',()=>applications.records(false)); if (button.dataset.tab === 'school') void backgroundRead('#school-status',school.refresh); });
 channel.addEventListener('message', () => clearPrivate('其他页面的账号已变化，请重新登录。'));
 const sessionReturn=returnGuard({
  validate:async()=>{const captured=epoch,expected=account?.id,current=await api('/api/session');return captured===epoch&&current.user.id===expected&&current.csrf===csrf;},
@@ -224,9 +237,10 @@ document.addEventListener('visibilitychange',()=>{if(!account)return;if(document
 async function boot() {
   setBusy(true);
   try {
-    const settings = await api('/api/registration');
-    $('#auth-toggle').hidden = !settings.registrationOpen;
-    await enter(await api('/api/session'));
+    const [settings,session]=await Promise.allSettled([api('/api/registration'),api('/api/session')]);
+    $('#auth-toggle').hidden=settings.status!=='fulfilled'||!settings.value.registrationOpen;
+    if(session.status==='rejected')throw session.reason;
+    await enter(session.value);
   }
   catch (error) { clearPrivate(error.message === '请重新登录' ? '' : `工作区读取失败：${error.message}`); }
   finally { setBusy(false); }
@@ -252,11 +266,11 @@ function matchView(match) {
   return box;
 }
 $('#prepare-baseline').addEventListener('click',()=>{if(allowJobSwitch())tab('files');});
-let returnTab='recommendations';
+let returnTab='recommendations',returnPosition=0,returnFocus=null;
 function openPreparation(job,from='recommendations') {
- returnTab=from;try{sessionStorage.setItem('cq-draft-'+account.id,job.id);}catch{}tab('jobs');selectJob(job);$('#job-detail').scrollIntoView({block:'start'});$('#selected-job-summary').focus();
+ returnPosition=window.scrollY;returnFocus=document.activeElement;returnTab=from;try{sessionStorage.setItem('cq-draft-'+account.id,job.id);}catch{}tab('jobs');selectJob(job);$('#job-detail').scrollIntoView({block:'start'});$('#selected-job-summary').focus();
 }
-$('#back-opportunities').addEventListener('click',()=>{if(allowJobSwitch()){try{sessionStorage.removeItem('cq-draft-'+account.id);}catch{}tab(returnTab);if(returnTab==='jobs')$('#jobs-list').scrollIntoView({block:'start'});else $(returnTab==='school-jobs'?'#school-jobs-list':returnTab==='applications'?'#applications-tab':'#recommendations-list').scrollIntoView({block:'start'});}});
+$('#back-opportunities').addEventListener('click',()=>{if(allowJobSwitch()){try{sessionStorage.removeItem('cq-draft-'+account.id);}catch{}tab(returnTab);window.scrollTo(0,returnPosition);if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});}});
 const discoveryFilters=mountFilters($('#discovery-filters'),()=>{visibleRecommendations=20;drawRecommendations();});
 const discoveryView=mountView($('#recommendations-list'),'discovery',drawRecommendations);
 const savedFilters=mountFilters($('#saved-filters'),drawJobs);
@@ -277,16 +291,16 @@ async function loadDiscoveryStatus() {
 }
 const updates=refreshController({
  request:trigger=>api('/api/recommendations/update',{method:'POST',value:{trigger}}),
- status:loadDiscoveryStatus,updated:()=>loadRecommendations(),changed:showRefresh
+ status:loadDiscoveryStatus,updated:()=>{viewReads.invalidate('discovery');return loadRecommendations();},changed:showRefresh
 });
 let recommendationRevision=0;
-async function loadRecommendations() {
+function loadRecommendations(force=true){return readView('discovery',readRecommendations,{force});}
+async function readRecommendations(current) {
   const revision=++recommendationRevision,captured=epoch;
-  await loadDiscoveryStatus().catch(error=>showRefresh({error:error.message}));
-  const data = await api('/api/recommendations');if(revision!==recommendationRevision||captured!==epoch)return;recommendations = data.jobs;
+  const [data,exclusions]=await Promise.all([api('/api/recommendations'),api('/api/eligibility/exclusions')]);if(!current()||revision!==recommendationRevision||captured!==epoch)return;recommendations=data.jobs;
   $('#recommendation-status').textContent = data.unsupportedType ? '已保存的职位类型超出本期范围，请在求职偏好中重新选择。' : data.finishedAt ? `去重库 ${data.total ?? data.jobs.length} 条 · 截止与偏好筛选后 ${data.jobs.length} 条 · 最近刷新 ${new Date(data.finishedAt).toLocaleString()}` : '尚未读取公开列表，点击“刷新公开来源”开始。';
   $('#source-status').replaceChildren(...data.sources.map(source => node('p', `${source.name} · ${{ complete: '完整读取', partial: '部分读取', failed: '读取失败' }[source.status] || '待核实'} · 读取 ${source.raw ?? source.count} 条，范围内 ${source.count} 条 · ${source.detailed ?? 0} 条正文${source.error ? ' · ' + source.error : ''}`)));
-  const exclusions=await api('/api/eligibility/exclusions');if(revision!==recommendationRevision||captured!==epoch)return;
+
   $('#eligibility-exclusions').replaceChildren(...exclusions.map(row=>node('p',`${row.company} · ${row.title} · ${row.reason.reason || '明确仅限加拿大公民'} · ${row.reason.quote || (row.reason.evidence || []).join(' ')}`)));
   $('#eligibility-filter-note').hidden=!exclusions.length;
   preserveList($('#recommendations-list'),drawRecommendations);
@@ -353,11 +367,11 @@ $('#clear-resume').addEventListener('click', () => action('#file-status', async 
 }));
 $('#refresh-sources').addEventListener('click',()=>{void updates.refresh('manual');});
 $('#more-recommendations').addEventListener('click', () => { visibleRecommendations += 20; drawRecommendations(); });
-const applications = applicationWorkspace({ api, action, jobDirty, downloadFile,
+const applications = applicationWorkspace({ api, action, readView, jobDirty, downloadFile,
   chooseJob: id => { const job = jobs.find(job => job.id === id); if (job && allowJobSwitch()) { openPreparation(job,'applications'); } },
   filesChanged: async () => drawFiles(await api('/api/files'))
 });
-const school = schoolWorkspace({ api, action,
+const school = schoolWorkspace({ api, action, readView,
   jobsChanged: async () => { jobs = await api('/api/jobs'); drawJobs(); await loadRecommendations(); },
   chooseJob: async id => {
     if (!allowJobSwitch()) return;
