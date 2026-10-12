@@ -15,12 +15,20 @@ function fixture() {
     getComputedStyle:()=>({visibility:'visible'}),document:{querySelectorAll:selector=>selector==='input'?inputs:selector==='iframe'?frames:inputs.filter(i=>i.type==='password')}};
   const fields=[{index:0,label:'First Name',answer:'Synthetic'}];
   const call=(mode,expected)=>runInNewContext(`(${pageFields.toString()})(mode,url,fields,expected)`,{...context,mode,url:context.location.href,fields,expected});
-  return {input,inputs,Input,context,fields,call};
+  return {input,inputs,frames,Input,context,fields,call};
 }
 test('browser page adapter fills only matching blank text and emits input/change, never submission',()=>{
   const f=fixture(),p=f.call('preview');assert.equal(f.input.value,'');
   assert.equal(f.call('fill',p.bindings).filled,1);assert.equal(f.input.value,'Synthetic');assert.deepEqual(f.input.events,['input','change']);
   assert.throws(()=>f.call('fill',p.bindings),/已有内容/);
+});
+
+test('browser page adapter pauses when login or a captcha appears during filling',()=>{
+  for(const mutate of [f=>f.inputs.push(new f.Input('Password','password')),f=>f.frames.push({title:'captcha challenge',getClientRects:()=>[{}],getBoundingClientRect:()=>({height:200})})]) {
+    const f=fixture(),last=new f.Input('Last Name');last.id='last_name';f.inputs.push(last);f.fields.push({index:1,label:'Last Name',answer:'Second'});
+    const p=f.call('preview');f.input.onEvent=()=>mutate(f);
+    assert.throws(()=>f.call('fill',p.bindings),/已填写 1 项/);assert.equal(last.value,'');
+  }
 });
 test('browser page adapter pauses on ambiguity, complex widgets, authentication and stale structure',()=>{
   for(const mutate of [f=>f.inputs.push(new f.Input('First Name*')),f=>f.input.role='combobox',f=>f.input.type='file',f=>f.input.hidden=true,f=>f.input.readOnly=true,f=>f.input.value='Keep',f=>f.inputs.push(new f.Input('Password','password'))]){

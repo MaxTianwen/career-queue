@@ -55,3 +55,15 @@ test('v2 partial success keeps failed-source cache and storage failure stops fur
   await assert.rejects(f.runner.start('scheduled')); assert.equal(f.runner.status().broken,true);
   assert.throws(()=>f.runner.start('manual'),/运行记录异常/);
 });
+
+test('opening refresh is asynchronous, globally coalesced, and never enables daily schedules',async t=>{
+ const f=fixture(t);f.runner.setEnabled(false);let release,calls=0;f.runner.discover=()=>{calls++;return new Promise(resolve=>{release=()=>resolve({jobs:[],sources:[{id:'test',status:'complete'}],finishedAt:new Date(f.store.now()).toISOString()});});};
+ assert.deepEqual(f.runner.requestRefresh('open'),{refreshing:true,reused:false});
+ assert.equal(f.runner.requestRefresh('manual').reused,true);assert.equal(f.runner.requestRefresh('open').reused,true);await Promise.resolve();assert.equal(calls,1);release();await f.runner.pending;
+ assert.equal(f.runner.status().enabled,false);assert.equal(f.runner.requestRefresh('open').reused,true);assert.equal(calls,1);
+ f.advance(15001);assert.equal(f.runner.requestRefresh('open').reused,false);await Promise.resolve();release();await f.runner.pending;assert.equal(calls,2);assert.equal(f.runner.status().enabled,false);assert.equal((await f.runner.start('scheduled')).skipped,true);
+});
+test('opening refresh failure preserves cached catalogue and explicit retry succeeds without daily reactivation',async t=>{
+ const f=fixture(t);f.runner.setEnabled(false);const old=f.store.catalogue();f.failed(true);f.runner.requestRefresh('open');await assert.rejects(f.runner.pending);assert.deepEqual(f.store.catalogue(),old);assert.equal(f.runner.status().runs.at(-1).status,'failed');
+ assert.equal(f.runner.requestRefresh('open').reused,true);f.failed(false);assert.equal(f.runner.requestRefresh('manual').reused,false);await f.runner.pending;assert.equal(f.runner.status().runs.at(-1).status,'done');assert.equal(f.runner.status().enabled,false);
+});

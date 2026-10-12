@@ -1,0 +1,13 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{durationFacts}from'../src/duration-facts.mjs';import{factsLabel,matchesOpportunity}from'../web/v2/opportunity.js';
+for(const [name,jd,start,end]of[
+ ['RTX numerical','Internship dates: January 5th to April 23rd, 2027.','2027-01-05','2027-04-23'],
+ ['RTX global sales','Internship dates: January 5th to April 23th , 2027.','2027-01-05','2027-04-23'],
+ ['RTX spare parts','Internship dates: January 5th to April 23th , 2027. Location: Longueuil','2027-01-05','2027-04-23'],
+ ['RTX DES','Internship dates: January 5 to April 23, 2027','2027-01-05','2027-04-23'],
+ ['SailPoint','Your internship will begin 28 June 2027 and run until 3 September 2027.','2027-06-28','2027-09-03'],
+ ['Equitable','Work Term: January - April 2027','2027-01','2027-04'],
+ ...['Marketing','Engineering','Solutions'].map(n=>['Risepoint '+n,'Co-op Duration This opportunity runs from January 2027 through June 2027, with some flexibility on start and end to accommodate academic schedules.','2027-01','2027-06'])
+])test(name+' retains exact source calendar window without rounding',()=>{const j={jd,url:'https://example.com/job'},f=durationFacts(j);assert.equal(f.status,'dates');assert.deepEqual(f.options,[]);assert.equal(f.intervals[0].start,start);assert.equal(f.intervals[0].end,end);assert.ok(jd.includes(f.evidence[0].quote));assert.equal(f.evidence[0].sourceUrl,j.url);assert.ok(factsLabel(j).includes(start));assert.equal(matchesOpportunity(j,{months:'4'}),false);});
+test('Superhuman preserves three months and twelve weeks independently',()=>{const f=durationFacts({jd:'Engineering Interns join our team for three months in summer 2027. Is available for the entire duration of a twelve-week program.'});assert.deepEqual(f.options,[]);assert.deepEqual(f.other.map(x=>[x.value,x.unit]),[[3,'months'],[12,'weeks']]);assert.equal(f.status,'nonstandard');});
+test('calendar parser rejects graduation, deadlines, invalid days and reversed intervals',()=>{for(const jd of ['Graduation Work Term: January - April 2027','Application deadline Internship dates: January 5 to April 23, 2027','Internship dates: February 30 to April 23, 2027','Internship dates: May 5 to April 23, 2027','Expected graduation between January 2027 and April 2027'])assert.equal(durationFacts({jd}).intervals.length,0,jd);});
+test('spelled duration rejects experience, leave and initial weeks',()=>{for(const jd of ['Internship requires three months of previous experience.','Interns receive twelve weeks parental leave.','Internship: first four weeks are training.','Internship requires experience of four months.'])assert.deepEqual(durationFacts({jd}).options.concat(durationFacts({jd}).other),[],jd);});

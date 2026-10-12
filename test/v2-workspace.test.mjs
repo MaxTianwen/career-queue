@@ -1117,3 +1117,223 @@ test('school repaste preserves missing links and returns a fresh matching previe
  assert.equal(response.data.preview.fingerprint,preview.fingerprint);
  assert.equal(preview.rows[0].sourceChanged,false);
 });
+
+test('v2 usability assets load and repeated save prepares one persistent unsubmitted job', async t => {
+  const f = await fixture(t), a = await f.account('uxcheck');
+  assert.equal((await f.call('/src/resume-track.mjs')).status,200);
+  const asset = await f.call('/opportunity.js');
+  assert.equal(asset.status, 200); assert.match(asset.headers['content-type'], /javascript/);
+  const candidate = catalogueJob({company:'Synthetic UX', title:'Software Developer Intern Summer 2027', location:'Toronto, Canada', jd:'Internship term: Summer 2027 for 4 months.', url:'https://jobs.ashbyhq.com/synthetic/ux'}, {id:'fixture',name:'Synthetic QA'});
+  assert.ok(candidate);
+  const db = new WorkspaceStore(f.database);
+  db.saveCatalogue({jobs:[candidate],sources:[],finishedAt:new Date().toISOString()}); db.close();
+  const results = await Promise.all([1,2].map(() => f.call(`/api/recommendations/${candidate.id}/save`,{method:'POST',auth:a,value:{}})));
+  for(const response of results) assert.equal(response.status,200,response.text);
+  assert.equal(results[0].data.id,results[1].data.id);
+  const id=results[0].data.id;
+  const preparation=await f.call(`/api/jobs/${id}/preparation`,{auth:a});
+  assert.equal(preparation.status,200);
+  const application=await f.call(`/api/jobs/${id}/application`,{auth:a});
+  assert.deepEqual(application.data.submissions,[]);
+  assert.deepEqual(application.data.versions,[]);
+  await f.restart();
+  const saved=await f.call('/api/jobs',{auth:a});
+  assert.equal(saved.data.length,1); assert.equal(saved.data[0].id,id);
+  assert.equal(saved.data[0].jd,candidate.jd);
+});
+
+
+test('direct preparation persists one draft and restores notes without creating an application record', async t=>{
+ const f=await fixture(t),a=await f.account('direct');
+ const candidate=catalogueJob({company:'Synthetic Direct',title:'Software Intern',location:'Toronto, Canada',url:'https://example.com/direct',jd:'Software internship Summer 2027 for 4 months.'},{id:'fixture',name:'Fixture'});
+ const db=new WorkspaceStore(f.database);db.saveCatalogue({jobs:[candidate],sources:[],finishedAt:new Date().toISOString()});db.close();
+ const responses=await Promise.all([1,2].map(()=>f.call(`/api/recommendations/${candidate.id}/prepare`,{auth:a,method:'POST',value:{}})));
+ assert.equal(responses[0].status,200);assert.equal(responses[0].data.id,responses[1].data.id);
+ const id=responses[0].data.id,base=`/api/jobs/${id}`;
+ let prep=(await f.call(base+'/preparation',{auth:a})).data;
+ assert.equal((await f.call(base+'/preparation',{auth:a,method:'PUT',value:{...prep,notes:'Synthetic persistent draft',reviewed:false}})).status,200);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+ await f.restart();
+ assert.equal((await f.call(base+'/preparation',{auth:a})).data.notes,'Synthetic persistent draft');
+ assert.equal((await f.call('/api/jobs',{auth:a})).data.length,1);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+});
+
+test('manual submission requires explicit real-date confirmation and rejects claimed automatic success',async t=>{
+ const f=await fixture(t,{archive:async value=>Buffer.from(JSON.stringify(value))}),a=await f.account('confirm'),b=await f.account('other');
+ const job=(await f.call('/api/jobs',{auth:a,method:'POST',value:publicJob})).data;
+ const path=`/api/jobs/${job.id}/submission-confirmation`;
+ const value={source:'manual-confirmation',confirmed:true,channel:'employer',date:'2026-01-01',receipt:'Synthetic success receipt',requestId:randomUUID()};
+ for(const invalid of [{confirmed:false},{source:'automatic-success'},{source:'trusted-webhook'},{date:''},{date:'2099-01-01'}])assert.equal((await f.call(path,{auth:a,method:'POST',value:{...value,...invalid}})).status,400);
+ assert.equal((await f.call(path,{auth:b,method:'POST',value})).status,404);
+ assert.equal((await f.call(path,{method:'POST',value})).status,401);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+ const responses=await Promise.all([1,2].map(()=>f.call(path,{auth:a,method:'POST',value})));
+ for(const res of responses)assert.equal(res.status,200,res.text);
+ assert.equal(responses[0].data.submissions[0].id,responses[1].data.submissions[0].id);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{...value,requestId:randomUUID()}})).data.submissions.length,1);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{...value,date:'2026-01-02'}})).status,409);
+ const rows=(await f.call('/api/applications',{auth:a})).data;
+ assert.equal(rows.length,1);assert.equal(rows[0].submissions[0].source,'manual-confirmation');
+ assert.equal(rows[0].submissions[0].materialId,null);
+ const exported=JSON.parse((await f.call('/api/data/export',{auth:a,method:'POST',value:{}})).text);
+ assert.equal(exported.submissionConfirmations.length,1);
+ await f.restart();assert.equal((await f.call('/api/applications',{auth:a})).data[0].submissions.length,1);
+ const {backupWorkspace,restoreWorkspace}=await import('../src/v2/backup.mjs');
+ const backup=resolve('output/test-runs',`confirmed-backup-${randomUUID()}`),restore=resolve('output/test-runs',`confirmed-restore-${randomUUID()}`);
+ await backupWorkspace(f.database,backup);await restoreWorkspace(backup,restore);
+ const restored=new WorkspaceStore(resolve(restore,'workspaces.sqlite'));assert.equal(restored.applications(a.id)[0].submissions[0].source,'manual-confirmation');restored.close();
+});
+
+test('material review is not an application and legacy submissions deduplicate against manual confirmation',async t=>{
+ const f=await fixture(t,materialOptions),a=await f.account('legacy');
+ const p=await prepareApplication(f,a);
+ await f.call(`/api/files/${p.file.id}/preview`,{auth:a,method:'POST',value:{}});
+ assert.equal((await f.call(`/api/jobs/${p.saved.id}/materials`,{auth:a,method:'POST',value:p.value})).status,200);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+ const old=await correctionApplication(f,a),before=old.app.versions;
+ const res=await f.call(old.prefix+'/submission-confirmation',{auth:a,method:'POST',value:{source:'manual-confirmation',confirmed:true,channel:'employer',date:old.input.date,receipt:old.input.receipt,requestId:randomUUID()}});
+ assert.equal(res.status,200,res.text);assert.equal(res.data.submissions.length,1);assert.equal(res.data.submissions[0].id,old.record.id);assert.deepEqual(res.data.versions,before);
+});
+
+test('school confirmation binds the current School ID and preserves its maintenance lock',async t=>{
+ const f=await fixture(t),a=await f.account('schoolconfirm');
+ const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|955123|Software Intern|Synthetic|Toronto|Oct 31, 2026 11:59 PM|';
+ assert.equal((await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}})).status,200);
+ const item=(await f.call('/api/school/opportunities',{auth:a})).data[0];
+ const job=(await f.call('/api/school/opportunities/start',{auth:a,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}})).data;
+ const base=`/api/jobs/${job.id}`,value={source:'manual-confirmation',confirmed:true,channel:'school',date:'2026-01-01',requestId:randomUUID()};
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+ assert.equal((await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value})).status,409);
+ const context=(await f.call(base+'/school-context',{auth:a})).data;
+ assert.equal((await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value:{...value,schoolRevision:context.revision}})).status,200);
+ const link=(await f.call('/api/school',{auth:a})).data[0];assert.equal(link.locked,true);assert.equal(link.sources[0].schoolId,'955123');
+ assert.equal((await f.call('/api/school/955123/change-preview',{auth:a,method:'POST',value:{action:'unlink',revision:link.revision}})).status,409);
+});
+
+
+test('confirmation correction withdrawal and restore preserve one record and audit with owner and revision guards',async t=>{
+ const f=await fixture(t,{archive:async value=>Buffer.from(JSON.stringify(value))}),a=await f.account('recoverconfirm'),b=await f.account('outsider');
+ const job=(await f.call('/api/jobs',{auth:a,method:'POST',value:publicJob})).data,base=`/api/jobs/${job.id}`;
+ const original={channel:'employer',date:'2026-01-01',receipt:'original',confirmed:true,source:'manual-confirmation',requestId:randomUUID()};
+ const initial=(await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value:original})).data.submissions[0];
+ const path=base+`/submission-confirmations/${initial.id}/changes`;
+ const correction={action:'correct',revision:0,date:'2026-01-02',receipt:'corrected',confirmed:true,reason:'Wrong day',requestId:randomUUID()};
+ assert.equal((await f.call(path,{auth:b,method:'POST',value:correction})).status,404);
+ assert.equal((await f.call(path,{auth:{...a,csrf:'wrong'},method:'POST',value:correction})).status,403);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{...correction,confirmed:false}})).status,400);
+ const corrected=await f.call(path,{auth:a,method:'POST',value:correction});assert.equal(corrected.status,200,corrected.text);assert.equal(corrected.data.submissions[0].revision,1);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:correction})).data.submissions[0].corrections.length,1);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{...correction,requestId:randomUUID()}})).status,409);
+ const withdraw={action:'withdraw',revision:1,confirmed:true,requestId:randomUUID()};
+ const results=await Promise.all([1,2].map(()=>f.call(path,{auth:a,method:'POST',value:withdraw})));
+ for(const result of results)assert.equal(result.status,200,result.text);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+ const history=(await f.call('/api/withdrawn-applications',{auth:a})).data;assert.equal(history[0].withdrawn[0].id,initial.id);assert.equal(history[0].withdrawn[0].corrections.length,2);
+ assert.deepEqual((await f.call('/api/withdrawn-applications',{auth:b})).data,[]);
+ assert.equal((await f.call('/api/jobs',{auth:a})).data[0].jd,publicJob.jd);
+ // Old confirmation retries cannot revive a withdrawn entry.
+ assert.deepEqual((await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value:original})).data.submissions,[]);
+ assert.equal((await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value:{...original,requestId:randomUUID()}})).status,409);
+ const restore={action:'restore',revision:2,date:'2026-01-02',receipt:'corrected',confirmed:true,requestId:randomUUID()};
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:restore})).status,200);
+ const row=(await f.call('/api/applications',{auth:a})).data[0];assert.equal(row.submissions[0].id,initial.id);assert.equal(row.submissions[0].revision,3);
+ assert.deepEqual((await f.call('/api/withdrawn-applications',{auth:a})).data,[]);
+ const exported=JSON.parse((await f.call('/api/data/export',{auth:a,method:'POST',value:{}})).text);assert.equal(exported.confirmationChanges.length,3);assert.equal(exported.confirmationChanges[0].before.date,'2026-01-01');
+ await f.restart();assert.equal((await f.call('/api/applications',{auth:a})).data[0].submissions[0].corrections.length,3);
+});
+
+test('restoring a withdrawn confirmation cannot duplicate a legacy material submission',async t=>{
+ const f=await fixture(t,materialOptions),a=await f.account('compatconfirm'),p=await prepareApplication(f,a),base=`/api/jobs/${p.saved.id}`;
+ const first=await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value:{source:'manual-confirmation',confirmed:true,channel:'employer',date:'2026-01-01',requestId:randomUUID()}});
+ const id=first.data.submissions[0].id,path=base+`/submission-confirmations/${id}/changes`;
+ await f.call(path,{auth:a,method:'POST',value:{action:'withdraw',revision:0,confirmed:true,requestId:randomUUID()}});
+ await f.call(`/api/files/${p.file.id}/preview`,{auth:a,method:'POST',value:{}});
+ const materials=(await f.call(base+'/materials',{auth:a,method:'POST',value:p.value})).data;
+ await f.call(base+'/channel',{auth:a,method:'PUT',value:{channel:'employer'}});
+ const legacy=await f.call(base+'/submission',{auth:a,method:'POST',value:{channel:'employer',materialId:materials.versions[0].id,date:'2026-01-02',receipt:'legacy',confirmed:true,attachmentsComplete:true,requestId:randomUUID()}});
+ assert.equal(legacy.status,200,legacy.text);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{action:'restore',revision:1,date:'2026-01-01',confirmed:true,requestId:randomUUID()}})).status,409);
+ const current=(await f.call(base+'/application',{auth:a})).data;assert.equal(current.submissions.length,1);assert.equal(current.submissions[0].materialId,materials.versions[0].id);assert.equal(current.withdrawn.length,1);
+});
+
+test('local calendar confirmation date accepts the current local day without allowing future or invalid offsets',async t=>{
+ const f=await fixture(t,{now:()=>Date.parse('2026-01-01T23:30:00Z')}),a=await f.account('localdate');
+ const job=(await f.call('/api/jobs',{auth:a,method:'POST',value:publicJob})).data,path=`/api/jobs/${job.id}/submission-confirmation`;
+ const value={source:'manual-confirmation',confirmed:true,channel:'employer',date:'2026-01-02',timezoneOffset:-60,requestId:randomUUID()};
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{...value,date:'2026-01-03'}})).status,400);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{...value,timezoneOffset:-900}})).status,400);
+ const res=await f.call(path,{auth:a,method:'POST',value});assert.equal(res.status,200,res.text);assert.equal(res.data.submissions[0].timezoneOffset,-60);
+});
+
+test('withdrawn school confirmations release a mistaken lock but cannot restore onto another school ID',async t=>{
+ const f=await fixture(t),a=await f.account('schoolundo');
+ const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|955321|Software Intern|Synthetic|Toronto|Oct 31, 2026 11:59 PM|';
+ await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}});
+ const item=(await f.call('/api/school/opportunities',{auth:a})).data[0];
+ const job=(await f.call('/api/school/opportunities/start',{auth:a,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}})).data,base=`/api/jobs/${job.id}`;
+ const context=(await f.call(base+'/school-context',{auth:a})).data;
+ const initial=(await f.call(base+'/submission-confirmation',{auth:a,method:'POST',value:{source:'manual-confirmation',confirmed:true,channel:'school',date:'2026-01-01',schoolRevision:context.revision,requestId:randomUUID()}})).data.submissions[0];
+ const path=base+`/submission-confirmations/${initial.id}/changes`;
+ await f.call(path,{auth:a,method:'POST',value:{action:'withdraw',revision:0,confirmed:true,requestId:randomUUID()}});
+ const link=(await f.call('/api/school',{auth:a})).data[0];assert.equal(link.locked,false);
+ const plan=(await f.call('/api/school/955321/change-preview',{auth:a,method:'POST',value:{action:'unlink',revision:link.revision}})).data;
+ assert.equal((await f.call('/api/school/955321/changes',{auth:a,method:'POST',value:{action:'unlink',revision:link.revision,fingerprint:plan.fingerprint,confirmed:true,reason:'Wrong link',requestId:randomUUID()}})).status,200);
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{action:'restore',revision:1,date:'2026-01-01',confirmed:true,schoolRevision:null,requestId:randomUUID()}})).status,409);
+ const otherText=text.replace('955321','955322');
+ const preview=(await f.call('/api/school/preview',{auth:a,method:'POST',value:{text:otherText}})).data;
+ assert.equal((await f.call('/api/school/import',{auth:a,method:'POST',value:{text:otherText,fingerprint:preview.fingerprint,selections:[{index:0,target:`saved:${job.id}`}],confirmed:true,requestId:randomUUID()}})).status,200);
+ const changed=(await f.call(base+'/school-context',{auth:a})).data;
+ assert.equal((await f.call(path,{auth:a,method:'POST',value:{action:'restore',revision:1,date:'2026-01-01',confirmed:true,schoolRevision:changed.revision,requestId:randomUUID()}})).status,409);
+
+});
+
+
+test('dashboard removes preference and capacity UI without mutating underlying account data or filters',async t=>{
+ const f=await fixture(t),a=await f.account('dashboard');
+ const preferences={direction:'cs',locations:'Toronto',jobTypes:'intern'};
+ assert.equal((await f.call('/api/preferences',{auth:a,method:'PUT',value:preferences})).status,200);
+ const before=(await f.call('/api/preferences',{auth:a})).data;
+ const html=(await f.call('/')).text;
+ for(const removed of ['data-tab="data"','data-tab="preferences"','id="data-tab"','id="preferences-tab"','id="preferences-form"'])assert.equal(html.includes(removed),false,removed);
+ for(const required of ['id="discovery-filters"','id="school-filters"','id="confirmation-form"','id="applications-list"','class="opportunity-grid"','href="#page-content"'])assert.ok(html.includes(required),required);
+ const code=(await f.call('/app.js')).text;assert.doesNotMatch(code,/preferences-form|data-usage|refreshUsage/);
+ assert.deepEqual((await f.call('/api/preferences',{auth:a})).data,before);
+ assert.equal((await f.call('/api/data/usage',{auth:a})).status,200);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,[]);
+ await f.restart();assert.deepEqual((await f.call('/api/preferences',{auth:a})).data,before);
+});
+
+test('unified discovery HTTP updates from school import and protects private IDs across accounts', async t => {
+ const f=await fixture(t),a=await f.account('unified_a'),b=await f.account('unified_b');
+ const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|955123|Software Intern|Synthetic School Only|Toronto||';
+ const imported=await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}});assert.equal(imported.status,200,imported.text);
+ const data=(await f.call('/api/recommendations',{auth:a})).data;assert.equal(data.jobs.length,1);assert.equal(data.jobs[0].hasSchool,true);
+ assert.equal((await f.call('/api/recommendations',{auth:b})).data.jobs.length,0);
+ assert.equal((await f.call('/api/recommendations/'+data.jobs[0].id+'/prepare',{method:'POST',auth:b,value:{}})).status,404);
+ const prepared=await f.call('/api/recommendations/'+data.jobs[0].id+'/prepare',{method:'POST',auth:a,value:{}});assert.equal(prepared.status,200,prepared.text);
+ assert.equal((await f.call('/api/applications',{auth:a})).data.length,0);
+ const confirmed=await f.call('/api/jobs/'+prepared.data.id+'/submission-confirmation',{method:'POST',auth:a,value:{source:'manual-confirmation',confirmed:true,channel:'employer',date:'2026-01-01',receipt:'Synthetic receipt',requestId:randomUUID()}});assert.equal(confirmed.status,200,confirmed.text);
+ const records=(await f.call('/api/applications',{auth:a})).data;
+ await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}});
+ await f.restart();assert.equal((await f.call('/api/recommendations',{auth:a})).data.jobs.length,0);
+ assert.deepEqual((await f.call('/api/applications',{auth:a})).data,records);
+});
+
+test('portal submitted HTTP import groups channel records and removes pending school/discovery entries',async t=>{
+ const f=await fixture(t),a=await f.account('portal_a'),b=await f.account('portal_b');
+ const text='|Term|ID|Job Title|Organization|Location|App Deadline|App Status|\n|---|---|---|---|---|---|---|\n|2027 - Summer|955777|Software Intern|Synthetic Portal|Toronto|2026-12-31|Application Submitted|';
+ const imported=await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}});assert.equal(imported.status,200,imported.text);assert.equal(imported.data.submissions.added,1);
+ const rows=(await f.call('/api/applications',{auth:a})).data;assert.equal(rows.length,1);assert.equal(rows[0].submissions[0].channel,'school');assert.equal(rows[0].submissions[0].date,'');assert.equal((await f.call('/api/school/opportunities',{auth:a})).data.length,0);assert.equal((await f.call('/api/recommendations',{auth:a})).data.jobs.length,0);assert.equal((await f.call('/api/applications',{auth:b})).data.length,0);
+ assert.equal((await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}})).data.submissions.existing,1);
+});
+
+test('opening refresh HTTP is asynchronous and coalesces accounts/tabs with daily disabled',async t=>{
+ let release,calls=0;const f=await fixture(t,{discover:()=>{calls++;return new Promise(resolve=>release=()=>resolve({jobs:[],sources:[{id:'synthetic',status:'complete'}],finishedAt:new Date().toISOString()}));}}),a=await f.account('open_a'),b=await f.account('open_b');
+ const post=auth=>f.call('/api/recommendations/update',{method:'POST',auth,value:{trigger:'open'}});
+ assert.equal((await post()).status,401);assert.equal((await f.call('/api/recommendations/update',{method:'POST',auth:a,value:{trigger:'scheduled'}})).status,400);
+ const first=await post(a);assert.equal(first.status,202);assert.equal(first.data.refreshing,true);assert.equal((await post(b)).data.reused,true);assert.equal(calls,1);assert.equal((await f.call('/api/discovery/status',{auth:a})).data.enabled,false);assert.equal((await f.call('/api/recommendations',{auth:a})).status,200);
+ release();for(let i=0;i<20;i++){const state=(await f.call('/api/discovery/status',{auth:a})).data;if(!state.running)break;await new Promise(r=>setTimeout(r,5));}
+ assert.equal((await post(a)).data.reused,true);assert.equal(calls,1);assert.equal((await f.call('/api/discovery/status',{auth:a})).data.enabled,false);
+ const html=(await f.call('/')).text,code=(await f.call('/app.js')).text;assert.doesNotMatch(html,/id="discovery-toggle"|id="discovery-reload"/);assert.match(html,/id="refresh-status"/);assert.match(code,/updates.refresh\('open'\)/);assert.equal((await f.call('/refresh-controller.js')).status,200);
+});

@@ -1,1 +1,6 @@
 body{width:350px;max-height:550px;overflow:auto;margin:0;padding:20px;background:#f7f6f1;color:#26312b;font:15px/1.55 system-ui}h1{font-size:22px}label{display:block;margin:14px 0}input[type=password]{display:block;box-sizing:border-box;width:100%;padding:10px;border:1px solid #bbb}button{padding:10px;border:1px solid #6b766c;background:white;color:#26312b;cursor:pointer}button:disabled{opacity:.5}p{overflow-wrap:anywhere}#status{font-weight:600}#plan{border-top:1px solid #ccc;margin-top:14px}input[type=checkbox]{width:18px;height:18px;vertical-align:middle}
+
+#school-batch-status{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+details{margin:12px 0}summary{cursor:pointer}#school-batch-status{font:14px/1.5 system-ui}section>button{margin-bottom:4px}
+
+#school-batch-diagnostic{display:block;width:100%;background:#263f32;color:white;font-weight:700}#school-batch-summary{box-sizing:border-box;width:100%;resize:vertical;font:12px/1.5 monospace;padding:8px}#school-batch-message{font-size:13px}

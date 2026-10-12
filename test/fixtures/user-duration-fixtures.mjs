@@ -1,0 +1,2 @@
+export const amazon='Internship Options\n- 12-16 month internship (starts May 2027)\n- 3-4 month internship (starts January 2027, May 2027, September 2027)';
+export const amd='JOB DETAILS\nLocation Vancouver British Columbia Canada\nOnsite/Hybrid full time 37.5hrs/week onsite\nWinter Duration: 4 Months: January11,2027 to April23,2027; 8 Months: January11,2027 to August20,2027.\nSummer Duration: 4 Months: May3,2027 to August20,2027; 8 Months: May3,2027 to December10,2027.\nFall Duration: 4 Months: September13,2027 to December10,2027.';

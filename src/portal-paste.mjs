@@ -22,7 +22,7 @@ export function schoolDeadline(value) {
   return { deadline: candidates[0], deadlineText: text };
 }
 
-const headers = { 'app status': 'sourceStatus', term: 'term', id: 'id', 'job title': 'title', organization: 'company', location: 'location', 'app deadline': 'deadline' };
+const headers = { 'duration':'duration', 'work term duration':'duration', 'term duration':'duration', 'work term length':'duration', 'duration (months)':'durationMonthsText', 'job description':'jd', 'application instructions':'applicationInstructions', 'requisition id':'requisitionId', 'external url':'externalUrl', 'school url':'url', 'app status': 'sourceStatus', term: 'term', id: 'id', 'job title': 'title', organization: 'company', location: 'location', 'app deadline': 'deadline' };
 const splitRow = (line, markdown) => markdown ? line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(v => v.replace(/\\\|/g, '|')) : line.split('\t');
 const linkText = text => clean(text).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1');
 
@@ -55,11 +55,12 @@ export function parsePortalPaste(text) {
     if (cells.length !== columns.length || wrapped && !/^(?:shortlist\s+)?(?:apply|applied)$/i.test(cells[0])) { errors.push(`第 ${index + 1} 行列数不完整，未导入`); continue; }
     const row = Object.fromEntries(columns.flatMap((key, i) => key ? [[key, linkText(cells[i])]] : []));
     if (!/^\d+$/.test(row.id || '') || !row.company || !row.title) { errors.push(`第 ${index + 1} 行缺少有效学校 ID、公司或标题，未导入`); continue; }
+    if(row.durationMonthsText){row.duration=row.durationMonthsText+' months';delete row.durationMonthsText;}
     row.title = row.title.replace(/^NEW\s+/i, '');
     row.term = row.term.replace(/^(20\d{2})\s*-\s*(Winter|Summer|Fall)$/i, (_, year, term) => `${term[0].toUpperCase()}${term.slice(1).toLowerCase()} ${year}`);
-    row.requisitionId = row.title.match(/\b(JR\d+)\s*$/i)?.[1] || row.title.match(/[[(](\d{5,})[\])]\s*$/)?.[1] || row.title.match(/\s-\s(\d{5,})\s*$/)?.[1] || '';
-    row.url = ['title', 'id'].map(k => cells[columns.indexOf(k)]?.match(/\]\((https?:\/\/[^\s)]+)\)/)?.[1]).find(Boolean) || '';
-    row.externalUrl = '';
+    row.requisitionId = row.requisitionId || row.title.match(/\b((?:JR|R)\d+)\s*$/i)?.[1] || row.title.match(/[[(](\d{5,})[\])]\s*$/)?.[1] || row.title.match(/\s-\s(\d{5,})\s*$/)?.[1] || '';
+    row.url = row.url || ['title', 'id'].map(k => cells[columns.indexOf(k)]?.match(/\]\((https?:\/\/[^\s)]+)\)/)?.[1]).find(Boolean) || '';
+    row.externalUrl = row.externalUrl || '';
     try { Object.assign(row, schoolDeadline(row.deadline)); }
     catch (error) { row.deadlineText = row.deadline; row.deadline = ''; row.parseWarning = error.message; }
     rows.push(row);

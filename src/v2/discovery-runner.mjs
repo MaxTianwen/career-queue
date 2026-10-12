@@ -33,7 +33,16 @@ export class CatalogueRunner {
     this.state.enabled = enabled;
     this.persist(); return this.status();
   }
-  start(trigger = 'manual') {
+  requestRefresh(trigger='open') {
+    if(!['open','manual'].includes(trigger)) fail(400,'刷新来源无效');
+    if(this.pending) return {refreshing:true,reused:true};
+    const last=this.state.runs.at(-1),recent=last?.finishedAt && this.store.now()-Date.parse(last.finishedAt)<15000;
+    if(recent && (trigger==='open' || ['done','partial'].includes(last.status))) return {refreshing:false,reused:true};
+    // An interactive opening is not a scheduled run and never changes enabled.
+    this.start(trigger,{interactive:true}).catch(()=>{});
+    return {refreshing:true,reused:false};
+  }
+  start(trigger = 'manual', {interactive=false}={}) {
     if (this.broken) fail(503, '运行记录异常，请修复存储后重启');
     if (this.pending) fail(409, '公开列表正在刷新，请稍后查看');
     const now = this.store.now(), day = torontoDay(new Date(now)), planned = Date.parse(scheduledAt(day));
@@ -43,7 +52,7 @@ export class CatalogueRunner {
       if (this.state.retryAt > now) return Promise.resolve({ waiting: true });
     } else {
       const last = this.state.runs.at(-1);
-      if (last && now - Date.parse(last.startedAt) < 60000) fail(429, '请间隔一分钟后再刷新公开来源');
+      if (!interactive && last && now - Date.parse(last.startedAt) < 60000) fail(429, '请间隔一分钟后再刷新公开来源');
     }
     // Reserve synchronously, before network awaits.
     this.pending = Promise.resolve().then(() => this.execute(trigger, day, now, planned)).finally(() => { this.pending = null; });

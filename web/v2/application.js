@@ -3,6 +3,9 @@ const $ = selector => document.querySelector(selector);
 const el = (tag, text) => { const node = document.createElement(tag); node.textContent = text; return node; };
 const channels = { unknown: '待确认', employer: '官网', school: '学校', both: '官网 + 学校', 'school-only': '仅学校' };
 
+export function localDate(date=new Date()) {
+  return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+}
 export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloadFile, filesChanged }) {
   let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
   const dirty = new Set();
@@ -52,7 +55,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const r = previewDialog.getBoundingClientRect();
     if (event.target === previewDialog && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom)) clearPreview();
   });
-  for (const id of ['channel-form', 'material-form', 'submission-form', 'material-upload', 'generation-form', 'word-edit-form', 'submission-correction-form', 'preparation-form']) {
+  for (const id of ['confirmation-form', 'channel-form', 'material-form', 'submission-form', 'material-upload', 'generation-form', 'word-edit-form', 'submission-correction-form', 'preparation-form']) {
     $(`#${id}`).addEventListener('input', () => dirty.add(id));
   }
   preparation.elements.notes.addEventListener('input', () => { preparation.elements.reviewed.checked = false; });
@@ -85,13 +88,15 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   });
   function reset(id) {
     clearRehearsal();
-    $('#pairing-entry-status').textContent=''; preparationState = null; questionState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
+    $('#confirmation-status').textContent=''; $('#pairing-entry-status').textContent=''; preparationState = null; questionState = null; $('#application-form-preview').replaceChildren(); preparation.reset(); $('#preparation-status').textContent = ''; $('#preparation-summary').replaceChildren(); $('#preparation-panel').open = false;
     revision++; jobId = id; state = null; schoolContext = null; $('#submission-school-context').textContent = ''; dirty.clear(); clearPreview();
     clearDraft(); clearEdit(); clearCorrection(); submissionRequestId = crypto.randomUUID(); submissionPayload = null;
     $('#generated-list').replaceChildren(); $('#generation-panel').open = false;
-    $('#application-panel').hidden = !id; $('#application-fields').disabled = true;
+    for(const section of ['browser-assistant','submission-details','history-details','review-materials','upload-existing','channel-details']) $('#'+section).open=false;
+    $('#prepare-baseline').hidden=true; $('#application-panel').hidden = !id; $('#application-fields').disabled = true;
     $('#material-history').replaceChildren(); $('#application-status').textContent = id ? '正在读取材料与记录…' : ''; $('#material-context').textContent = '';
-    for (const id of ['channel-form', 'material-form', 'submission-form', 'material-upload']) $(`#${id}`).reset();
+    for (const id of ['confirmation-form', 'channel-form', 'material-form', 'submission-form', 'material-upload']) $(`#${id}`).reset();
+    $('#confirmation-form').elements.date.value=localDate();
     material.elements.resumeFileId.replaceChildren(); material.elements.coverFileId.replaceChildren(); submission.elements.materialId.replaceChildren();
     const captured = revision;
     if (id) refresh().catch(error => { if (revision === captured) $('#application-status').textContent = `材料区读取失败：${error.message}。可点击刷新重试。`; });
@@ -109,6 +114,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const schoolChanged = state && schoolContext?.revision !== nextSchool?.revision;
     if (schoolChanged) { submission.elements.confirmed.checked = false; submission.elements.attachmentsComplete.checked = false; }
     schoolContext = nextSchool;
+    $('#submission-school-context').hidden=!schoolContext && !schoolChanged;
     $('#submission-school-context').textContent = `${schoolChanged ? '学校关联已变化，请重新核对并确认。' : ''}${schoolContext ? `学校提交将对应 School ID ${schoolContext.schoolId}：${schoolContext.company} · ${schoolContext.title}` : '尚未关联 School ID；学校提交将保留为未关联记录，不自动推断学校编号。'}`;
     if (state?.context.hash !== next.context.hash) material.elements.confirmed.checked = false;
     if (draft && draft.contextHash !== next.context.hash) clearDraft();
@@ -148,7 +154,11 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     if (!dirty.has('channel-form')) $('#channel-form').elements.channel.value = state.channel;
     options(submission.elements.materialId, state.versions.map((version, index) => ({ id: version.id, label: `版本 ${state.versions.length - index} · ${version.snapshot.resume.name}${version.stale ? ' · 依据已变化' : ''}` })), '请选择实际使用的版本');
     $('#material-context').textContent = state.context.ready ? `对应已保存的岗位与简历：${state.context.resume.name} · ${state.context.hash.slice(0, 8)}` : '先保存完整 JD，并在“我的文件”核对启用简历，再保存材料版本。';
-    $('#application-status').textContent = `${state.status} · 渠道：${channels[state.channel]}`;
+    $('#confirmation-status').textContent=state.submissions.length ? state.submissions.map(row=>`${channels[row.channel]}：${row.date}，本人确认已提交`).join('；') : '尚未记录实际提交';
+    $('#application-status').textContent = state.context.ready ? '岗位与简历已就绪，可准备材料。' : '下一步：'+(!state.context.job.jd?'补充职位 JD。':'在“我的文件”启用你的简历。');
+    $('#generation-panel').open=Boolean(state.context.ready);
+    $('#prepare-baseline').hidden=Boolean(state.context.ready || !state.context.job.jd);
+    $('#channel-details').open=Boolean(schoolContext && state.channel==='unknown');
     $('#application-fields').disabled = false;
     drawHistory();
     $('#generated-list').replaceChildren();
@@ -166,7 +176,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       select.type = view.type = download.type = 'button';
       select.addEventListener('click', () => {
         if (row.stale) { $('#application-status').textContent = '该生成稿依据已变化，请重新生成。'; return; }
-        material.elements.resumeFileId.value = row.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form');
+        material.elements.resumeFileId.value = row.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
         $('#application-status').textContent = '已选入材料，请预览后确认';
       });
       view.addEventListener('click', () => action('#application-status', () => preview(row.pdfId)));
@@ -380,6 +390,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   }
   function drawHistory() {
     $('#material-history').replaceChildren();
+    for(const record of state.submissions.filter(row=>!row.materialId)) $('#material-history').append(el('p',`${channels[record.channel]} · ${record.date || '提交日期未知'} · 来源：${record.source==='school-portal'?'学校 Portal 状态':'本人提交确认'}${record.receipt?' · '+record.receipt:''}（未关联本机材料）`));
     for (const [index, version] of state.versions.entries()) {
       const section = document.createElement('details');
       section.append(el('summary', `版本 ${state.versions.length - index} · ${new Date(version.created).toLocaleString()}${version.stale ? ' · 依据已变化' : ' · 当前依据'}`));
@@ -394,7 +405,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       const jd = document.createElement('details'); jd.append(el('summary', '当时的岗位与 JD'), el('p', `${version.snapshot.context.job.company} · ${version.snapshot.context.job.title}`), el('pre', version.snapshot.context.job.jd)); section.append(jd);
       for (const record of state.submissions.filter(record => record.materialId === version.id)) {
         const row = document.createElement('section'); row.className = 'submission-record';
-        row.append(el('p', `${channels[record.channel]}已记录提交 · ${record.date}${record.receipt ? ' · ' + record.receipt : ''}`));
+        row.append(el('p', `${channels[record.channel]}已记录提交 · ${record.date || '提交日期未知'}${record.receipt ? ' · ' + record.receipt : ''}`));
         const correct = el('button', '更正这条提交记录'); correct.type = 'button'; correct.dataset.correctSubmission = record.id;
         correct.disabled = $('#application-reload').disabled;
         correct.addEventListener('click', () => {
@@ -403,7 +414,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
           correction.reset(); correction.hidden = false;
           correctionChannels(record.channel);
           correction.elements.date.value = record.date; correction.elements.receipt.value = record.receipt;
-          $('#correction-source').textContent = `正在更正：${channels[record.channel]} · ${record.date}。材料固定为版本 ${state.versions.length - index}：${version.snapshot.resume.name}。`;
+          $('#correction-source').textContent = `正在更正：${channels[record.channel]} · ${record.date || '提交日期未知'}。材料固定为版本 ${state.versions.length - index}：${version.snapshot.resume.name}。`;
           $('#correction-status').textContent = ''; correction.scrollIntoView({ block: 'start' }); correction.elements.date.focus();
         });
         row.append(correct);
@@ -422,15 +433,64 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     }
     if (!state.versions.length) $('#material-history').append(el('p', '尚未保存已审阅材料。'));
   }
-  async function records() {
-    const rows = await api('/api/applications'); $('#applications-list').replaceChildren();
-    for (const row of rows) {
-      const card = el('article', ''); card.className = 'recommendation-card';
-      card.append(el('small', row.company), el('h3', row.title), el('p', `${row.status} · ${channels[row.channel]}`));
-      for (const record of row.submissions) card.append(el('p', `${channels[record.channel]} · ${record.date}${record.receipt ? ' · ' + record.receipt : ''}${record.revision ? ' · 已更正' : ''}`));
-      const button = el('button', '查看材料与记录'); button.addEventListener('click', () => chooseJob(row.jobId)); card.append(button); $('#applications-list').append(card);
+  function confirmationControls(container,target,record,school) {
+    if(record.materialId)return;
+    const editor=document.createElement('details');editor.append(el('summary',record.withdrawn?'重新确认已提交':'更正日期 / 撤回误标'));
+    const date=document.createElement('input');date.type='date';date.value=record.date || '';if(record.source==='school-portal')editor.append(el('p','日期可留空表示未知；观察时间和截止日期都不是提交日期。'));
+    const receipt=document.createElement('input');receipt.value=record.receipt || '';receipt.maxLength=500;
+    const reason=document.createElement('input');reason.maxLength=500;reason.placeholder='选填';
+    for(const [text,input] of [['实际提交日期（按本人所在地）',date],['回执 / 备注',receipt],['更改原因',reason]]){const label=el('label',text);label.append(input);editor.append(label);}
+    const checked=document.createElement('input');checked.type='checkbox';
+    const label=el('label',record.withdrawn?'我已核对并确认实际提交成功':'我已核对本次更正；撤回仅取消本机误标，不撤销网站申请');label.className='check';label.prepend(checked);editor.append(label);
+    if(school)editor.append(el('p','当前学校 ID：'+school.schoolId));
+    const status=el('p','');status.setAttribute('role','status');let requestId=crypto.randomUUID();
+    editor.addEventListener('input',()=>{requestId=crypto.randomUUID();});
+    for(const [kind,text] of record.withdrawn?[['restore','确认实际提交，恢复记录']]:[['correct','更正日期 / 回执'],['withdraw','撤回误标已提交']]){
+      const button=el('button',text);button.type='button';button.addEventListener('click',()=>action(status,async()=>{
+        if(!checked.checked)throw new Error('请先核对并勾选本次操作确认');
+        const value={action:kind,revision:record.revision,confirmed:true,requestId,date:date.value,receipt:receipt.value,reason:reason.value,timezoneOffset:new Date().getTimezoneOffset(),schoolRevision:school?.revision ?? null};
+        await api(`/api/jobs/${target}/submission-confirmations/${record.id}/changes`,{method:'POST',value});
+        await records();if(jobId===target)await refresh();
+        $('#applications-status').textContent=kind==='withdraw'?'已撤回误标；草稿、材料和历史保留，可在已撤回历史中重新确认。':kind==='restore'?'已重新确认实际提交并恢复记录，未新增副本。':'更正已记录，原日期及原因保留在变更历史中。';
+      }));editor.append(button);
     }
-    if (!rows.length) $('#applications-list').append(el('p', '尚无材料或提交记录。先从已保存职位开始准备。'));
+    editor.append(status);container.append(editor);
+    if(record.corrections?.length){const history=document.createElement('details');history.append(el('summary','变更历史 · '+record.corrections.length));for(const change of record.corrections)history.append(el('p',`${{correct:'更正',withdraw:'撤回',restore:'重新确认'}[change.action]} · ${change.before.date} → ${change.after.date} · ${change.reason} · ${new Date(change.created).toLocaleString()}`));container.append(history);}
+  }
+  async function records() {
+    const [rows,withdrawn]=await Promise.all([api('/api/applications'),api('/api/withdrawn-applications')]);$('#applications-list').replaceChildren();
+    for(const [channel,title] of [['school','学校申请'],['employer','外部申请']]) {
+      const group=document.createElement('section');group.append(el('h3',title));
+      const entries=rows.filter(row=>row.submissions.some(record=>record.channel===channel));
+      if(!entries.length)group.append(el('p','暂无记录'));
+      for(const row of entries){
+        const card=el('article','');card.className='recommendation-card';
+        card.append(el('small',row.company),el('h3',row.title),el('p',channel==='school'?'学校岗位 · 学校申请':'外部申请'));
+        if(channel==='school') {
+          const progress=row.channelProgress;const overview=el('div','');overview.className='channel-progress';
+          overview.append(el('strong',progress.requirement),el('p',`学校 Portal：${progress.portal} · 官网：${progress.employer}`));
+          if(progress.missing.includes('employer'))overview.append(el('p','尚需官网步骤：前往官网完成申请后，单独记录官网提交。'));
+          if(progress.employer==='待确认')overview.append(el('p','学校提交不代表官网已提交。请核对该岗位是否还需要官网申请。'));
+          for(const quote of row.requirement.evidence)overview.append(el('p','原文依据：'+quote));
+          const label=el('label','核对申请途径'),choice=document.createElement('select');
+          for(const [value,text] of [['unknown','待确认'],['both','学校 Portal + 官网'],['school-only','仅学校 Portal']])choice.append(new Option(text,value));choice.value=['both','school-only'].includes(row.channel)?row.channel:'unknown';label.append(choice);overview.append(label);
+          const save=el('button','保存核对结果'),status=el('p','');save.type='button';status.setAttribute('role','status');save.addEventListener('click',()=>action(status,async()=>{await api(`/api/jobs/${row.jobId}/channel`,{method:'PUT',value:{channel:choice.value}});await records();if(jobId===row.jobId)await refresh();}));overview.append(save,status);card.append(overview);
+        }
+        for(const record of row.submissions.filter(record=>record.channel===channel)){
+          card.append(el('p',`${record.date || '提交日期未知'}${record.receipt?' · '+record.receipt:''} · ${record.source==='school-portal'?'学校 Portal 状态':'本人确认'}`));
+          for(const evidence of record.portalEvidence || [])card.append(el('p',`学校 ID ${evidence.schoolId} · 首次观察 ${new Date(evidence.firstObserved).toLocaleString()}（非提交日期）`));
+          confirmationControls(card,row.jobId,record,row.schoolContext);
+        }
+        const button=el('button','查看材料与记录');button.addEventListener('click',()=>chooseJob(row.jobId));card.append(button);group.append(card);
+      }
+      $('#applications-list').append(group);
+    }
+    if(!rows.length)$('#applications-list').append(el('p','尚无已提交记录。准备材料不会出现在这里；在网站实际提交后确认即可加入。'));
+    if(withdrawn.length){
+      const history=document.createElement('details');history.append(el('summary','已撤回历史（不计为已申请）'));
+      for(const row of withdrawn)for(const record of row.withdrawn){const card=el('article','');card.className='recommendation-card';card.append(el('h3',row.company+' · '+row.title),el('p',`${channels[record.channel]} · 原记录日期 ${record.date || '提交日期未知'} · 已撤回`));confirmationControls(card,row.jobId,record,row.schoolContext);history.append(card);}
+      $('#applications-list').append(history);
+    }
   }
   async function afterSave(message) {
     try { await refresh(); await records(); $('#application-status').textContent = message; }
@@ -445,7 +505,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     $('#word-edit-status').textContent = '正在检查字体、版式和一页限制；失败会保留输入…';
     const saved = await api(`/api/jobs/${jobId}/generation/${editDraft.parentId}/edit`, { method: 'POST', value });
     clearEdit(); await afterSave('修改稿已另存并选入材料；旧稿与提交记录保留，请重新预览后审阅');
-    material.elements.resumeFileId.value = saved.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form');
+    material.elements.resumeFileId.value = saved.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
     try { await filesChanged(); } catch { $('#application-status').textContent = '修改稿已保存，请刷新材料区查看，无需重复保存'; }
   }); });
   $('#prepare-word').addEventListener('click', () => action('#application-status', async () => {
@@ -473,7 +533,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     $('#application-status').textContent = '正在生成并检查一页版式，请稍候…';
     const saved = await api(`/api/jobs/${jobId}/generation`, { method: 'POST', value });
     clearDraft(); await afterSave('生成稿已保存并选入材料；请预览后确认，不代表已投递');
-    material.elements.resumeFileId.value = saved.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form');
+    material.elements.resumeFileId.value = saved.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
     try { await filesChanged(); } catch { $('#application-status').textContent = '生成稿已保存，请刷新材料区查看；无需重新生成'; }
   }); });
   $('#channel-form').addEventListener('submit', event => { event.preventDefault(); action('#application-status', async () => {
@@ -484,7 +544,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     if (!file || !file.name.toLowerCase().endsWith('.pdf') || file.size > 5 * 1024 * 1024) throw new Error('请选择不超过 5MB 的 PDF');
     const saved = await api('/api/files', { method: 'POST', file }); event.target.reset(); dirty.delete('material-upload');
     await afterSave('PDF 原件已保存');
-    material.elements.resumeFileId.value = saved.id; material.elements.confirmed.checked = false; dirty.add('material-form');
+    material.elements.resumeFileId.value = saved.id; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
     try { await filesChanged(); } catch { $('#application-status').textContent = 'PDF 已保存；我的文件列表暂未刷新，可重新登录查看'; }
   }); });
   $('#preview-resume').addEventListener('click', () => action('#application-status', () => preview(material.elements.resumeFileId.value)));
@@ -495,6 +555,17 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     await api(`/api/jobs/${jobId}/materials`, { method: 'POST', value: { contextHash: state.context.hash, resumeFileId: material.elements.resumeFileId.value, coverFileId: material.elements.coverFileId.value, confirmed: material.elements.confirmed.checked } });
     dirty.delete('material-form'); material.elements.confirmed.checked = false; await afterSave('材料版本已保存，尚未记录实际提交');
   }); });
+  let confirmationRequestId=crypto.randomUUID();
+  $('#confirmation-form').addEventListener('input',()=>{confirmationRequestId=crypto.randomUUID();});
+  $('#confirmation-form').addEventListener('submit',event=>{event.preventDefault();action('#confirmation-status',async()=>{
+    const form=event.target;
+    const value={channel:form.elements.channel.value,date:form.elements.date.value,receipt:form.elements.receipt.value,confirmed:form.elements.confirmed.checked,source:'manual-confirmation',timezoneOffset:new Date().getTimezoneOffset(),requestId:confirmationRequestId};
+    if(value.channel==='school')value.schoolRevision=schoolContext?.revision ?? null;
+    await api(`/api/jobs/${jobId}/submission-confirmation`,{method:'POST',value});
+    dirty.delete('confirmation-form');form.reset();form.elements.date.value=localDate();confirmationRequestId=crypto.randomUUID();
+    await afterSave('本人提交确认已记录，已加入申请记录。');
+    $('#confirmation-status').textContent='已加入申请记录；来源：本人确认。';
+  });});
   submission.addEventListener('submit', event => { event.preventDefault(); action('#application-status', async () => {
     if (jobDirty()) throw new Error('请先保存职位信息，或放弃未保存改动后再记录提交');
     const value = Object.fromEntries(['channel', 'materialId', 'date', 'receipt'].map(name => [name, submission.elements[name].value]));
@@ -519,5 +590,5 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     }).then(() => { if (savedId) focusCorrection(savedId); });
   });
   return { reset, refresh, records, clearPreview, dirty: () => dirty.size > 0,
-    clear: () => { reset(null); $('#applications-list').replaceChildren(); } };
+    clear: () => { reset(null); $('#applications-status').textContent=''; $('#applications-list').replaceChildren(); } };
 }

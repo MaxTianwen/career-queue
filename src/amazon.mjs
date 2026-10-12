@@ -24,7 +24,7 @@ export function amazonPosting(item, api) {
   const posted = date && `${date[3]}-${String(months.indexOf(date[1]) + 1).padStart(2, '0')}-${date[2].padStart(2, '0')}`;
   const starts = jd.split('\n').filter(line => /\bstarts?\b/i.test(line));
   const seasons = new Set(starts.flatMap(line => [...line.matchAll(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/g)].map(m => `${months.indexOf(m[1]) < 3 ? 'Winter' : m[1] === 'April' ? 'Spring' : months.indexOf(m[1]) < 8 ? 'Summer' : 'Fall'} ${m[2]}`)));
-  return { company: 'Amazon', title: item.title.trim(), url, jd,
+  return { company: 'Amazon', title: item.title.trim(), url, jd, fullJd:true,
     location: [item.location || item.normalized_location || 'Unknown', item.country_code === 'CAN' ? 'Canada' : item.country_code].filter(Boolean).join(', '),
     requisitionId: id, postedAt: posted && validPublicationDate(posted) ? posted : null, postedAtKind: 'official',
     deadline: null, workMode: 'unknown', salary: '未披露',

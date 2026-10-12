@@ -24,6 +24,7 @@ export function normalizePortalRow(input) {
   Object.assign(row, schoolDeadline(field(input.deadline, 100)));
   if (input.deadlineText) row.deadlineText = field(input.deadlineText, 100);
   row.sourceStatus = field(input.sourceStatus);
+  for(const key of ['duration','jd','applicationInstructions'])if(input[key])row[key]=field(input[key],key==='jd'?60000:2000);
   if (!row.id || !row.company || !row.title) throw new Error('需要学校职位 ID、公司和标题');
   return row;
 }

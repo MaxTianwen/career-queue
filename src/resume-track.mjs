@@ -15,6 +15,13 @@ export function classifyResume(job) {
   const jd = job.fullJd === false ? '' : String(job.jd || '');
   const hits = source => Object.fromEntries(Object.entries(roles).map(([track, re]) => [track, [...new Set(source.match(re)?.map(x => x.toLowerCase()) || [])]]));
   const titleHits = hits(title);
+  // Short recruiting titles are explicit role evidence, but only in the title.
+  // Do not infer a role from a degree, a skill list, or another team's internship.
+  for (const [track, pattern] of Object.entries({
+    cs: /\b(?:software[ -]+(?:intern(?:ship)?|co[ -]?op)|(?:SWE|SDE)[ -]+(?:intern(?:ship)?|co[ -]?op)|(?:intern(?:ship)?|co[ -]?op)\s*[-–:,]\s*(?:software|SWE|SDE))\b/ig,
+    data: /\bdata[ -]+(?:intern(?:ship)?|co[ -]?op)\b/ig
+  })) titleHits[track].push(...new Set(title.match(pattern)?.map(value => value.toLowerCase()) || []));
+
   const dutyHits = hits(jd.split(/\n|(?<=[.!?])\s+/).filter(line => !/\b(?:(?:collaborat\w*|work(?:ing)?)\s+(?:closely\s+)?with|degree|diploma|bachelor|master|studying|enrolled|background in)\b/i.test(line)).join('\n'));
   const actions = Object.fromEntries(Object.entries(duties).map(([track, re]) => [track, [...new Set(jd.match(re) || [])]]));
   const hasActions = actions.cs.length || actions.data.length;

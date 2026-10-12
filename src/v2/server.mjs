@@ -1,3 +1,4 @@
+import {schoolCapture} from './school-capture.mjs';
 import { browserFillBridge } from './browser-fill.mjs';
 import { rehearsalFields } from './fill-rehearsal.mjs';
 import { createServer } from 'node:http';
@@ -20,7 +21,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const assets = new Map([['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
+const assets = new Map([['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
 const cookie = (token, age = SESSION_MS / 1000) => `cq_v2_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 function tokenFrom(req) { return req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('cq_v2_session='))?.slice('cq_v2_session='.length) ?? ''; }
 async function body(req, limit) {
@@ -42,11 +43,11 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
   const store = new WorkspaceStore(database, { now });
   const bridge = browserFillBridge(store);
   const gate = availabilityGate(store, availability);
-  const runner = new CatalogueRunner(store, { discover, online, configured: typeof automationToken === 'string' && /^[a-f0-9]{64}$/.test(automationToken) });
+  const runner = new CatalogueRunner(store, { discover:discover===fetchCatalogue?()=>fetchCatalogue({cachedJobs:store.catalogue().jobs}):discover, online, configured: typeof automationToken === 'string' && /^[a-f0-9]{64}$/.test(automationToken) });
   let parsing = false;
   let generating = false;
   let exporting = false;
-  const scored = (owner, job) => ({ ...job, match: scoreFor(job, store.activeResume(owner)) });
+  const scored = (owner, job) => ({ ...job, eligibilityExclusion:store.citizenExclusion(owner,job), match: scoreFor(job, store.activeResume(owner)) });
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -127,10 +128,11 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         } finally { exporting = false; }
       }
       if (path === '/api/applications' && req.method === 'GET') return json(res, 200, store.applications(owner));
-      if (path === '/api/school/opportunities' && req.method === 'GET') return json(res,200,store.schoolOpportunities(owner));
+      if (['/api/school/capture-preview','/api/school/capture-import'].includes(path) && req.method === 'POST') return json(res,200,schoolCapture(store,owner,await input(),path.endsWith('capture-import')));
+      if (path === '/api/school/opportunities' && req.method === 'GET') return json(res,200,store.pendingSchoolOpportunities(owner));
       if (path === '/api/school/opportunities' && req.method === 'POST') return json(res,200,store.syncSchoolOpportunities(owner,(await input()).text));
       if (path === '/api/school/opportunities/start' && req.method === 'POST') { const value=await input(); return json(res,200,store.startSchoolOpportunity(owner,value.schoolId,value.fingerprint)); }
-      if (path === '/api/school' && req.method === 'GET') return json(res, 200, store.schoolRecords(owner));
+      if (path === '/api/school' && req.method === 'GET') return json(res, 200, store.schoolRecords(owner).map(row=>({...row,eligibilityExclusion:store.citizenExclusion(owner,{...row.row,schoolId:row.schoolId})})));
       if (path === '/api/school/history' && req.method === 'GET') return json(res, 200, { events: store.schoolHistory(owner), sources: store.schoolSubmissionSources(owner) });
       const schoolContext = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/school-context$/);
       if (schoolContext && req.method === 'GET') return json(res, 200, store.schoolContext(owner, schoolContext[1]));
@@ -227,7 +229,10 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       }
       const questionHistory = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/question-history\/(\d+)$/);
       if (questionHistory && req.method === 'GET') return json(res, 200, store.questionHistory(owner,questionHistory[1],Number(questionHistory[2])));
-      const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|question-draft|channel|materials|submission)$/);
+      if(path==='/api/withdrawn-applications' && req.method==='GET')return json(res,200,store.withdrawnApplications(owner));
+      const confirmationChange=path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/submission-confirmations\/([a-f0-9-]{36})\/changes$/);
+      if(confirmationChange && req.method==='POST')return json(res,200,store.changeConfirmation(owner,confirmationChange[1],confirmationChange[2],await input()));
+      const application = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(application|preparation|question-draft|channel|materials|submission|submission-confirmation)$/);
       if (application) {
         const [, id, operation] = application;
         if (operation === 'question-draft' && req.method === 'GET') return json(res, 200, store.questionDraft(owner, id));
@@ -237,6 +242,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (operation === 'application' && req.method === 'GET') return json(res, 200, store.application(owner, id));
         if (operation === 'channel' && req.method === 'PUT') return json(res, 200, store.setApplicationChannel(owner, id, await input()));
         if (operation === 'materials' && req.method === 'POST') return json(res, 200, store.reviewMaterial(owner, id, await input(), session.csrf));
+        if (operation === 'submission-confirmation' && req.method === 'POST') return json(res, 200, store.confirmSubmission(owner, id, await input()));
         if (operation === 'submission' && req.method === 'POST') return json(res, 200, store.recordSubmission(owner, id, await input()));
       }
       const pdf = path.match(/^\/api\/files\/([a-f0-9-]{36})\/preview$/);
@@ -273,17 +279,21 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return json(res, 200, runner.setEnabled((await input()).enabled));
       }
       if (path === '/api/recommendations' && req.method === 'GET') {
-        const data = store.catalogue(), preferences = store.preferences(owner);
+        const data = {...store.catalogue(),jobs:store.pendingOpportunities(owner)}, preferences = store.preferences(owner);
         return json(res, 200, { ...data, total: data.jobs.length, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
           unsupportedType: Boolean(preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) });
       }
-      if (path === '/api/recommendations/refresh' && req.method === 'POST') {
+      if(path === '/api/eligibility/exclusions' && req.method === 'GET')return json(res,200,store.eligibilityExclusions(owner));
+      if(path === '/api/recommendations/update' && req.method === 'POST') {
+        const value=await input();return json(res,202,runner.requestRefresh(value.trigger));
+      }
+      if (path === '/api/recommendations/refresh'  && req.method === 'POST') {
         await input();
         const result = await runner.start('manual');
         if (!store.session(token)) fail(401, '请重新登录');
         return json(res, 200, { sources: result.sources, finishedAt: result.finishedAt });
       }
-      const suggested = path.match(/^\/api\/recommendations\/([a-f0-9]{64})\/save$/);
+      const suggested = path.match(/^\/api\/recommendations\/([a-f0-9]{64})\/(?:save|prepare)$/);
       if (suggested && req.method === 'POST') return json(res, 200, scored(owner, store.saveSuggested(owner, suggested[1])));
       if (path === '/api/jobs' && req.method === 'GET') return json(res, 200, store.jobs(owner).map(job => scored(owner, job)));
       if (path === '/api/jobs' && req.method === 'POST') return json(res, 201, scored(owner, store.saveJob(owner, await input())));

@@ -18,6 +18,8 @@ export function postingUrl(value) {
   if (celesticaUrl(value)) return celesticaUrl(value);
   if (pinpointUrl(value)) return pinpointUrl(value);
   const url = new URL(canonicalUrl(value));
+  // Keep existing AMD catalogue identity stable across its official route migration.
+  if(url.hostname==='careers.amd.com' && /^\/(?:careers-home\/)?jobs\/\d+\/?$/.test(url.pathname)){url.pathname='/jobs/'+url.pathname.match(/\d+/)[0];url.search='?icims=1';}
   if (['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(url.hostname) && /^\/[\w-]+\/jobs\/\d+(?:\/(?:apply|application))?$/.test(url.pathname)) {
     url.hostname = 'job-boards.greenhouse.io';
     url.pathname = url.pathname.replace(/\/(apply|application)$/, '');

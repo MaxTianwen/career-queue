@@ -42,7 +42,7 @@ test('v2 linking school rows preserves saved notes, JD, channel, materials and s
   assert.equal(result.rows[0].candidates[0].target, `saved:${job.id}`);
   const input = f.input(text, [{ index: 0, target: `saved:${job.id}` }]);
   f.store.importSchool(f.owner, input);
-  assert.deepEqual(f.store.job(f.owner, job.id), job); assert.deepEqual(f.store.application(f.owner, job.id), before);
+  assert.deepEqual({ ...f.store.job(f.owner, job.id) }, { ...job, schoolId: '900001' }); assert.deepEqual(f.store.application(f.owner, job.id), before);
   assert.equal(f.store.schoolRecords(f.owner)[0].row.id, '900001');
   assert.equal(f.store.schoolPreview(f.owner, text).rows[0].category, 'linked');
 });
@@ -133,9 +133,11 @@ test('school maintenance permits employer-submitted relink and unlink without mo
   assert.equal(f.store.schoolRecords(f.owner)[0].locked, false);
   f.store.changeSchool(f.owner, link.schoolId, maintenance(f, link, 'relink', { targetJobId: second.id }));
   const current = f.store.schoolLinks(f.owner)[0]; assert.equal(current.jobId, second.id);
+  assert.deepEqual(f.store.jobs(f.owner).map(job => ({ ...job })), jobs.map(job => ({ ...job, schoolId: job.id === second.id ? link.schoolId : null })));
+  assert.deepEqual(f.store.application(f.owner, link.jobId), before);
   f.store.changeSchool(f.owner, link.schoolId, maintenance(f, current, 'unlink'));
   assert.deepEqual(f.store.schoolLinks(f.owner), []);
-  assert.deepEqual(f.store.jobs(f.owner), jobs); assert.deepEqual(f.store.application(f.owner, link.jobId), before);
+  assert.deepEqual(f.store.jobs(f.owner).map(job => ({ ...job })), jobs.map(job => ({ ...job, schoolId: null }))); assert.deepEqual(f.store.application(f.owner, link.jobId), before);
   assert.deepEqual(f.store.schoolHistory(f.owner).map(row => row.action), ['link', 'relink', 'unlink']);
   assert.equal(f.store.schoolHistory(f.owner)[2].before.jobId, second.id);
 });

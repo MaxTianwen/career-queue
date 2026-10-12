@@ -7,8 +7,12 @@ export function pageFields(mode, targetUrl, fields, expected) {
   }
   if (target(location.href)!==target(targetUrl)) throw Error('当前页面与准备的职位不一致');
   const visible=e=>Boolean(e.getClientRects().length) && getComputedStyle(e).visibility!=='hidden';
-  if ([...document.querySelectorAll('input[type=password]')].some(visible)) throw Error('遇到登录，请本人处理');
-  if ([...document.querySelectorAll('iframe')].some(e=>visible(e) && /captcha|challenge/i.test(e.title) && e.getBoundingClientRect().height>150)) throw Error('遇到验证，请本人处理');
+  function checkInterruption(filled) {
+    const progress=filled===undefined?'':'；已填写 '+filled+' 项，请本人检查';
+    if ([...document.querySelectorAll('input[type=password]')].some(visible)) throw Error('遇到登录，请本人处理'+progress);
+    if ([...document.querySelectorAll('iframe')].some(e=>visible(e) && /captcha|challenge/i.test(e.title) && e.getBoundingClientRect().height>150)) throw Error('遇到验证，请本人处理'+progress);
+  }
+  checkInterruption();
   const normalize=s=>s.replace(/\*/g,'').trim().toLowerCase();
   const allowed=new Set(['first name','last name','full name','email','linkedin profile','website']);
   const inputs=[...document.querySelectorAll('input')].filter(visible), targets=[];
@@ -25,6 +29,7 @@ export function pageFields(mode, targetUrl, fields, expected) {
   if (mode!=='fill' || JSON.stringify(bindings)!==JSON.stringify(expected)) throw Error('页面结构已变化，请重新预览');
   let filled=0;
   for (let i=0;i<targets.length;i++) {
+    checkInterruption(filled);
     const e=targets[i];
     const matches=[...document.querySelectorAll('input')].filter(input=>visible(input) && [...input.labels||[]].some(l=>normalize(l.textContent)===normalize(fields[i].label)));
     let samePage=false; try { samePage=target(location.href)===target(targetUrl); } catch { /* Navigation is handled as an interrupted fill. */ }
@@ -32,6 +37,7 @@ export function pageFields(mode, targetUrl, fields, expected) {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,fields[i].answer);
     e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true}));
     filled++;
+    checkInterruption(filled);
     if (e.value!==fields[i].answer) throw Error('网页未保留答案，已暂停；已操作 '+filled+' 项，请本人检查');
   }
   return {filled};

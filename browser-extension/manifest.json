@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Career Queue · 本机填写助手",
-  "version": "0.1.1",
-  "description": "经本人确认，在当前 Greenhouse 页填写普通文本；不上传或提交。",
+  "version": "0.2.5",
+  "description": "本人点击读取学校岗位诊断；或确认Greenhouse普通文本填写。不提交。",
   "permissions": [
     "activeTab",
     "scripting"
@@ -12,5 +12,12 @@
   ],
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "background": {
+    "service_worker": "school-worker.js",
+    "type": "module"
+  },
+  "optional_host_permissions": [
+    "https://recruitstudents.torontomu.ca/*"
+  ]
 }

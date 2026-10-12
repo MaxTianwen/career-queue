@@ -1,3 +1,7 @@
+import { opportunityScope } from '../opportunity-scope.mjs';
+import { durationFacts } from '../duration-facts.mjs';
+import { citizenshipFacts } from '../citizenship.mjs';
+import { schoolRequirement, channelProgress } from '../../web/v2/requirements.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -5,6 +9,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'no
 import { promisify } from 'node:util';
 import { previewSchool, schoolHash } from './school.mjs';
 import { schoolDeadline } from '../portal-paste.mjs';
+import { unifiedOpportunities, identityUrl } from './unified-opportunities.mjs';
 
 const derive = promisify(scrypt);
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -35,9 +40,11 @@ function jobFields(input) {
   }
   return fields;
 }
-function submissionDate(value, now) {
+function submissionDate(value, now, timezoneOffset) {
+  if (timezoneOffset !== undefined && (!Number.isInteger(timezoneOffset) || Math.abs(timezoneOffset)>840)) fail(400,'本地时区偏移不正确');
+  const today=timezoneOffset===undefined ? new Intl.DateTimeFormat('en-CA', {timeZone:'America/Toronto',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now)) : new Date(now-timezoneOffset*60000).toISOString().slice(0,10);
   const date = textField(value, 10, true);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date > new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now))) fail(400, '请填写有效的实际提交日期，不能是未来日期');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date > today) fail(400, '请填写有效的实际提交日期，不能是未来日期');
   return date;
 }
 function requestIdentifier(value) {
@@ -83,6 +90,26 @@ export class WorkspaceStore {
       CREATE TABLE IF NOT EXISTS pdf_reviews (file_id TEXT PRIMARY KEY REFERENCES files(id), user_id TEXT NOT NULL REFERENCES users(id), pages INTEGER NOT NULL, session_key TEXT NOT NULL, viewed INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS materials (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), job_id TEXT NOT NULL REFERENCES jobs(id), fingerprint TEXT NOT NULL, snapshot TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(user_id,job_id,fingerprint));
       CREATE TABLE IF NOT EXISTS submissions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), job_id TEXT NOT NULL REFERENCES jobs(id), channel TEXT NOT NULL, material_id TEXT NOT NULL REFERENCES materials(id), submitted_date TEXT NOT NULL, receipt TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(user_id,job_id,channel));`);
+    // Additive migration: externally completed applications need not have a local material version.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS submission_confirmations (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), job_id TEXT NOT NULL REFERENCES jobs(id),
+      channel TEXT NOT NULL, submitted_date TEXT NOT NULL, receipt TEXT NOT NULL, source TEXT NOT NULL,
+      school_snapshot TEXT, created INTEGER NOT NULL, request_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+      UNIQUE(user_id,job_id,channel), UNIQUE(user_id,request_id));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS portal_submission_observations (
+      user_id TEXT NOT NULL REFERENCES users(id),school_id TEXT NOT NULL,job_id TEXT NOT NULL REFERENCES jobs(id),
+      submission_id TEXT NOT NULL,snapshot TEXT NOT NULL,first_observed INTEGER NOT NULL,last_observed INTEGER NOT NULL,
+      evidence TEXT NOT NULL,last_evidence TEXT NOT NULL,PRIMARY KEY(user_id,school_id));`);
+    const confirmationColumns=this.db.prepare('PRAGMA table_info(submission_confirmations)').all();
+    for(const [name,type] of [['withdrawn','INTEGER NOT NULL DEFAULT 0'],['revision','INTEGER NOT NULL DEFAULT 0'],['timezone_offset','INTEGER']]) {
+      if(!confirmationColumns.some(column=>column.name===name))this.db.exec(`ALTER TABLE submission_confirmations ADD COLUMN ${name} ${type}`);
+    }
+    this.db.exec(`CREATE TABLE IF NOT EXISTS confirmation_changes (
+      id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),job_id TEXT NOT NULL REFERENCES jobs(id),
+      confirmation_id TEXT NOT NULL REFERENCES submission_confirmations(id),revision INTEGER NOT NULL,
+      action TEXT NOT NULL,before_snapshot TEXT NOT NULL,after_snapshot TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL,
+      created INTEGER NOT NULL,request_id TEXT NOT NULL,request_hash TEXT NOT NULL,
+      UNIQUE(user_id,request_id),UNIQUE(confirmation_id,revision));`);
     const submissionColumns = this.db.prepare('PRAGMA table_info(submissions)').all();
     if (!submissionColumns.some(column => column.name === 'request_id')) this.db.exec('ALTER TABLE submissions ADD COLUMN request_id TEXT');
     if (!submissionColumns.some(column => column.name === 'request_hash')) this.db.exec('ALTER TABLE submissions ADD COLUMN request_hash TEXT');
@@ -107,6 +134,7 @@ export class WorkspaceStore {
     this.db.exec('CREATE TABLE IF NOT EXISTS question_drafts (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL)');
     if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'hidden')) this.db.exec('ALTER TABLE jobs ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
     if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'returned')) this.db.exec('ALTER TABLE jobs ADD COLUMN returned INTEGER NOT NULL DEFAULT 0');
+    this.db.exec('CREATE TABLE IF NOT EXISTS school_official_cache (user_id TEXT NOT NULL REFERENCES users(id),school_id TEXT NOT NULL,source_hash TEXT NOT NULL,payload TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(user_id,school_id))');
     this.db.exec('CREATE TABLE IF NOT EXISTS school_opportunities (user_id TEXT NOT NULL REFERENCES users(id),school_id TEXT NOT NULL,snapshot TEXT NOT NULL,updated INTEGER NOT NULL,PRIMARY KEY(user_id,school_id))');
     this.db.exec('CREATE TABLE IF NOT EXISTS question_history (job_id TEXT NOT NULL REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), revision INTEGER NOT NULL, basis TEXT NOT NULL, snapshot TEXT NOT NULL, updated INTEGER NOT NULL, archived INTEGER NOT NULL, PRIMARY KEY(job_id,revision))');
     // Record the association known at upgrade, never claim it existed at the submission date.
@@ -250,7 +278,8 @@ export class WorkspaceStore {
     if (input !== undefined) {
       const direction = textField(input.direction ?? '', 10);
       if (!['', 'cs', 'data', 'mixed'].includes(direction)) fail(400, '岗位方向不正确');
-      const preferences = { direction, locations: textField(input.locations ?? '', 300), jobTypes: textField(input.jobTypes ?? '', 300) };
+      const previous=this.preferences(owner);
+      const preferences = { ...previous, direction, locations: textField(input.locations ?? '', 300), jobTypes: textField(input.jobTypes ?? '', 300) };
       this.db.prepare('UPDATE users SET preferences=? WHERE id=?').run(JSON.stringify(preferences), owner);
     }
     return JSON.parse(this.db.prepare('SELECT preferences FROM users WHERE id=?').get(owner).preferences);
@@ -277,9 +306,11 @@ export class WorkspaceStore {
       .map(({ before_snapshot, after_snapshot, ...row }) => ({ ...row, before: JSON.parse(before_snapshot), after: JSON.parse(after_snapshot) }));
   }
   schoolSubmissionSources(owner, schoolId = null) {
-    return this.db.prepare(`SELECT x.submission_id submissionId,x.school_id schoolId,x.snapshot,x.basis,x.captured,s.job_id jobId,s.channel,s.submitted_date date
+    const legacy=this.db.prepare(`SELECT x.submission_id submissionId,x.school_id schoolId,x.snapshot,x.basis,x.captured,s.job_id jobId,s.channel,s.submitted_date date
       FROM school_submission_sources x JOIN submissions s ON s.id=x.submission_id WHERE x.user_id=? ORDER BY x.rowid`).all(owner)
-      .filter(row => schoolId === null || row.schoolId === schoolId).map(({ snapshot, ...row }) => ({ ...row, row: JSON.parse(snapshot) }));
+      .map(({ snapshot, ...row }) => ({ ...row, row: JSON.parse(snapshot) }));
+    const confirmed=this.db.prepare("SELECT id submissionId,job_id jobId,channel,submitted_date date,source,school_snapshot,created captured FROM submission_confirmations WHERE user_id=? AND channel='school' AND withdrawn=0").all(owner).map(({school_snapshot,...row})=>{const school=JSON.parse(school_snapshot);return {...row,schoolId:school.schoolId,row:school.row || JSON.parse(this.db.prepare('SELECT snapshot FROM portal_submission_observations WHERE user_id=? AND submission_id=?').get(owner,row.submissionId)?.snapshot || 'null'),basis:row.source};});
+    return [...legacy,...confirmed].filter(row=>schoolId===null || row.schoolId===schoolId);
   }
   captureSchoolSubmission(owner, jobId, basis) {
     this.db.prepare(`INSERT OR IGNORE INTO school_submission_sources
@@ -355,15 +386,41 @@ export class WorkspaceStore {
       this.schoolAudit(owner, schoolId, input.action, plan.before, plan.after, reason, requestId, requestHash);
       if (!plan.after) this.db.prepare('DELETE FROM school_links WHERE user_id=? AND school_id=?').run(owner, schoolId);
       else this.db.prepare('UPDATE school_links SET job_id=?,snapshot=? WHERE user_id=? AND school_id=?').run(plan.after.jobId, JSON.stringify(plan.after.row), owner, schoolId);
-      if (plan.after) this.captureSchoolSubmission(owner, plan.after.jobId, 'confirmed-association');
+      if (plan.after) {
+        this.db.prepare('INSERT INTO school_opportunities VALUES (?,?,?,?) ON CONFLICT(user_id,school_id) DO UPDATE SET snapshot=excluded.snapshot,updated=excluded.updated').run(owner,schoolId,JSON.stringify(plan.after.row),this.now());
+        this.captureSchoolSubmission(owner, plan.after.jobId, 'confirmed-association');
+      }
       this.db.exec('COMMIT'); return { saved: true };
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  cacheSchoolOfficialDetail(owner, schoolId, fingerprint, detail) {
+    const item=this.schoolOpportunities(owner).find(x=>x.schoolId===schoolId);
+    if(!item || item.fingerprint!==fingerprint) fail(409,'School source changed');
+    const row=item.row,norm=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const url=new URL(detail.url);
+    if(url.protocol!=='https:' || url.username || url.password || !detail.sourceEvidence?.url || !detail.jd || detail.jd.length>60000) fail(400,'Verified official detail required');
+    const exactReq=row.requisitionId && String(row.requisitionId)===String(detail.requisitionId) && url.pathname.match(/\/jobs\/(\d+)/)?.[1]===String(row.requisitionId);
+    if((norm(row.title)!==norm(detail.title) && !exactReq) || norm(row.company)!==norm(detail.company)) fail(409,'Official identity mismatch');
+    const city=norm(row.location.split(',')[0]);
+    if(!city || !norm(detail.location).includes(city)) fail(409,'Official location mismatch');
+    const year=row.term.match(/20\d{2}/)?.[0];
+    if(!year || !(detail.title+' '+detail.jd).includes(year)) fail(409,'Official cohort missing');
+    this.db.prepare('INSERT INTO school_official_cache VALUES (?,?,?,?,?) ON CONFLICT(user_id,school_id) DO UPDATE SET source_hash=excluded.source_hash,payload=excluded.payload,updated=excluded.updated').run(owner,schoolId,fingerprint,JSON.stringify(detail),this.now());
   }
   schoolOpportunities(owner) {
     const links=this.schoolLinks(owner);
     const items=this.db.prepare('SELECT school_id,snapshot,updated FROM school_opportunities WHERE user_id=? ORDER BY updated DESC,school_id').all(owner).map(item=>({schoolId:item.school_id,row:JSON.parse(item.snapshot),fingerprint:schoolHash(JSON.parse(item.snapshot)),updated:item.updated,jobId:links.find(link=>link.schoolId===item.school_id)?.jobId || null}));
     for(const link of links) if(!items.some(item=>item.schoolId===link.schoolId)) items.push({schoolId:link.schoolId,row:link.row,fingerprint:schoolHash(link.row),updated:link.created,jobId:link.jobId});
-    return items;
+    const history=this.schoolHistory(owner);
+    const official=this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='school_official_cache'").get()?new Map(this.db.prepare('SELECT school_id,source_hash,payload FROM school_official_cache WHERE user_id=?').all(owner).map(x=>[x.school_id,x])):new Map();
+    return items.map(item=>{
+      const association=history.filter(event=>event.schoolId===item.schoolId && ['link','relink'].includes(event.action)).at(-1);
+      const job=item.jobId?this.job(owner,item.jobId):{},plan=item.jobId?this.db.prepare('SELECT channel FROM application_plans WHERE user_id=? AND job_id=?').get(owner,item.jobId):null;
+      const requirement=plan?{kind:({both:'both','school-only':'portal_only'}[plan.channel] || 'unknown'),source:'user',evidence:[],conflict:false}:schoolRequirement([item.row],job);
+      const cached=official.get(item.schoolId),detail=cached?.source_hash===item.fingerprint?JSON.parse(cached.payload):null;
+      const officialFacts=detail?{...item.row,jd:detail.jd,externalUrl:detail.url,officialTitle:detail.title,sourceEvidence:detail.sourceEvidence,durationEvidence:detail.durationEvidence || item.row.durationEvidence || null,fullJd:detail.fullJd ?? null}:null;
+      return {...item,officialFacts,facts:officialFacts || {...item.row,jd:item.row.jd || job.jd || ''},requirement,explicitMatch:Boolean(item.jobId && association && association.reason!=='本人从学校职位开始准备')};
+    });
   }
   syncSchoolOpportunities(owner, text) {
     textField(text,150000,true);
@@ -376,9 +433,10 @@ export class WorkspaceStore {
       for (const pasted of rows) {
         const row={...pasted};
         const link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
-        const previous=link?.row || this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row;
+        const currentSource=this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row || {};
+        const previous={...link?.row,...Object.fromEntries(Object.entries(currentSource).filter(([,value])=>value!==''&&value!=null))};
         // Copied lists omit URLs; explicit removal remains in school maintenance.
-        for (const key of ['url','externalUrl']) if(!row[key] && previous?.[key]) row[key]=previous[key];
+        for (const key of ['url','externalUrl','requisitionId','duration','jd','applicationInstructions','durationSource','durationEvidence','sourceEvidence','officialTitle','fieldEvidence','eligibilityText','citizenshipInfo']) if(!row[key] && previous?.[key]) row[key]=previous[key];
         if(link && schoolHash(link.row)!==schoolHash(row)) {
           const job=this.job(owner,link.jobId), before={schoolId:row.id,jobId:job.id,row:link.row,job}, after={...before,row};
           this.schoolAudit(owner,row.id,'update',before,after,'本人粘贴更新学校列表',randomUUID(),schoolHash(row));
@@ -386,28 +444,89 @@ export class WorkspaceStore {
         }
         this.db.prepare('INSERT INTO school_opportunities VALUES (?,?,?,?) ON CONFLICT(user_id,school_id) DO UPDATE SET snapshot=excluded.snapshot,updated=excluded.updated').run(owner,row.id,JSON.stringify(row),this.now());
       }
+      const submissions=this.importPortalSubmissions(owner,rows.filter(row=>/^application submitted$/i.test(row.sourceStatus?.trim() || '')).map(row=>row.id),{kind:'school-portal-paste',sha256:hash(text)});
       const nextPreview=this.schoolPreview(owner,text);
-      this.db.exec('COMMIT'); return {updated:rows.length,preview:nextPreview};
+      this.db.exec('COMMIT'); return {updated:rows.length,preview:nextPreview,submissions};
     } catch(error) { this.db.exec('ROLLBACK'); throw error; }
   }
   startSchoolOpportunity(owner, schoolId, fingerprint) {
     const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
     if (!item) fail(404,'学校职位不存在');
     if (schoolHash(item.row)!==fingerprint) fail(409,'学校列表已更新，请刷新后重新选择');
+    if(this.citizenExclusion(owner,{...item.facts,schoolId}))fail(409,'该岗位已按本账号的地区或公民资格条件排除；可在资格依据中核对');
     if (item.jobId) return this.job(owner,item.jobId);
     if (this.schoolSubmissionSources(owner,schoolId).some(s=>s.channel==='school')) fail(409,'已有学校提交历史，请在学校对照核查原关联');
-    this.db.exec('BEGIN IMMEDIATE');
+    this.db.exec('SAVEPOINT school_start');
     try {
-      const job=this.saveJob(owner,{company:item.row.company,title:item.row.title,location:item.row.location,url:'',jd:'',notes:''});
+      const opportunity=this.opportunities(owner).find(j=>j.schoolSources.some(s=>s.schoolId===schoolId));
+      const candidates=this.jobs(owner).filter(j=>opportunity.draftIds.includes(j.id));
+      if(candidates.length>1) fail(409,'存在多个旧草稿，请在学校关联中选择要继续的记录');
+      const existing=candidates[0];
+      if(existing && this.schoolLinks(owner).some(link=>link.jobId===existing.id && link.schoolId!==schoolId)) fail(409,'该草稿已关联其他学校编号，请核对来源');
+      const job=existing || this.saveJob(owner,{...opportunity,location:opportunity.location || '',notes:''});
       this.db.prepare('INSERT INTO school_links VALUES (?,?,?,?,?)').run(owner,schoolId,job.id,JSON.stringify(item.row),this.now());
       this.schoolAudit(owner,schoolId,'link',null,{schoolId,jobId:job.id,row:item.row,job},'本人从学校职位开始准备',randomUUID(),fingerprint);
-      this.db.exec('COMMIT'); return job;
-    } catch(error) { this.db.exec('ROLLBACK'); throw error; }
+      this.db.exec('RELEASE school_start'); return job;
+    } catch(error) { this.db.exec('ROLLBACK TO school_start'); this.db.exec('RELEASE school_start'); throw error; }
   }
+  importPortalSubmissions(owner,schoolIds,evidence={kind:'school-portal-paste'}) {
+    if(!Array.isArray(schoolIds) || schoolIds.length>100 || new Set(schoolIds).size!==schoolIds.length) fail(400,'学校编号列表无效');
+    const result={added:0,existing:0,skipped:0,schoolIds:[]};
+    this.db.exec('SAVEPOINT portal_submitted');
+    try {
+      for(const schoolId of schoolIds) {
+        const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
+        if(!item) fail(404,'当前账号没有该学校编号');
+        if(!/^application submitted$/i.test(item.row.sourceStatus?.trim() || '')) {result.skipped++;continue;}
+        const known=this.db.prepare('SELECT * FROM portal_submission_observations WHERE user_id=? AND school_id=?').get(owner,schoolId);
+        if(known) {
+          this.db.prepare('UPDATE portal_submission_observations SET last_observed=?,last_evidence=? WHERE user_id=? AND school_id=?').run(this.now(),JSON.stringify(evidence),owner,schoolId);
+          result.existing++;result.schoolIds.push(schoolId);continue;
+        }
+        // Keep prior manual/material submissions and local withdrawals authoritative.
+        const historic=this.db.prepare("SELECT id,job_id jobId,school_snapshot FROM submission_confirmations WHERE user_id=? AND channel='school'").all(owner).filter(row=>JSON.parse(row.school_snapshot)?.schoolId===schoolId);
+        const legacy=this.schoolSubmissionSources(owner,schoolId).filter(row=>row.channel==='school').map(row=>({id:row.submissionId,jobId:row.jobId}));
+        const found=[...new Map([...historic,...legacy].map(row=>[row.id,row])).values()];
+        if(found.length>1)fail(409,'学校编号对应多个历史提交，请先核对记录');
+        let existing=found[0],job=existing?this.job(owner,existing.jobId):this.startSchoolOpportunity(owner,schoolId,item.fingerprint);
+        existing ||= this.application(owner,job.id).submissions.find(row=>row.channel==='school');
+        let id=existing?.id;
+        if(!id) {
+          id=randomUUID();const school=this.schoolLinks(owner).find(link=>link.jobId===job.id);
+          this.db.prepare('INSERT INTO submission_confirmations (id,user_id,job_id,channel,submitted_date,receipt,source,school_snapshot,created,request_id,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id,owner,job.id,'school','','Application Submitted','school-portal',JSON.stringify(school),this.now(),randomUUID(),schoolHash({schoolId,evidence}));
+          result.added++;
+        } else result.existing++;
+        this.db.prepare('INSERT INTO portal_submission_observations VALUES (?,?,?,?,?,?,?,?,?)').run(owner,schoolId,job.id,id,JSON.stringify(item.row),this.now(),this.now(),JSON.stringify(evidence),JSON.stringify(evidence));
+        result.schoolIds.push(schoolId);
+      }
+      this.db.exec('RELEASE portal_submitted');return result;
+    } catch(error) {this.db.exec('ROLLBACK TO portal_submitted');this.db.exec('RELEASE portal_submitted');throw error;}
+  }
+  submittedIdentities(owner) {
+    const jobIds=new Set(this.applications(owner).map(row=>row.jobId));
+    const schoolIds=new Set(this.schoolSubmissionSources(owner).filter(row=>row.channel==='school').map(row=>row.schoolId));
+    return {jobIds,schoolIds};
+  }
+  citizenExclusion(owner,job) {
+    const preferences=this.preferences(owner);const scope=opportunityScope(job,preferences);if(scope.excluded)return scope;if(!preferences.excludeCitizenOnly)return null;
+    const sources=[job,...(job.schoolSources || []).map(source=>({...source.row,schoolId:source.schoolId}))];
+    for(const source of sources){const saved=preferences.citizenExclusions?.[source.schoolId || source.id];const found=citizenshipFacts(source);const persisted=source.citizenshipInfo;
+      if(saved || found.restricted || persisted?.restricted){const base=persisted?.restricted?persisted:found;return saved || {...base,sourceUrl:base.sourceUrl || source.externalUrl || source.url || '',capturedAt:base.capturedAt || source.sourceUpdatedAt || null};}
+    }return null;
+  }
+  pendingSchoolOpportunities(owner) {
+    const {jobIds,schoolIds}=this.submittedIdentities(owner);
+    return this.schoolOpportunities(owner).map(item=>({...item,facts:{...item.facts,durationInfo:durationFacts(item.facts),eligibilityReview:citizenshipFacts(item.facts).uncertain.length>0||opportunityScope(item.facts,this.preferences(owner)).review}})).filter(item=>!schoolIds.has(item.schoolId)&&!jobIds.has(item.jobId)&&!this.citizenExclusion(owner,{...item.facts,...item.row,schoolId:item.schoolId}));
+  }
+  pendingOpportunities(owner) {
+    const {jobIds,schoolIds}=this.submittedIdentities(owner);
+    return this.opportunities(owner).map(job=>({...job,durationInfo:durationFacts(job),eligibilityReview:citizenshipFacts(job).uncertain.length>0||opportunityScope(job,this.preferences(owner)).review})).filter(job=>!job.draftIds.some(id=>jobIds.has(id))&&!job.schoolSources.some(source=>schoolIds.has(source.schoolId))&&!this.citizenExclusion(owner,job));
+  }
+  eligibilityExclusions(owner){return this.opportunities(owner).flatMap(job=>{const reason=this.citizenExclusion(owner,job);return reason?[{id:job.id,company:job.company,title:job.title,schoolIds:job.schoolSources.map(s=>s.schoolId),reason}]:[];});}
   schoolPreview(owner, text) {
     const jobs = this.jobs(owner).map(job => ({ ...job, submissions: this.application(owner, job.id).submissions.map(({ channel, date }) => ({ channel, date })) }));
     const preview = previewSchool(text, { jobs, links: this.schoolLinks(owner), catalogue: this.catalogue(), preferences: this.preferences(owner), now: new Date(this.now()) });
-    return { ...preview, savedJobs: jobs.map(({ id, company, title }) => ({ id, company, title })) };
+    return { ...preview, rows:preview.rows.map(item=>({...item,eligibilityExclusion:item.row?this.citizenExclusion(owner,{...this.schoolOpportunities(owner).find(s=>s.schoolId===item.row.id)?.facts,...item.row,schoolId:item.row.id}):null})), savedJobs: jobs.map(({ id, company, title }) => ({ id, company, title })) };
   }
   importSchool(owner, input) {
     if (input.confirmed !== true) fail(400, '请核对所选学校职位及关联目标后确认');
@@ -454,7 +573,13 @@ export class WorkspaceStore {
         this.captureSchoolSubmission(owner, job.id, 'confirmed-association');
         saved.push({ schoolId: entry.row.id, jobId: job.id });
       }
-      const result = { saved };
+      const submitted=saved.filter(item=>preview.rows.some(entry=>entry.row?.id===item.schoolId && /^application submitted$/i.test(entry.row.sourceStatus?.trim() || '')));
+      for(const item of submitted) {
+        const row=this.schoolLinks(owner).find(link=>link.schoolId===item.schoolId).row;
+        this.db.prepare('INSERT INTO school_opportunities VALUES (?,?,?,?) ON CONFLICT(user_id,school_id) DO UPDATE SET snapshot=excluded.snapshot,updated=excluded.updated').run(owner,item.schoolId,JSON.stringify(row),this.now());
+      }
+      const submissions=this.importPortalSubmissions(owner,submitted.map(item=>item.schoolId),{kind:'school-portal-confirmed-import',sha256:hash(text)});
+      const result = { saved, submissions };
       this.db.prepare('INSERT INTO school_imports VALUES (?,?,?,?,?)').run(owner, requestId, requestHash, JSON.stringify(result), this.now());
       this.db.exec('COMMIT'); return result;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
@@ -533,7 +658,8 @@ export class WorkspaceStore {
       const migrationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM migration_receipts WHERE user_id=?').get(owner).n;
       const questionSize = ['question_drafts','question_history'].reduce((sum, table) => sum + this.db.prepare(`SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM ${table} WHERE user_id=?`).get(owner).n, 0);
       const preparationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(notes AS BLOB))),0) n FROM application_preparation WHERE user_id=?').get(owner).n;
-      if (historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize + questionSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
+      const confirmationSize=this.db.prepare('SELECT coalesce(sum(length(before_snapshot || after_snapshot || reason)),0) n FROM confirmation_changes WHERE user_id=?').get(owner).n;
+      if (confirmationSize + historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize + questionSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
       const rows = (table, columns) => this.db.prepare(`SELECT ${columns} FROM ${table} WHERE user_id=? ORDER BY rowid`).all(owner);
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
@@ -547,6 +673,9 @@ export class WorkspaceStore {
         schoolHistory: this.schoolHistory(owner), schoolSubmissionSources: this.schoolSubmissionSources(owner),
         materials: rows('materials', 'id,job_id,fingerprint,snapshot,created').map(row => ({ ...row, snapshot: JSON.parse(row.snapshot) })),
         generatedResumes: rows('generated_resumes', 'id,job_id,fingerprint,pdf_id,docx_id,snapshot,created').map(row => ({ ...row, snapshot: JSON.parse(row.snapshot) })),
+        confirmationChanges: rows('confirmation_changes','id,job_id,confirmation_id,revision,action,before_snapshot,after_snapshot,reason,actor,created').map(({before_snapshot,after_snapshot,...row})=>({...row,before:JSON.parse(before_snapshot),after:JSON.parse(after_snapshot)})),
+        portalSubmissionObservations: rows('portal_submission_observations','school_id,job_id,submission_id,snapshot,first_observed,last_observed,evidence,last_evidence'),
+        submissionConfirmations: rows('submission_confirmations', 'id,job_id,channel,submitted_date,receipt,source,school_snapshot,created,withdrawn,revision,timezone_offset'),
         submissions: rows('submissions', 'id,job_id,channel,material_id,submitted_date,receipt,created'),
         submissionCorrections: rows('submission_corrections', 'id,job_id,submission_id,revision,request_id,before_snapshot,after_snapshot,reason,actor,created')
           .map(({ before_snapshot, after_snapshot, ...row }) => ({ ...row, before: JSON.parse(before_snapshot), after: JSON.parse(after_snapshot) })),
@@ -590,17 +719,24 @@ export class WorkspaceStore {
   }
   application(owner, id) {
     const context = this.materialContext(owner, id);
-    const channel = this.db.prepare('SELECT channel FROM application_plans WHERE user_id=? AND job_id=?').get(owner, id)?.channel ?? 'unknown';
+    const requirement=schoolRequirement(this.schoolLinks(owner).filter(link=>link.jobId===id).map(link=>link.row),context.job);
+    const channel = this.db.prepare('SELECT channel FROM application_plans WHERE user_id=? AND job_id=?').get(owner, id)?.channel ?? ({both:'both',portal_only:'school-only'}[requirement.kind] || 'unknown');
     const versions = this.db.prepare('SELECT id,snapshot,created FROM materials WHERE user_id=? AND job_id=? ORDER BY created DESC,rowid DESC').all(owner, id)
       .map(row => { const snapshot = JSON.parse(row.snapshot); return { id: row.id, created: row.created, snapshot, stale: snapshot.context.hash !== context.hash }; });
     const corrections = this.db.prepare('SELECT id,submission_id submissionId,revision,request_id requestId,before_snapshot,after_snapshot,reason,actor,created FROM submission_corrections WHERE user_id=? AND job_id=? ORDER BY revision').all(owner, id)
       .map(({ before_snapshot, after_snapshot, ...row }) => ({ ...row, before: JSON.parse(before_snapshot), after: JSON.parse(after_snapshot) }));
     const submissions = this.db.prepare('SELECT id,channel,material_id materialId,submitted_date date,receipt,created FROM submissions WHERE user_id=? AND job_id=? ORDER BY created').all(owner, id)
-      .map(row => { const history = corrections.filter(correction => correction.submissionId === row.id); return { ...row, revision: history.at(-1)?.revision ?? 0, corrections: history }; });
-    const required = channel === 'both' ? ['employer', 'school'] : channel === 'school-only' ? ['school'] : channel === 'employer' ? ['employer'] : [];
+      .map(row => { const history = corrections.filter(correction => correction.submissionId === row.id); return { ...row, source: 'manual-confirmation', revision: history.at(-1)?.revision ?? 0, corrections: history }; });
+    submissions.push(...this.confirmations(owner, id).map(row => ({...row, materialId:null})));
+    const observations=this.db.prepare('SELECT school_id schoolId,submission_id submissionId,first_observed firstObserved,last_observed lastObserved,snapshot,evidence,last_evidence lastEvidence FROM portal_submission_observations WHERE user_id=? AND job_id=?').all(owner,id);
+    for(const submission of submissions) {
+      const evidence=observations.filter(row=>row.submissionId===submission.id).map(({snapshot,evidence,lastEvidence,...row})=>({...row,snapshot:JSON.parse(snapshot),evidence:JSON.parse(evidence),lastEvidence:JSON.parse(lastEvidence)}));
+      if(evidence.length)submission.portalEvidence=evidence;
+    }
+    const required = channel === 'both'  ? ['employer', 'school'] : channel === 'school-only' ? ['school'] : channel === 'employer' ? ['employer'] : [];
     const complete = required.length > 0 && required.every(value => submissions.some(record => record.channel === value));
-    return { context, channel, versions, submissions, required, complete,
-      status: channel === 'unknown' ? '待确认申请渠道' : complete ? '已记录提交' : submissions.length ? '还有渠道待处理' : versions.some(version => !version.stale) ? '材料已审阅，待本人提交' : versions.length ? '材料需重新审阅' : '待准备材料' };
+    return { context, channel, requirement, channelProgress:channelProgress(channel,submissions), versions, submissions, withdrawn: this.confirmations(owner,id,true).filter(row=>row.withdrawn), required, complete,
+      status: channel === 'unknown' ? (submissions.length ? '已记录提交' : '待确认申请渠道') : complete ? '已记录提交' : submissions.length ? '还有渠道待处理' : versions.some(version => !version.stale) ? '材料已审阅，待本人提交' : versions.length ? '材料需重新审阅' : '待准备材料' };
   }
   preparation(owner, id) {
     const app = this.application(owner, id);
@@ -696,6 +832,80 @@ export class WorkspaceStore {
     }
     return this.application(owner, id);
   }
+  confirmations(owner, id, includeWithdrawn=false) {
+    const changes=this.db.prepare('SELECT revision,action,before_snapshot,after_snapshot,reason,actor,created FROM confirmation_changes WHERE user_id=? AND job_id=? ORDER BY revision').all(owner,id);
+    return this.db.prepare('SELECT id,channel,submitted_date date,receipt,source,created,withdrawn,revision,timezone_offset timezoneOffset FROM submission_confirmations WHERE user_id=? AND job_id=? ORDER BY created').all(owner,id)
+      .filter(row=>includeWithdrawn || !row.withdrawn).map(row=>({...row,corrections:changes.filter(change=>JSON.parse(change.before_snapshot).id===row.id).map(({before_snapshot,after_snapshot,...change})=>({...change,before:JSON.parse(before_snapshot),after:JSON.parse(after_snapshot)}))}));
+  }
+  withdrawnApplications(owner) {
+    return this.jobs(owner).flatMap(job=>{const withdrawn=this.confirmations(owner,job.id,true).filter(row=>row.withdrawn);return withdrawn.length?[{jobId:job.id,company:job.company,title:job.title,schoolContext:this.schoolContext(owner,job.id),withdrawn}]:[];});
+  }
+  changeConfirmation(owner,jobId,id,input) {
+    this.job(owner,jobId);
+    let record=this.db.prepare('SELECT id,channel,submitted_date date,receipt,source,withdrawn,revision,timezone_offset timezoneOffset,school_snapshot FROM submission_confirmations WHERE user_id=? AND job_id=? AND id=?').get(owner,jobId,id);
+    if(!record)fail(404,'未找到本人提交确认');
+    if(!['correct','withdraw','restore'].includes(input.action) || input.confirmed!==true)fail(400,'请核对并明确确认本次更正、撤回或重新提交确认');
+    if(!Number.isSafeInteger(input.revision) || input.revision<0)fail(400,'记录版本不正确');
+    const requestId=requestIdentifier(input.requestId),reason=textField(input.reason || ({correct:'本人更正提交日期或回执',withdraw:'本人撤回误标已提交',restore:'本人重新确认真实提交'}[input.action]),500,true);
+    const fingerprint=hash(JSON.stringify({jobId,id,...input,requestId:undefined,reason}));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      record=this.db.prepare('SELECT id,channel,submitted_date date,receipt,source,withdrawn,revision,timezone_offset timezoneOffset,school_snapshot FROM submission_confirmations WHERE user_id=? AND job_id=? AND id=?').get(owner,jobId,id);
+      if(!record)fail(404,'未找到本人提交确认');
+      const retry=this.db.prepare('SELECT request_hash FROM confirmation_changes WHERE user_id=? AND request_id=?').get(owner,requestId);
+      if(retry){if(retry.request_hash!==fingerprint)fail(409,'操作标识已用于其他更改');this.db.exec('COMMIT');return this.application(owner,jobId);}
+      if(record.revision!==input.revision)fail(409,'记录已变化，请刷新后核对；原输入保留');
+      if(input.action==='restore' ? !record.withdrawn : record.withdrawn)fail(409,'记录状态已变化，请刷新后使用对应操作');
+      const after={...record,revision:record.revision+1};
+      if(input.action==='withdraw')after.withdrawn=1;
+      else {
+        after.date=input.date===''&&record.source==='school-portal'?'':submissionDate(input.date,this.now(),input.timezoneOffset);after.receipt=textField(input.receipt ?? '',500);after.timezoneOffset=input.timezoneOffset ?? null;
+        if(input.action==='restore'){
+          if(this.application(owner,jobId).submissions.some(row=>row.channel===record.channel))fail(409,'此渠道已有实际提交记录，不能重复恢复');
+          if(record.channel==='school'){
+            this.checkSchoolRevision(owner,jobId,input.schoolRevision);
+            if(this.schoolContext(owner,jobId)?.schoolId!==JSON.parse(record.school_snapshot)?.schoolId)fail(409,'当前 School ID 与原确认不同，不能把旧提交恢复到其他学校职位');
+          }
+          after.withdrawn=0;
+        } else if(after.date===record.date && after.receipt===record.receipt)fail(400,'内容没有变化');
+      }
+      const actor=this.db.prepare('SELECT username FROM users WHERE id=?').get(owner).username;
+      this.db.prepare('INSERT INTO confirmation_changes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),owner,jobId,id,after.revision,input.action,JSON.stringify(record),JSON.stringify(after),reason,actor,this.now(),requestId,fingerprint);
+      this.db.prepare('UPDATE submission_confirmations SET submitted_date=?,receipt=?,withdrawn=?,revision=?,timezone_offset=? WHERE user_id=? AND id=?').run(after.date,after.receipt,after.withdrawn,after.revision,after.timezoneOffset,owner,id);
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    return this.application(owner,jobId);
+  }
+  confirmSubmission(owner, id, input) {
+    this.job(owner,id);
+    if (input.source !== 'manual-confirmation' || input.confirmed !== true) fail(400,'请明确确认本人已在对应网站提交成功；不接受自动成功声明');
+    if (!['employer','school'].includes(input.channel)) fail(400,'提交渠道不正确');
+    const date=submissionDate(input.date,this.now(),input.timezoneOffset), receipt=textField(input.receipt ?? '',500), requestId=requestIdentifier(input.requestId);
+    const fingerprint=hash(JSON.stringify({id,channel:input.channel,date,receipt,source:input.source,schoolRevision:input.schoolRevision ?? null,timezoneOffset:input.timezoneOffset ?? null}));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const retry=this.db.prepare('SELECT request_hash FROM submission_confirmations WHERE user_id=? AND request_id=?').get(owner,requestId);
+      if(retry) {
+        if(retry.request_hash!==fingerprint) fail(409,'此确认标识已用于其他内容，原记录未改');
+        this.db.exec('COMMIT'); return this.application(owner,id);
+      }
+      const existing=this.application(owner,id).submissions.find(row=>row.channel===input.channel);
+      if(existing) {
+        if(existing.date!==date || existing.receipt!==receipt) fail(409,'此渠道已有不同提交记录，不能覆盖或重复新增');
+        this.db.exec('COMMIT'); return this.application(owner,id);
+      }
+      if(this.confirmations(owner,id,true).some(row=>row.withdrawn && row.channel===input.channel))fail(409,'该渠道有已撤回的确认，请在已撤回历史中重新确认，避免丢失更正记录');
+      let school=null;
+      if(input.channel==='school') {
+        this.checkSchoolRevision(owner,id,input.schoolRevision);
+        school=this.schoolLinks(owner).find(row=>row.jobId===id) ?? null;
+        if(!school) fail(409,'请先从学校职位打开，核对 School ID 后确认学校提交');
+      }
+      this.db.prepare('INSERT INTO submission_confirmations (id,user_id,job_id,channel,submitted_date,receipt,source,school_snapshot,created,request_id,request_hash,timezone_offset) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),owner,id,input.channel,date,receipt,'manual-confirmation',school?JSON.stringify(school):null,this.now(),requestId,fingerprint,input.timezoneOffset ?? null);
+      this.db.exec('COMMIT');
+    } catch(error) { this.db.exec('ROLLBACK'); throw error; }
+    return this.application(owner,id);
+  }
   recordSubmission(owner, id, input) {
     this.job(owner, id);
     const materialId = textField(input.materialId, 36, true), date = submissionDate(input.date, this.now()), receipt = textField(input.receipt ?? '', 500);
@@ -759,26 +969,38 @@ export class WorkspaceStore {
     return this.application(owner, id);
   }
   applications(owner) {
-    return this.jobs(owner).flatMap(job => { const app = this.application(owner, job.id); return app.versions.length || app.submissions.length ? [{ jobId: job.id, company: job.company, title: job.title, status: app.status, channel: app.channel, submissions: app.submissions }] : []; });
+    return this.jobs(owner).flatMap(job => { const app = this.application(owner, job.id); return app.submissions.length ? [{ jobId: job.id, company: job.company, title: job.title, status: app.status, channel: app.channel, requirement:app.requirement, channelProgress:app.channelProgress, schoolContext:this.schoolContext(owner,job.id), submissions: app.submissions }] : []; });
   }
   catalogue() { const row = this.db.prepare('SELECT payload FROM catalogue WHERE id=1').get(); return row ? JSON.parse(row.payload) : { jobs: [], sources: [], finishedAt: null }; }
   saveCatalogue(result) {
     // A partial/failed source cannot erase its last successful records.
     const old = this.catalogue(), sources = new Map(result.sources.map(source => [source.id, source]));
-    const jobs = new Map(old.jobs.filter(job => (job.sources || [job.source]).some(source => sources.get(source.id)?.status !== 'complete')).map(job => [job.id, { ...job, stale: true }]));
+    const jobs = new Map(old.jobs.filter(job => (job.sources || [job.source]).some(source => sources.get(source.id)?.status !== 'complete')).map(job => [job.id, { ...job, sourceUpdatedAt:job.sourceUpdatedAt || old.finishedAt || null, stale: true }]));
     const previous = new Map(old.jobs.map(job => [job.id, job]));
-    for (const job of result.jobs) {
+    for (const incoming of result.jobs) {
+      const facts=citizenshipFacts(incoming),prior=previous.get(incoming.id)?.citizenshipInfo;const job={...incoming,citizenshipInfo:facts.restricted?{...facts,capturedAt:new Date(this.now()).toISOString(),sourceUrl:incoming.url}:prior?.restricted?prior:facts};
       const cached = previous.get(job.id);
-      jobs.set(job.id, !job.jd && cached?.jd ? { ...job, jd: cached.jd, stale: true, detailError: '正文暂不可读，保留上次正文，请核实' } : { ...job, stale: false });
+      job.durationEvidence=cached?.durationEvidence || incoming.durationEvidence || null;
+      jobs.set(job.id, cached?.jd && (!job.jd || (cached.fullJd && !job.fullJd)) ? { ...job,...Object.fromEntries(['title','location','workMode','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource'].filter(k=>cached[k]).map(k=>[k,cached[k]])), sourceUpdatedAt:cached.sourceUpdatedAt || old.finishedAt || null, jd: cached.jd, stale: true, detailError: job.detailError || '正文暂不可读，保留上次正文，请核实' } : { ...job, sourceUpdatedAt:result.finishedAt || new Date(this.now()).toISOString(), stale: false });
     }
-    const value = { ...result, jobs: [...jobs.values()] };
+    const value = { ...result, jobs: [...jobs.values()].map(job=>({...job,durationInfo:durationFacts(job)})) };
     this.db.prepare('INSERT INTO catalogue VALUES (1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(value));
     return value;
   }
+  opportunities(owner) {
+    return unifiedOpportunities(owner,this.catalogue(),this.schoolOpportunities(owner),this.jobs(owner));
+  }
   saveSuggested(owner, id) {
-    const job = this.catalogue().jobs.find(job => job.id === id);
+    const job = this.opportunities(owner).find(job => job.id === id);
     if (!job) fail(404, '岗位已变化，请刷新建议列表');
-    const existing = this.jobs(owner).find(saved => saved.url === job.url);
+    if(this.citizenExclusion(owner,job))fail(409,'该岗位已按本账号的地区或公民资格条件排除；可在资格依据中核对');
+    if(job.schoolSources.length>1) fail(409,'同一机会有多个学校编号，请从学校职位选择要准备的来源');
+    if(job.schoolSources.length===1) {
+      const item=this.schoolOpportunities(owner).find(s=>s.schoolId===job.schoolSources[0].schoolId);
+      return this.setJobHidden(owner,this.startSchoolOpportunity(owner,item.schoolId,item.fingerprint).id,false);
+    }
+    if(job.draftIds.length>1) fail(409,'存在多个旧草稿，请从继续准备中选择原记录');
+    const existing = this.jobs(owner).find(saved => job.draftIds.includes(saved.id));
     return existing ? this.setJobHidden(owner, existing.id, false) : this.saveJob(owner, { ...job, location: job.location.slice(0, 200), notes: '' });
   }
 }
