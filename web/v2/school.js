@@ -2,7 +2,7 @@ import {capturePanel} from './school-capture-ui.js';
 import { preserveList } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
-import { mountFilters, matchesOpportunity, factsLabel, factBadges } from './opportunity.js';
+import { deadlineSummary, mountFilters, matchesOpportunity, factsLabel, factBadges } from './opportunity.js';
 const $ = selector => document.querySelector(selector);
 const node = (tag, text) => { const el = document.createElement(tag); el.textContent = text; return el; };
 const channelName = channel => channel === 'employer' ? '官网' : '学校';
@@ -10,7 +10,8 @@ const channelName = channel => channel === 'employer' ? '官网' : '学校';
 export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=(_key,load)=>load(()=>true) }) {
   let preview = null, originalText = '', requestId = crypto.randomUUID(), limit = 20, records = [];
   const choices = new Map(), form = $('#school-paste-form'), confirmation = $('#school-confirmed');
-  let maintenance = null;
+  let maintenance = null, listDraft=null, listRevision=0;
+  function cancelListPreview(){listRevision++;listDraft=null;$('#school-import-preview').hidden=true;$('#school-import-changes').replaceChildren();$('#school-import-summary').textContent='';}
   const capture=capturePanel({form,api,action,refresh:async()=>{await refreshOpportunities();await refresh();await jobsChanged();}});
   const labels = { company: '学校公司名称', title: '学校职位名称', location: '学校工作地点', term: '学校入职批次', requisitionId: '雇主招聘编号', url: '学校岗位链接', externalUrl: '来源中的官网链接', deadlineText: '学校截止原文', sourceStatus: '学校列表状态原文' };
   const actionNames = { link: '建立关联', update: '更新学校资料', unlink: '解除关联', relink: '改绑职位' };
@@ -92,6 +93,7 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
     requestId = crypto.randomUUID();
   }
   form.elements.text.addEventListener('input', () => {
+    if(listDraft){cancelListPreview();$('#school-status').textContent='原文已修改，请重新预览。';}
     if (preview) { invalidate(); $('#school-status').textContent = '原文已修改，请重新预览后选择。'; }
   });
   function openButton(id) {
@@ -185,7 +187,7 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
       const header=node('div','');header.className='card-header';const company=node('span',item.row.company || '学校机会');company.className='company-name';header.append(company);
       const location=node('p',item.row.location || '地点未知');location.className='card-location';
       const requirement=item.requirement || schoolRequirement([item.row]),route=node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind]);route.className='route-summary';
-      card.append(header,node('h3',item.row.title),location,factBadges({...item.facts,...item.row,hasSchool:true}),route);
+      card.append(header,node('h3',item.row.title),location,factBadges({...item.facts,...item.row,hasSchool:true}),deadlineSummary({schoolSources:[{schoolId:item.schoolId,row:item.row}]}),route);
       const details=document.createElement('details');details.className='card-detail';details.append(node('summary','学校资料与申请入口'),facts(item.row),node('small',`学校 ID ${item.schoolId} · 更新 ${new Date(item.updated).toLocaleString()}`));for(const [label,url] of [['打开学校 Portal',item.row.url],['打开官网',item.row.externalUrl]])if(url){const a=node('a',label+' ↗');a.href=url;a.target='_blank';a.rel='noopener noreferrer';details.append(a);}
       details.append(node('p','请核对原文申请要求；进入准备后可确认“学校 + 官网”或“仅学校”，两个提交状态分别记录。'));for(const quote of requirement.evidence)details.append(node('p',quote));card.append(details);
       const localStatus=node('p','');localStatus.setAttribute('role','status');card.append(localStatus);
@@ -201,17 +203,27 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
     $('#school-jobs-status').textContent='';
   }
   $('#school-jobs-reload').addEventListener('click',()=>action('#school-jobs-status',refreshOpportunities));
-  form.addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {
-    const text = form.elements.text.value;
-    const updated = await api('/api/school/opportunities',{method:'POST',value:{text}});
-    const result = updated.preview;
-    invalidate(); preview = result; originalText = text; limit = 20;
-    $('#school-preview').hidden = false;
-    $('#school-warnings').replaceChildren(...[...result.warnings, ...result.errors].map(message => node('p', message)));
-    drawPreview();
-    try { await refreshOpportunities(); await refresh(); await jobsChanged(); $('#school-status').textContent = `已导入 / 更新 ${result.parsedCount} 条。直接点击下方“准备申请”即可；旧记录保留。`; $('#school-jobs-list').scrollIntoView({block:'start'}); }
-    catch { $('#school-status').textContent = '学校资料已更新，对照可继续使用；下方关联列表暂未刷新，请稍后重试。'; }
-  }); });
+  form.addEventListener('submit',event=>{event.preventDefault();action('#school-status',async()=>{
+    const text=form.elements.text.value.trim();cancelListPreview();invalidate();const revision=listRevision;
+    const result=await api('/api/school/preview',{method:'POST',value:{text}});
+    if(revision!==listRevision||form.elements.text.value.trim()!==text)return;
+    const plan=result.listImport;listDraft={text,fingerprint:plan.fingerprint,requestId:crypto.randomUUID(),canConfirm:plan.canConfirm};
+    const c=plan.counts;$('#school-import-summary').textContent=`新增 ${c.new} · 重复 ${c.unchanged} · 更新 ${c.updated} · 状态变化 ${c.statusChanged} · 将新增学校提交记录 ${c.schoolSubmissions}`;
+    const labels={new:'新增',unchanged:'重复，不新增职位',updated:'更新'},effects={add_school:'将新增学校提交记录，实际日期留空',keep_school:'保留已有学校提交记录',preserve_withdrawn:'保留本地撤回，不恢复提交记录',none:'不新增或撤回提交记录'};
+    $('#school-import-changes').replaceChildren(...plan.changes.map(v=>node('li',`${v.schoolId} · ${v.company} · ${v.title}：${labels[v.kind]}${v.statusChanged?'；状态 '+(v.beforeStatus||'未知')+' → '+(v.afterStatus||'未知'):''}；${effects[v.submissionEffect]}`)),...result.errors.map(v=>node('li',v)));
+    $('#school-import-preview').hidden=false;$('#school-import-confirm').hidden=!plan.canConfirm;
+    $('#school-status').textContent=plan.canConfirm?'预览完成，尚未写入。请核对后确认，或取消返回编辑。':'预览发现重复编号或无效行，尚未写入；请修改原文后重新预览。';
+  });});
+  $('#school-import-cancel').addEventListener('click',()=>{cancelListPreview();$('#school-status').textContent='已取消，未写入任何学校或申请记录。';form.elements.text.focus();});
+  $('#school-import-confirm').addEventListener('click',()=>action('#school-status',async()=>{
+    const draft=listDraft;if(!draft?.canConfirm||form.elements.text.value.trim()!==draft.text)throw new Error('请重新预览当前原文');
+    const updated=await api('/api/school/opportunities',{method:'POST',value:{text:draft.text,fingerprint:draft.fingerprint,requestId:draft.requestId,confirmed:true}});
+    if(listDraft!==draft)return;
+    cancelListPreview();invalidate();preview=updated.preview;originalText=draft.text;limit=20;
+    $('#school-preview').hidden=false;$('#school-warnings').replaceChildren(...[...preview.warnings,...preview.errors].map(v=>node('p',v)));drawPreview();
+    try{await refreshOpportunities();await refresh();await jobsChanged();$('#school-status').textContent=`已确认导入 / 更新 ${updated.updated} 条；新增学校提交记录 ${updated.submissions.added} 条。`;}
+    catch{$('#school-status').textContent='导入已保存，但列表刷新失败；请刷新列表，无需重复导入。';}
+  }));
   $('#school-save-form').addEventListener('submit', event => { event.preventDefault(); action('#school-status', async () => {
     if (!preview || form.elements.text.value !== originalText) throw new Error('请先预览当前原文');
     if (!choices.size) throw new Error('请为至少一条学校职位选择处理方式');
@@ -225,5 +237,5 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
   $('#school-clear-choices').addEventListener('click', () => { choices.clear(); confirmation.checked = false; requestId = crypto.randomUUID(); drawPreview(); });
   $('#school-record-filter').addEventListener('change', drawRecords);
   $('#school-reload').addEventListener('click', () => action('#school-status', refresh));
-  return { refresh, refreshOpportunities, clear: () => {capture.clear();refreshRevision++;opportunities=[]; $('#school-jobs-list').replaceChildren(); $('#school-jobs-status').textContent=''; closeMaintenance(); invalidate(); records = []; originalText = ''; form.reset(); $('#school-preview-filter').value = 'all'; $('#school-record-filter').value = 'all'; $('#school-records').replaceChildren(); $('#school-history').replaceChildren(); } };
+  return { refresh, refreshOpportunities, clear: () => {cancelListPreview();capture.clear();refreshRevision++;opportunities=[]; $('#school-jobs-list').replaceChildren(); $('#school-jobs-status').textContent=''; closeMaintenance(); invalidate(); records = []; originalText = ''; form.reset(); $('#school-preview-filter').value = 'all'; $('#school-record-filter').value = 'all'; $('#school-records').replaceChildren(); $('#school-history').replaceChildren(); } };
 }

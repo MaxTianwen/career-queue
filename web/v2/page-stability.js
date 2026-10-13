@@ -31,3 +31,18 @@ export function viewLoader({now=Date.now,maxAge=60000}={}) {
   }
  };
 }
+
+// Only view names enter browser history; account data and positions stay in memory.
+export function viewNavigation({window:win=window,render,read=()=>{},views}) {
+ let token={},current=null;const positions=new Map(),restoration=win.history.scrollRestoration;win.history.scrollRestoration='manual';
+ const save=()=>{if(current)positions.set(current,[win.scrollX,win.scrollY]);};
+ const show=view=>{current=view;render(view);win.scrollTo(...(positions.get(view)||[0,0]));};
+ const state=view=>({cqView:view,cqNavigation:token.id});
+ const pop=event=>{if(!current||event.state?.cqNavigation!==token.id||!views.includes(event.state.cqView))return;save();show(event.state.cqView);read(current);};
+ win.addEventListener('popstate',pop);
+ return {
+  visit(view){if(!views.includes(view)||view===current)return;save();if(!current){token={id:crypto.randomUUID()};win.history.replaceState(state(view),'');}else win.history.pushState(state(view),'');show(view);},
+  reset(){token={};current=null;positions.clear();win.history.replaceState(null,'');},
+  dispose(){win.removeEventListener('popstate',pop);win.history.scrollRestoration=restoration;}
+ };
+}

@@ -77,3 +77,11 @@ export function factBadges(job) {
  const platform=document.createElement('span');platform.className='badge';platform.textContent=facts.platform.name;box.append(platform);
  return box;
 }
+
+export function deadlineSummary(job) {
+ const lines=[];
+ if(job.hasPublic && job.deadline)lines.push('官网截止：'+job.deadline);
+ const schools=(job.schoolSources||[]).map(source=>({id:source.schoolId,value:source.row?.deadlineText||source.row?.deadline})).filter(source=>source.value);
+ for(const source of schools)lines.push('学校截止'+(schools.length>1?'（'+source.id+'）':'')+'：'+source.value);
+ const p=document.createElement('p');p.className='card-deadline';p.textContent=lines.join(' · ')||'截止日期未提供';return p;
+}

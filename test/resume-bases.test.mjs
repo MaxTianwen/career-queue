@@ -77,7 +77,7 @@ test('uploaded plan only reorders existing bullets inside their own group and pi
 
 test('PDF ingestion validates real PDFs before activation and failed uploads leave the active baseline intact', async t => {
   let runtime;
-  try { runtime = JSON.parse(await readFile('private/resume-templates/templates.json', 'utf8')); }
+  try { runtime = process.env.CQ_V2_TEST_PYTHON ? { python: process.env.CQ_V2_TEST_PYTHON } : JSON.parse(await readFile('private/resume-templates/templates.json', 'utf8')); }
   catch (e) { if (e.code === 'ENOENT') return t.skip('Private document runtime not configured'); throw e; }
   const root = await fixture();
   await mkdir(resolve(root, 'scripts'), { recursive: true });
@@ -98,7 +98,7 @@ test('PDF ingestion validates real PDFs before activation and failed uploads lea
 
 test('Word parser keeps mixed styling, education, tables and other experience groups out of automatic moves', async t => {
   let config;
-  try { config = JSON.parse(await readFile('private/resume-templates/templates.json', 'utf8')); }
+  try { config = process.env.CQ_V2_TEST_PYTHON ? { python: process.env.CQ_V2_TEST_PYTHON } : JSON.parse(await readFile('private/resume-templates/templates.json', 'utf8')); }
   catch (e) { if (e.code === 'ENOENT') return t.skip('Private document runtime not configured'); throw e; }
   await promisify(execFile)(config.python, ['test/resume_base_test.py'], { windowsHide: true, timeout: 30000 });
 });

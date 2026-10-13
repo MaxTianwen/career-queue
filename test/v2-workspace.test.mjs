@@ -281,7 +281,8 @@ async function fixture(t, options = {}) {
     assert.equal(res.status, 200, res.text);
     return { cookie: res.headers['set-cookie'][0].split(';')[0], csrf: res.data.csrf, id: res.data.user.id };
   }
-  return { call, account, database, restart: async () => { await stop(); await start(); }, port: () => server.address().port };
+  async function syncSchool(auth,text) { const result=await call('/api/school/preview',{auth,method:'POST',value:{text}});if(result.status!==200)return result;const p=result.data;return call('/api/school/opportunities',{auth,method:'POST',value:{text,fingerprint:p.listImport.fingerprint,confirmed:true,requestId:randomUUID()}}); }
+  return { call, syncSchool, account, database, restart: async () => { await stop(); await start(); }, port: () => server.address().port };
 }
 
 test('v2 personal export and capacity exclude other accounts and authentication data even for admin', async t => {
@@ -1086,7 +1087,7 @@ test('returning opportunities preserves identity and application history and is 
 test('school opportunities sync by ID, retain absent rows and reuse linked application history',async t=>{
  const f=await fixture(t),a=await f.account('alice'),b=await f.account('bob');
  const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|123456|Software Developer Intern|Example|Toronto, ON|Oct 31, 2026 11:59 PM|';
- const sync=text=>f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}});
+ const sync=text=>f.syncSchool(a,text);
  assert.equal((await sync(text)).status,200);assert.equal((await sync(text)).status,200);
  let items=(await f.call('/api/school/opportunities',{auth:a})).data;assert.equal(items.length,1);
  assert.deepEqual((await f.call('/api/school/opportunities',{auth:b})).data,[]);
@@ -1105,12 +1106,12 @@ test('school opportunities sync by ID, retain absent rows and reuse linked appli
 test('school repaste preserves missing links and returns a fresh matching preview after updating linked rows',async t=>{
  const f=await fixture(t),a=await f.account('alice');
  const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|223456|Software Developer Intern|Example|Toronto, ON|Oct 31, 2026 11:59 PM|';
- await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}});
+ await f.syncSchool(a,text);
  const item=(await f.call('/api/school/opportunities',{auth:a})).data[0];
  await f.call('/api/school/opportunities/start',{auth:a,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}});
  const db=new WorkspaceStore(f.database);const link=db.schoolLinks(a.id)[0];link.row.url='https://school.example/jobs/223456';link.row.externalUrl='https://example.com/job';db.db.prepare('UPDATE school_links SET snapshot=? WHERE user_id=? AND school_id=?').run(JSON.stringify(link.row),a.id,item.schoolId);db.close();
  const changed=text.replace('Toronto, ON','Ottawa, ON');
- const response=await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text:changed}});
+ const response=await f.syncSchool(a,changed);
  assert.equal(response.status,200,response.text);
  const records=(await f.call('/api/school',{auth:a})).data;assert.equal(records[0].row.externalUrl,link.row.externalUrl);assert.equal(records[0].row.url,link.row.url);
  const preview=(await f.call('/api/school/preview',{auth:a,method:'POST',value:{text:changed}})).data;
@@ -1199,7 +1200,7 @@ test('material review is not an application and legacy submissions deduplicate a
 test('school confirmation binds the current School ID and preserves its maintenance lock',async t=>{
  const f=await fixture(t),a=await f.account('schoolconfirm');
  const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|955123|Software Intern|Synthetic|Toronto|Oct 31, 2026 11:59 PM|';
- assert.equal((await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}})).status,200);
+ assert.equal((await f.syncSchool(a,text)).status,200);
  const item=(await f.call('/api/school/opportunities',{auth:a})).data[0];
  const job=(await f.call('/api/school/opportunities/start',{auth:a,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}})).data;
  const base=`/api/jobs/${job.id}`,value={source:'manual-confirmation',confirmed:true,channel:'school',date:'2026-01-01',requestId:randomUUID()};
@@ -1269,7 +1270,7 @@ test('local calendar confirmation date accepts the current local day without all
 test('withdrawn school confirmations release a mistaken lock but cannot restore onto another school ID',async t=>{
  const f=await fixture(t),a=await f.account('schoolundo');
  const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|955321|Software Intern|Synthetic|Toronto|Oct 31, 2026 11:59 PM|';
- await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}});
+ await f.syncSchool(a,text);
  const item=(await f.call('/api/school/opportunities',{auth:a})).data[0];
  const job=(await f.call('/api/school/opportunities/start',{auth:a,method:'POST',value:{schoolId:item.schoolId,fingerprint:item.fingerprint}})).data,base=`/api/jobs/${job.id}`;
  const context=(await f.call(base+'/school-context',{auth:a})).data;
@@ -1307,7 +1308,7 @@ test('dashboard removes preference and capacity UI without mutating underlying a
 test('unified discovery HTTP updates from school import and protects private IDs across accounts', async t => {
  const f=await fixture(t),a=await f.account('unified_a'),b=await f.account('unified_b');
  const text='|Term|ID|Job Title|Organization|Location|App Deadline|\n|---|---|---|---|---|---|\n|2027 - Summer|955123|Software Intern|Synthetic School Only|Toronto||';
- const imported=await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}});assert.equal(imported.status,200,imported.text);
+ const imported=await f.syncSchool(a,text);assert.equal(imported.status,200,imported.text);
  const data=(await f.call('/api/recommendations',{auth:a})).data;assert.equal(data.jobs.length,1);assert.equal(data.jobs[0].hasSchool,true);
  assert.equal((await f.call('/api/recommendations',{auth:b})).data.jobs.length,0);
  assert.equal((await f.call('/api/recommendations/'+data.jobs[0].id+'/prepare',{method:'POST',auth:b,value:{}})).status,404);
@@ -1315,7 +1316,7 @@ test('unified discovery HTTP updates from school import and protects private IDs
  assert.equal((await f.call('/api/applications',{auth:a})).data.length,0);
  const confirmed=await f.call('/api/jobs/'+prepared.data.id+'/submission-confirmation',{method:'POST',auth:a,value:{source:'manual-confirmation',confirmed:true,channel:'employer',date:'2026-01-01',receipt:'Synthetic receipt',requestId:randomUUID()}});assert.equal(confirmed.status,200,confirmed.text);
  const records=(await f.call('/api/applications',{auth:a})).data;
- await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}});
+ await f.syncSchool(a,text);
  await f.restart();assert.equal((await f.call('/api/recommendations',{auth:a})).data.jobs.length,0);
  assert.deepEqual((await f.call('/api/applications',{auth:a})).data,records);
 });
@@ -1323,9 +1324,9 @@ test('unified discovery HTTP updates from school import and protects private IDs
 test('portal submitted HTTP import groups channel records and removes pending school/discovery entries',async t=>{
  const f=await fixture(t),a=await f.account('portal_a'),b=await f.account('portal_b');
  const text='|Term|ID|Job Title|Organization|Location|App Deadline|App Status|\n|---|---|---|---|---|---|---|\n|2027 - Summer|955777|Software Intern|Synthetic Portal|Toronto|2026-12-31|Application Submitted|';
- const imported=await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}});assert.equal(imported.status,200,imported.text);assert.equal(imported.data.submissions.added,1);
+ const imported=await f.syncSchool(a,text);assert.equal(imported.status,200,imported.text);assert.equal(imported.data.submissions.added,1);
  const rows=(await f.call('/api/applications',{auth:a})).data;assert.equal(rows.length,1);assert.equal(rows[0].submissions[0].channel,'school');assert.equal(rows[0].submissions[0].date,'');assert.equal((await f.call('/api/school/opportunities',{auth:a})).data.length,0);assert.equal((await f.call('/api/recommendations',{auth:a})).data.jobs.length,0);assert.equal((await f.call('/api/applications',{auth:b})).data.length,0);
- assert.equal((await f.call('/api/school/opportunities',{method:'POST',auth:a,value:{text}})).data.submissions.existing,1);
+ assert.equal((await f.syncSchool(a,text)).data.submissions.existing,1);
 });
 
 test('opening refresh HTTP is asynchronous and coalesces accounts/tabs with daily disabled',async t=>{
@@ -1336,4 +1337,17 @@ test('opening refresh HTTP is asynchronous and coalesces accounts/tabs with dail
  release();for(let i=0;i<20;i++){const state=(await f.call('/api/discovery/status',{auth:a})).data;if(!state.running)break;await new Promise(r=>setTimeout(r,5));}
  assert.equal((await post(a)).data.reused,true);assert.equal(calls,1);assert.equal((await f.call('/api/discovery/status',{auth:a})).data.enabled,false);
  const html=(await f.call('/')).text,code=(await f.call('/app.js')).text;assert.doesNotMatch(html,/id="discovery-toggle"|id="discovery-reload"/);assert.match(html,/id="refresh-status"/);assert.match(code,/updates.refresh\('open'\)/);assert.equal((await f.call('/refresh-controller.js')).status,200);
+});
+
+test('school list HTTP writes require confirmed current preview and replay a lost response exactly',async t=>{
+ const f=await fixture(t),a=await f.account('previewqa');
+ const text='|Term|ID|Job Title|Organization|Location|App Status|\n|---|---|---|---|---|---|\n|Summer 2027|900123|Software Intern|Synthetic|Toronto|Application Submitted|';
+ assert.equal((await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{text}})).status,400);
+ const plan=(await f.call('/api/school/preview',{auth:a,method:'POST',value:{text}})).data.listImport;
+ assert.equal(plan.counts.schoolSubmissions,1);assert.equal((await f.call('/api/applications',{auth:a})).data.length,0);
+ const value={text,fingerprint:plan.fingerprint,requestId:randomUUID(),confirmed:true};
+ assert.equal((await f.call('/api/school/opportunities',{auth:a,method:'POST',value:{...value,text:text.replace('900123','900124')}})).status,409);
+ const first=await f.call('/api/school/opportunities',{auth:a,method:'POST',value});assert.equal(first.status,200,first.text);
+ const second=await f.call('/api/school/opportunities',{auth:a,method:'POST',value});assert.deepEqual(second.data,first.data);
+ assert.equal((await f.call('/api/applications',{auth:a})).data.length,1);
 });

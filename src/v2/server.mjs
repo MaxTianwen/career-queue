@@ -130,7 +130,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       if (path === '/api/applications' && req.method === 'GET') return json(res, 200, store.applications(owner));
       if (['/api/school/capture-preview','/api/school/capture-import'].includes(path) && req.method === 'POST') return json(res,200,schoolCapture(store,owner,await input(),path.endsWith('capture-import')));
       if (path === '/api/school/opportunities' && req.method === 'GET') return json(res,200,store.pendingSchoolOpportunities(owner));
-      if (path === '/api/school/opportunities' && req.method === 'POST') return json(res,200,store.syncSchoolOpportunities(owner,(await input()).text));
+      if (path === '/api/school/opportunities' && req.method === 'POST') return json(res,200,store.confirmSchoolOpportunities(owner,await input()));
       if (path === '/api/school/opportunities/start' && req.method === 'POST') { const value=await input(); return json(res,200,store.startSchoolOpportunity(owner,value.schoolId,value.fingerprint)); }
       if (path === '/api/school' && req.method === 'GET') return json(res, 200, store.schoolRecords(owner).map(row=>({...row,eligibilityExclusion:store.citizenExclusion(owner,{...row.row,schoolId:row.schoolId})})));
       if (path === '/api/school/history' && req.method === 'GET') return json(res, 200, { events: store.schoolHistory(owner), sources: store.schoolSubmissionSources(owner) });

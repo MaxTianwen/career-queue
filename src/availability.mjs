@@ -92,7 +92,7 @@ export async function checkAvailability(job, { fetchImpl = fetch, now = new Date
   } catch (error) { failure = error; }
 
   // A missing API record alone is inconclusive; an explicit official page notice can resolve it.
-  if (!fresh && !pages.has(target.url) && !/timeout|abort|超时|跳转|HTTP (?:403|429|5\d\d)/i.test(failure?.message || '')) {
+  if (!fresh && !pages.has(target.url) && !/timeout|abort|超时|跳转|HTTP (?:401|403|429|5\d\d)/i.test(failure?.message || '')) {
     try { await guardedFetch(target.url, { headers: { Accept: 'text/html' } }); }
     catch (error) { failure = error; }
   }

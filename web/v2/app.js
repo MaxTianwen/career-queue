@@ -1,7 +1,7 @@
-import { returnGuard, preserveList, viewLoader } from './page-stability.js';
+import { returnGuard, preserveList, viewLoader, viewNavigation } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
-import { factBadges, factsLabel, matchesOpportunity, mountFilters, platform } from './opportunity.js';
+import { deadlineSummary, factBadges, factsLabel, matchesOpportunity, mountFilters, platform } from './opportunity.js';
 import { applicationWorkspace } from './application.js';
 import { schoolWorkspace } from './school.js';
 import { refreshController } from './refresh-controller.js';
@@ -14,7 +14,7 @@ let reviewedResume = null, recommendations = [], visibleRecommendations = 20;
 let account = null, csrf = '', epoch = 0, registering = false, jobs = [], busy = false, expiryTimer;
 const channel = new BroadcastChannel('career-queue-v2-account');
 function clearPrivate(message = '') {
-  viewReads.invalidate();
+  viewReads.invalidate(); navigation.reset();
   document.body.classList.remove('session-check');$('#workspace').inert=false;sessionReturn.stop();
   clearTimeout(expiryTimer); updates.stop(); applications.clear(); school.clear();
   reviewedResume = null; recommendations = []; $('#resume-text').textContent = ''; $('#resume-name').textContent = ''; $('#resume-review').hidden = true; $('#job-match').replaceChildren(); $('#recommendations-list').replaceChildren(); $('#source-status').replaceChildren(); $('#active-resume').textContent = '尚未启用简历';
@@ -56,7 +56,8 @@ async function action(status, run) {
   try { await run(); } catch (error) { if (captured === epoch) {statusNode.dataset.state='error';statusNode.textContent = error.message;} }
   finally { if(statusNode.dataset.state==='loading')statusNode.dataset.state='success';statusNode.removeAttribute('aria-busy');setBusy(false); }
 }
-function tab(name) {
+function tab(name) { navigation.visit(name==='school'?'school-jobs':name); }
+function renderTab(name) {
   if(name==='school') name='school-jobs';
   const labels={recommendations:['发现机会','筛选适合你的机会，直接开始准备。'],'school-jobs':['学校职位','导入学校列表，与官网申请分开跟进。'],applications:['申请记录','只记录真实提交；误标可以撤回。'],files:['我的文件','原始简历与准备好的材料。'],jobs:['准备申请','围绕这份职位，完成需要的材料。'],security:['账号设置','管理本机账号。']};
   document.body.dataset.view=name;
@@ -224,7 +225,13 @@ $('#file-form').addEventListener('submit', event => { event.preventDefault(); ac
 }); });
 $('#job-form').elements.jd.addEventListener('input', () => { $('#job-match').replaceChildren(node('p', 'JD 已修改；保存后重新计算匹配度', 'muted')); });
 $('#new-job').addEventListener('click', () => { if (allowJobSwitch()) { tab('jobs'); selectJob(null); $('#job-form').elements.company.focus(); } });
-for (const button of document.querySelectorAll('[data-tab]')) button.addEventListener('click', () => { tab(button.dataset.tab); if (button.dataset.tab === 'recommendations') void backgroundRead('#recommendation-status',()=>loadRecommendations(false)); if (button.dataset.tab === 'school-jobs') void backgroundRead('#school-jobs-status',()=>school.refreshOpportunities(false)); if (button.dataset.tab === 'applications') void backgroundRead('#applications-status',()=>applications.records(false)); if (button.dataset.tab === 'school') void backgroundRead('#school-status',school.refresh); });
+function readTab(name) {
+ if(name==='recommendations')void backgroundRead('#recommendation-status',()=>loadRecommendations(false));
+ if(name==='school-jobs')void backgroundRead('#school-jobs-status',()=>school.refreshOpportunities(false));
+ if(name==='applications')void backgroundRead('#applications-status',()=>applications.records(false));
+}
+const navigation=viewNavigation({render:renderTab,read:readTab,views:['recommendations','school-jobs','applications','files','jobs','security']});
+for(const button of document.querySelectorAll('[data-tab]'))button.addEventListener('click',()=>{tab(button.dataset.tab);readTab(button.dataset.tab);});
 channel.addEventListener('message', () => clearPrivate('其他页面的账号已变化，请重新登录。'));
 const sessionReturn=returnGuard({
  validate:async()=>{const captured=epoch,expected=account?.id,current=await api('/api/session');return captured===epoch&&current.user.id===expected&&current.csrf===csrf;},
@@ -312,7 +319,7 @@ function drawRecommendations() {
   if(!available.length)$('#recommendations-list').append(node('p',recommendations.length?'没有符合当前条件的职位。试试清空筛选，或允许保留未知条件。':'还没有可浏览的职位。点击刷新公开来源，或从学校列表开始。','empty'));
   for (const job of available.slice(0, visibleRecommendations)) {
     const card = node('article', '', 'recommendation-card'+(job.hasSchool?' school-opportunity':''));card.dataset.jobId=job.id;
-    const header=node('div','','card-header');header.append(node('span',job.company,'company-name'));card.append(header,node('h3',job.title),node('p',job.location || '地点未知','card-location'),factBadges(job));
+    const header=node('div','','card-header');header.append(node('span',job.company,'company-name'));card.append(header,node('h3',job.title),node('p',job.location || '地点未知','card-location'),factBadges(job),deadlineSummary(job));
     if(job.hasSchool){const confirmed=(job.schoolSources||[]).map(s=>s.requirement).filter(r=>r?.source==='user');const requirement=confirmed.length?(new Set(confirmed.map(r=>r.kind)).size===1?confirmed[0]:{kind:'unknown'}):schoolRequirement((job.schoolSources||[]).map(s=>s.row),job);card.append(node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind],'route-summary'));}
     const detail=document.createElement('details');detail.className='card-detail';detail.append(node('summary','职位详情与匹配依据'));
     detail.append(node('p',`${job.workMode || '办公方式未知'} · ${job.salary || '薪资未披露'}`,'muted'));

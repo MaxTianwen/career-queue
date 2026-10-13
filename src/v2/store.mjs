@@ -422,21 +422,57 @@ export class WorkspaceStore {
       return {...item,officialFacts,facts:officialFacts || {...item.row,jd:item.row.jd || job.jd || ''},requirement,explicitMatch:Boolean(item.jobId && association && association.reason!=='本人从学校职位开始准备')};
     });
   }
+  schoolListRow(owner,pasted) {
+    const row={...pasted},link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
+    const current=this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row || {};
+    const previous={...link?.row,...Object.fromEntries(Object.entries(current).filter(([,value])=>value!==''&&value!=null))};
+    for(const key of ['url','externalUrl','requisitionId','duration','jd','applicationInstructions','durationSource','durationEvidence','sourceEvidence','officialTitle','fieldEvidence','eligibilityText','citizenshipInfo'])if(!row[key]&&previous[key])row[key]=previous[key];
+    return row;
+  }
+  schoolListPlan(owner,text,preview) {
+    const existing=this.schoolOpportunities(owner),observations=this.db.prepare('SELECT school_id,submission_id FROM portal_submission_observations WHERE user_id=? ORDER BY school_id').all(owner);
+    const confirmations=this.db.prepare("SELECT id,school_snapshot,withdrawn,revision FROM submission_confirmations WHERE user_id=? AND channel='school' ORDER BY id").all(owner);
+    const active=this.schoolSubmissionSources(owner);
+    const changes=preview.rows.filter(item=>item.row).map(item=>{
+      const row=this.schoolListRow(owner,item.row),previous=existing.find(v=>v.schoolId===row.id)?.row;
+      const kind=!previous?'new':schoolHash(previous)===schoolHash(row)?'unchanged':'updated';
+      const statusChanged=Boolean(previous&&(previous.sourceStatus||'')!==(row.sourceStatus||''));
+      const submitted=/^application submitted$/i.test(row.sourceStatus?.trim()||'');
+      const history=confirmations.filter(v=>JSON.parse(v.school_snapshot)?.schoolId===row.id);
+      const withdrawn=history.some(v=>v.withdrawn),known=observations.some(v=>v.school_id===row.id)||active.some(v=>v.schoolId===row.id&&v.channel==='school')||history.length;
+      return {schoolId:row.id,company:row.company,title:row.title,kind,statusChanged,beforeStatus:previous?.sourceStatus||'',afterStatus:row.sourceStatus||'',submissionEffect:submitted?(withdrawn?'preserve_withdrawn':known?'keep_school':'add_school'):'none'};
+    });
+    const canConfirm=changes.length>0&&!preview.errors.length&&preview.rows.every(v=>v.row)&&new Set(changes.map(v=>v.schoolId)).size===changes.length;
+    const counts={new:0,unchanged:0,updated:0,statusChanged:0,schoolSubmissions:0};for(const v of changes){counts[v.kind]++;counts.statusChanged+=Number(v.statusChanged);counts.schoolSubmissions+=Number(v.submissionEffect==='add_school');}
+    return {canConfirm,counts,changes,fingerprint:schoolHash({kind:'school-list',text,preview:preview.fingerprint,existing:existing.map(v=>({schoolId:v.schoolId,row:v.row})),observations,confirmations})};
+  }
+  confirmSchoolOpportunities(owner,input) {
+    if(input.confirmed!==true)fail(400,'请先预览并明确确认导入学校列表');
+    const text=textField(input.text,150000,true),fingerprint=textField(input.fingerprint,64,true),requestId=requestIdentifier(input.requestId);
+    const requestHash=schoolHash({kind:'school-list',text,fingerprint});
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const prior=this.db.prepare('SELECT fingerprint,result FROM school_imports WHERE user_id=? AND request_id=?').get(owner,requestId);
+      if(prior){if(prior.fingerprint!==requestHash)fail(409,'同一导入请求的内容已改变，请重新预览');this.db.exec('COMMIT');return JSON.parse(prior.result);}
+      const preview=this.schoolPreview(owner,text);
+      if(!preview.listImport.canConfirm)fail(400,'列表有重复编号或无法识别的行，请修正后重新预览');
+      if(preview.listImport.fingerprint!==fingerprint)fail(409,'列表、学校资料或提交状态已变化，请重新预览后确认');
+      const result=this.syncSchoolOpportunities(owner,text);
+      this.db.prepare('INSERT INTO school_imports VALUES (?,?,?,?,?)').run(owner,requestId,requestHash,JSON.stringify(result),this.now());
+      this.db.exec('COMMIT');return result;
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
   syncSchoolOpportunities(owner, text) {
     textField(text,150000,true);
     const preview=this.schoolPreview(owner,text);
     if (preview.errors.length || preview.rows.some(item=>!item.row)) fail(400,'列表有无法识别的行，请修正后更新；原学校职位保留');
     const rows=preview.rows.map(item=>item.row);
     if (!rows.length || new Set(rows.map(row=>row.id)).size!==rows.length) fail(400,'没有有效职位或 School ID 重复，请核对');
-    this.db.exec('BEGIN IMMEDIATE');
+    this.db.exec('SAVEPOINT school_list_sync');
     try {
       for (const pasted of rows) {
-        const row={...pasted};
-        const link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
-        const currentSource=this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row || {};
-        const previous={...link?.row,...Object.fromEntries(Object.entries(currentSource).filter(([,value])=>value!==''&&value!=null))};
-        // Copied lists omit URLs; explicit removal remains in school maintenance.
-        for (const key of ['url','externalUrl','requisitionId','duration','jd','applicationInstructions','durationSource','durationEvidence','sourceEvidence','officialTitle','fieldEvidence','eligibilityText','citizenshipInfo']) if(!row[key] && previous?.[key]) row[key]=previous[key];
+        const link=this.schoolLinks(owner).find(link=>link.schoolId===pasted.id);
+        const row=this.schoolListRow(owner,pasted);
         if(link && schoolHash(link.row)!==schoolHash(row)) {
           const job=this.job(owner,link.jobId), before={schoolId:row.id,jobId:job.id,row:link.row,job}, after={...before,row};
           this.schoolAudit(owner,row.id,'update',before,after,'本人粘贴更新学校列表',randomUUID(),schoolHash(row));
@@ -446,8 +482,8 @@ export class WorkspaceStore {
       }
       const submissions=this.importPortalSubmissions(owner,rows.filter(row=>/^application submitted$/i.test(row.sourceStatus?.trim() || '')).map(row=>row.id),{kind:'school-portal-paste',sha256:hash(text)});
       const nextPreview=this.schoolPreview(owner,text);
-      this.db.exec('COMMIT'); return {updated:rows.length,preview:nextPreview,submissions};
-    } catch(error) { this.db.exec('ROLLBACK'); throw error; }
+      this.db.exec('RELEASE school_list_sync'); return {updated:rows.length,preview:nextPreview,submissions};
+    } catch(error) { this.db.exec('ROLLBACK TO school_list_sync; RELEASE school_list_sync'); throw error; }
   }
   startSchoolOpportunity(owner, schoolId, fingerprint) {
     const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
@@ -526,7 +562,7 @@ export class WorkspaceStore {
   schoolPreview(owner, text) {
     const jobs = this.jobs(owner).map(job => ({ ...job, submissions: this.application(owner, job.id).submissions.map(({ channel, date }) => ({ channel, date })) }));
     const preview = previewSchool(text, { jobs, links: this.schoolLinks(owner), catalogue: this.catalogue(), preferences: this.preferences(owner), now: new Date(this.now()) });
-    return { ...preview, rows:preview.rows.map(item=>({...item,eligibilityExclusion:item.row?this.citizenExclusion(owner,{...this.schoolOpportunities(owner).find(s=>s.schoolId===item.row.id)?.facts,...item.row,schoolId:item.row.id}):null})), savedJobs: jobs.map(({ id, company, title }) => ({ id, company, title })) };
+    return { ...preview, listImport:this.schoolListPlan(owner,text.trim(),preview), rows:preview.rows.map(item=>({...item,eligibilityExclusion:item.row?this.citizenExclusion(owner,{...this.schoolOpportunities(owner).find(s=>s.schoolId===item.row.id)?.facts,...item.row,schoolId:item.row.id}):null})), savedJobs: jobs.map(({ id, company, title }) => ({ id, company, title })) };
   }
   importSchool(owner, input) {
     if (input.confirmed !== true) fail(400, '请核对所选学校职位及关联目标后确认');

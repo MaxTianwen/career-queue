@@ -16,7 +16,7 @@ export function mountView(list,key,redraw) {
   const head=document.createElement('thead'),header=document.createElement('tr');for(const title of ['公司 / 职位','地点','学期 / 时长 / 来源','申请操作与详情']){const th=document.createElement('th');th.scope='col';th.textContent=title;header.append(th);}head.append(header);table.append(head);
   const body=document.createElement('tbody');
   for(const card of cards){const row=document.createElement('tr');if(card.dataset?.jobId)row.setAttribute('data-job-id',card.dataset.jobId);if(card.classList.contains('school-opportunity'))row.className='school-opportunity';const cells=['公司 / 职位','地点','学期 / 时长 / 来源','申请操作与详情'].map(label=>{const cell=document.createElement('td');cell.setAttribute('data-label',label);return cell;});
-   for(const child of [...card.children]){const target=child.matches('.card-header,h3')?0:child.matches('.card-location')?1:child.matches('.fact-badges,.route-summary')?2:3;cells[target].append(child);}row.append(...cells);body.append(row);card.remove();}
+   for(const child of [...card.children]){const target=child.matches('.card-header,h3')?0:child.matches('.card-location')?1:child.matches('.fact-badges,.route-summary,.card-deadline')?2:3;cells[target].append(child);}row.append(...cells);body.append(row);card.remove();}
   table.append(body);frame.append(table);list.append(frame);
  };
 }
