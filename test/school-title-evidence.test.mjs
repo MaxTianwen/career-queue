@@ -1,5 +1,5 @@
 import test from'node:test';import assert from'node:assert/strict';import{runInNewContext}from'node:vm';
-import{schoolTitleEvidence}from'../browser-extension/school-title-evidence.js';import{schoolTitleEvidenceRequest}from'../browser-extension/school-title-evidence-request.mjs';
+import{schoolTitleEvidence}from'../test/fixtures/legacy-school-extension/school-title-evidence.js';import{schoolTitleEvidenceRequest}from'../test/fixtures/legacy-school-extension/school-title-evidence-request.mjs';
 const expected={schoolId:'900101',title:'Synthetic Job',company:'Fixture',term:'2027 - Summer'};
 function fixture(){const reads=[];const node=(value,tagName='TD',attrs={})=>({value,tagName,attrs,parentElement:null,children:[],getClientRects:()=>[{}],closest:()=>null,getAttribute(k){reads.push([tagName,k]);return this.attrs[k]??null;},hasAttribute(k){return Object.hasOwn(this.attrs,k);},querySelectorAll:()=>[]});
  const target=node(expected.title,'A',{role:'button',href:'/myAccount/coop/postings.htm?session=CANARY_SESSION#CANARY_ACCOUNT',target:'CANARY_WINDOW',onclick:"window.open('/detail?token=CANARY_TOKEN', 'CANARY_NAME'); if(event.isTrusted) history.pushState({},'', '/CANARY_ACCOUNT');"});target.click=()=>assert.fail('must not click');Object.defineProperty(target,'onclick',{get:()=>assert.fail('must not read compiled handler')});

@@ -1,5 +1,5 @@
 import test from'node:test';import assert from'node:assert/strict';
-import{schoolTabBatchController}from'../browser-extension/school-tab-batch-controller.mjs';
+import{schoolTabBatchController}from'../test/fixtures/legacy-school-extension/school-tab-batch-controller.mjs';
 const entries=[1,2].map(n=>({schoolId:'90010'+n,title:'Synthetic '+n,company:'Fixture',term:'2027 - Summer',candidateCount:1}));
 const never=()=>new Promise(()=>{}),flush=()=>new Promise(r=>setImmediate(r));
 function environment(){

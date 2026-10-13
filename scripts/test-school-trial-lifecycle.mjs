@@ -1,7 +1,7 @@
 import{readFile,writeFile,mkdir}from'node:fs/promises';import{createServer}from'node:http';import{spawn}from'node:child_process';import{resolve}from'node:path';
 const popupPolicy=process.env.CQ_SCHOOL_TEST_POPUP_POLICY==='default';
 const out=resolve('output/task-01/school-trial-019'+(popupPolicy?'-default-popup':''));await mkdir(out,{recursive:true});
-const nav=await readFile('browser-extension/school-visible-navigation.js','utf8'),reader=await readFile('browser-extension/school-detail-reader.js','utf8'),controller=(await readFile('browser-extension/school-trial-controller.mjs','utf8')).replace('export function','function'),state=(await readFile('browser-extension/school-trial-state.mjs','utf8')).replace('export function','function');
+const nav=await readFile('test/fixtures/legacy-school-extension/school-visible-navigation.js','utf8'),reader=await readFile('test/fixtures/legacy-school-extension/school-detail-reader.js','utf8'),controller=(await readFile('test/fixtures/legacy-school-extension/school-trial-controller.mjs','utf8')).replace('export function','function'),state=(await readFile('test/fixtures/legacy-school-extension/school-trial-state.mjs','utf8')).replace('export function','function');
 const entry={schoolId:'900101',title:'Embedded Engineering Internship',company:'Example Research Agency',term:'2027 - Summer'};
 const fields=[['Co-op Student Position Title',entry.title],['Term Posted',entry.term],['Employer',entry.company],['Job Duration','4 Months'],['Job Description','Visible responsibilities. '.repeat(400)+'END_OF_FULL_BODY']];
 const table='<table>'+fields.map(([k,v])=>'<tr><td>'+k+':</td><td>'+v+'</td></tr>').join('')+'</table><button>Back to Job Postings</button>';

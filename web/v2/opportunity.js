@@ -1,7 +1,7 @@
 import { deadlineExpired } from '../../src/deadlines.mjs';
 import { jobCategory } from '../../src/job-category.mjs';
 import { jobCountries, remoteFacts, usRemoteEligibility } from '../../src/job-country.mjs';
-import { durationFacts } from '../../src/duration-facts.mjs';
+import { durationFacts, verifiedSchoolDisplay } from '../../src/duration-facts.mjs';
 import { classifyResume } from '../../src/resume-track.mjs';
 // Display and filtering only. Unknown facts stay unknown; never alter eligibility or records.
 export function platform(url) {
@@ -12,7 +12,8 @@ export function platform(url) {
 }
 export function opportunityFacts(job) {
  const text=[job.term,job.duration,job.title,...String(job.jd||'').split(/[\n.!?]/).filter(s=>/\b(start|term|intern(?:ship)?s?|co.op|summer|winter|fall|duration)\b/i.test(s) && !/graduat|experience|degree/i.test(s))].filter(Boolean).join(' ');
- let seasons=[...new Set((text.match(/\b(winter|summer|fall)\b/gi)||[]).map(s=>s.toLowerCase()))];
+ const school=verifiedSchoolDisplay(job);
+ let seasons=[...new Set(((school?.term || text).match(/\b(winter|summer|fall)\b/gi)||[]).map(s=>s.toLowerCase()))];
  const durationInfo=durationFacts(job),durations=durationInfo.options.map(n=>({min:n,max:n})),durationIssues=[...durationInfo.review,...durationInfo.intervals.map(r=>r.raw),...durationInfo.ranges.map(r=>r.raw),...durationInfo.other.map(r=>r.raw)];
  if(durationInfo.placements.length)seasons=[...new Set(durationInfo.placements.map(p=>p.season))];
  const track=job.classification?.track || classifyResume(job).track;const category=jobCategory(job);

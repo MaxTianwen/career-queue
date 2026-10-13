@@ -1,5 +1,5 @@
 import test from'node:test';import assert from'node:assert/strict';import{runInNewContext}from'node:vm';import{readFileSync}from'node:fs';
-import{schoolTrialController}from'../browser-extension/school-trial-controller.mjs';import{schoolDetailReader}from'../browser-extension/school-detail-reader.js';
+import{schoolTrialController}from'../test/fixtures/legacy-school-extension/school-trial-controller.mjs';import{schoolDetailReader}from'../test/fixtures/legacy-school-extension/school-detail-reader.js';
 const entry={schoolId:'900101',title:'Engineering Internship',company:'Example Reinsurance',term:'2027 - Summer',candidateCount:1};
 function page(expected,{origin='https://recruitstudents.torontomu.ca',title=expected.title,company=expected.company,term=expected.term,id=expected.schoolId,omitCompany=false,conflict=false}={}){
  let bodyReads=0;

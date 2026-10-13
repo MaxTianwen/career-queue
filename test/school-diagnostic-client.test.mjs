@@ -3,8 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
 import {readFileSync} from 'node:fs';
-import {schoolDiagnostic} from '../browser-extension/school-diagnostic.js';
-import {readSchoolDiagnostic,diagnosticFailure} from '../browser-extension/school-diagnostic-client.js';
+import {schoolDiagnostic} from '../test/fixtures/legacy-school-extension/school-diagnostic.js';
+import {readSchoolDiagnostic,diagnosticFailure} from '../test/fixtures/legacy-school-extension/school-diagnostic-client.js';
 const node=(value,tagName='TD')=>({value,tagName,getClientRects:()=>[{}],closest:()=>null,querySelectorAll:()=>[]});
 function run({headings=[],rows=[],sections=[],frames=[],auth=[]}={},kind='list',fn=schoolDiagnostic){
  const document={querySelectorAll:s=>s.startsWith('input[')?auth:s.includes('legend')?headings:s==='tr,[role=row]'?rows:s==='iframe'?frames:s==='h1,h2,h3,h4,dt'?sections:[],createTreeWalker:e=>{let done=false;return{nextNode:()=>done?null:(done=true,{parentElement:e,textContent:e.value})}}};
@@ -47,7 +47,7 @@ test('tab query, HTTPS preflight and download failures never claim the user logg
  assert.match(diagnosticFailure(Error('secret')),/DOWNLOAD_FAILED/);assert.doesNotMatch(diagnosticFailure(Error('secret')),/secret/);
 });
 test('popup download remains local, and Greenhouse workflow is preserved',()=>{
- const popup=readFileSync('browser-extension/popup.js','utf8');assert.match(popup,/new Blob/);assert.match(popup,/download\.click\(\)/);assert.match(popup,/JSON.stringify\(packet,null,2\)/);
+ const popup=readFileSync('test/fixtures/legacy-school-extension/popup.js','utf8');assert.match(popup,/new Blob/);assert.match(popup,/download\.click\(\)/);assert.match(popup,/JSON.stringify\(packet,null,2\)/);
 
  const start=s=>s.slice(s.indexOf("import {pageFields}"),s.indexOf('let diagnosticBusy'));
  assert.equal(createHash('sha256').update(start(popup).replaceAll('\r\n','\n')).digest('hex'),'79e25adc3149f358d4c7adb524c59aa30d6e28ecf5ad7a294bc02e6427e482fd');
@@ -56,7 +56,7 @@ test('popup download remains local, and Greenhouse workflow is preserved',()=>{
 test('popup click writes only a validated packet to a local Blob and retains a fallback link',async()=>{
  const nodes=new Map();let clicked=0,blob=null;
  const get=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,events:{},addEventListener(k,fn){this.events[k]=fn;},click(){clicked++;}});return nodes.get(id);};
- const source=readFileSync('browser-extension/popup.js','utf8').replace(/^import .*;\r?\n/gm,'');
+ const source=readFileSync('test/fixtures/legacy-school-extension/popup.js','utf8').replace(/^import .*;\r?\n/gm,'');
  const chrome=api(async()=>[{frameId:0,result:packet()}]);
  runInNewContext(source,{document:{getElementById:get},chrome,schoolDiagnostic,schoolVisibleNavigation:()=>{},readSchoolDiagnostic,diagnosticFailure,pageFields(){},Blob,URL:{createObjectURL(value){blob=value;return 'blob:local-fixture';},revokeObjectURL(){}}});
  await get('school-list').events.click();

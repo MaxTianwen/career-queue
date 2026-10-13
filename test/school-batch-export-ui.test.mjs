@@ -1,6 +1,6 @@
 import test from'node:test';import assert from'node:assert/strict';import{readFileSync}from'node:fs';import{runInNewContext}from'node:vm';
-const source=readFileSync('browser-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');
-const html=readFileSync('browser-extension/popup.html','utf8');
+const source=readFileSync('test/fixtures/legacy-school-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');
+const html=readFileSync('test/fixtures/legacy-school-extension/popup.html','utf8');
 function fixture(){const elements=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],{hidden:true,removeAttribute(name){delete this[name];},click(){this.clicks=(this.clicks||0)+1;}}]));let state={phase:'idle',jobs:[],entries:[]},fail=false,pending;const calls=[],blobs=[],revoked=[];
  const chrome={runtime:{sendMessage:async m=>{calls.push(m.type);if(fail)throw Error('EXTENSION_WORKER_UNAVAILABLE');if(m.type==='school-batch-status'&&pending)return pending;if(m.type==='school-batch-diagnostic')return{ok:true,data:{schema:'career-queue-school-batch-diagnostic-v1',phase:state.phase,completedIds:state.jobs.map(j=>j.schoolId),permission:{owned:false},events:[]}};if(m.type==='school-batch-export')return{ok:true,data:{schema:'career-queue-school-capture-v1',jobs:state.jobs}};return{ok:true,data:state};}}};
  let poll;runInNewContext(source,{document:{getElementById:id=>elements.get(id)},chrome,SCHOOL_ORIGIN:'https://recruitstudents.torontomu.ca/*',setInterval:f=>poll=f,URL:{createObjectURL:b=>{blobs.push(JSON.parse(b.text));return'blob:'+blobs.length;},revokeObjectURL:u=>revoked.push(u)},Blob:class{constructor(parts){this.text=parts.join('');}}});

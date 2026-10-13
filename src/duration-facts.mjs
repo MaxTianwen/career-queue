@@ -1,8 +1,17 @@
 import { internshipOptions } from './internship-options.mjs';
 const STANDARD=[4,8,12,16];
 const clean=s=>String(s||'').replace(/\u00a0/g,' ').trim();
+// Validated, current school fields describe this position; generic JD policy does not.
+export function verifiedSchoolDisplay(job={}) {
+ const evidence=job.schoolCurrentPageEvidence;
+ const term=value=>clean(value).toLowerCase().replace(/[^a-z0-9]/g,'').match(/(?:winter|summer|fall)|20\d{2}/g)?.sort().join(':');
+ if(!['visible-id-and-exact-fields','saved-list-and-exact-title-employer-term'].includes(evidence?.identityBasis)||!clean(evidence.duration)||clean(evidence.duration)!==clean(job.duration)||!term(evidence.term)||term(evidence.term)!==term(job.term))return null;
+ return {term:evidence.term,duration:evidence.duration};
+}
 // Values are observations, not inferred co-op slots. Ranges and weeks remain distinct.
 export function durationFacts(job={}) {
+ const school=verifiedSchoolDisplay(job);
+ if(school)return durationFacts({...school,sourceEvidence:job.sourceEvidence});
  const options=new Set(),ranges=[],other=[],evidence=[],review=[],intervals=[];
  const add=(field,quote,value)=>{evidence.push({field,quote:quote.trim(),sourceUrl:(field==='durationEvidence'?job.durationEvidence?.url:null) || job.durationSource?.url || job.sourceEvidence?.url || job.externalUrl || job.url || '',retrievedAt:(field==='durationEvidence'?job.durationEvidence?.capturedAt:null) || job.durationSource?.retrievedAt || job.sourceEvidence?.retrievedAt || job.sourceUpdatedAt || null,...value});};
  const fields=['duration','durationText','term','title','officialTitle','jd','durationEvidence'];

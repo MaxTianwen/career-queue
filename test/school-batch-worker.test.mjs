@@ -1,8 +1,8 @@
-import{schoolTitleEvidence}from'../browser-extension/school-title-evidence.js';
-import{schoolTitleEvidenceRequest}from'../browser-extension/school-title-evidence-request.mjs';
+import{schoolTitleEvidence}from'../test/fixtures/legacy-school-extension/school-title-evidence.js';
+import{schoolTitleEvidenceRequest}from'../test/fixtures/legacy-school-extension/school-title-evidence-request.mjs';
 import test from'node:test';import assert from'node:assert/strict';import{readFileSync}from'node:fs';import{runInNewContext}from'node:vm';
-import{schoolTabBatchController,SCHOOL_ORIGIN,coversSchoolOrigin}from'../browser-extension/school-tab-batch-controller.mjs';
-const source=readFileSync('browser-extension/school-batch-worker.js','utf8').replace(/^import[^\n]*\n/gm,'');
+import{schoolTabBatchController,SCHOOL_ORIGIN,coversSchoolOrigin}from'../test/fixtures/legacy-school-extension/school-tab-batch-controller.mjs';
+const source=readFileSync('test/fixtures/legacy-school-extension/school-batch-worker.js','utf8').replace(/^import[^\n]*\n/gm,'');
 test('actual batch worker routes only own popup messages and cleans grant after restart',async()=>{
  let saved,listener,permission=false,removes=0;const store={load:async()=>saved,save:async s=>saved=structuredClone(s)};
  const chrome={runtime:{id:'fixture',getURL:p=>'chrome-extension://fixture/'+p,onMessage:{addListener:f=>listener=f}},permissions:{contains:async()=>permission,getAll:async()=>({origins:permission?[SCHOOL_ORIGIN]:[]}),remove:async()=>{removes++;permission=false;return true;}},tabs:{get:async id=>({id}),query:async()=>[],remove:async()=>{},update:async()=>{}},scripting:{executeScript:async()=>[{result:{ok:true,entries:[1,2].map(n=>({schoolId:'90010'+n,title:'Role '+n,company:'Fixture',term:'Summer 2027',candidateCount:1}))}}]}};
@@ -13,7 +13,7 @@ test('actual batch worker routes only own popup messages and cleans grant after 
  assert.equal((await send('prepare',{tabId:1})).ok,true);const armed=await send('arm');await send('begin',{id:'batch-fixture',requestId:armed.data.permissionRequest.id});permission=true;boot();const result=await send('status');assert.equal(result.data.phase,'interrupted');assert.equal(permission,false);assert.equal(removes,1);const empty=await send('export');assert.equal(empty.ok,false);assert.equal(empty.code,'NO_VERIFIED_JOBS_TO_EXPORT');const diagnostic=await send('diagnostic');assert.equal(diagnostic.data.schema,'career-queue-school-batch-diagnostic-v1');
 });
 test('actual popup invokes request in click gesture before awaiting background, surfaces denial and offers export',async()=>{
- const source=readFileSync('browser-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');
+ const source=readFileSync('test/fixtures/legacy-school-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');
  const elements=new Map(),actions=[];let gesture=false,state={id:'batch',phase:'idle',jobs:[],entries:[]};
  const document={getElementById:id=>{if(!elements.has(id))elements.set(id,{disabled:false,textContent:'',hidden:true,removeAttribute(){}});return elements.get(id);}};
  const chrome={tabs:{query:async()=>[{id:1}]},runtime:{sendMessage:async m=>{actions.push(m.type);const type=m.type.replace('school-batch-','');if(type==='arm')state={...state,phase:'armed',permissionRequest:{id:'request-fixture'}};if(type==='begin')state={...state,phase:'requesting'};if(type==='granted')state={...state,phase:m.accepted?'running':'denied'};return{ok:true,data:structuredClone(state)};}},permissions:{request:()=>{assert.equal(gesture,true);actions.push('native-request');return Promise.resolve(false);}}};
@@ -21,7 +21,7 @@ test('actual popup invokes request in click gesture before awaiting background, 
  await elements.get('school-batch-prepare').onclick();assert.equal(elements.get('school-batch-grant').disabled,false);
  gesture=true;elements.get('school-batch-grant').onclick();gesture=false;await new Promise(r=>setImmediate(r));
  assert.ok(actions.indexOf('school-batch-begin')<actions.indexOf('native-request'));assert.equal(state.phase,'denied');assert.match(elements.get('school-batch-status').textContent,/授权已拒绝/);
- const html=readFileSync('browser-extension/popup.html','utf8');for(const id of elements.keys())assert.ok(html.includes('id="'+id+'"'),id);
+ const html=readFileSync('test/fixtures/legacy-school-extension/popup.html','utf8');for(const id of elements.keys())assert.ok(html.includes('id="'+id+'"'),id);
 });
 
 test('actual worker checks original popup document across restart before touching new grant',async()=>{
@@ -34,7 +34,7 @@ test('actual worker checks original popup document across restart before touchin
  await send('granted',{id:s.id,requestId:s.permissionRequest.id,accepted:false});assert.equal(removes,1);const {data:d}=await send('diagnostic');assert.ok(d.events.some(e=>e.event==='new-grant-revoked'));assert.equal(d.permission.owned,false);
 });
 test('popup retries lost begin acknowledgement, not native permission request',async()=>{
- const ui=readFileSync('browser-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');const elements=new Map();let begins=0,requests=0,accepted;
+ const ui=readFileSync('test/fixtures/legacy-school-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');const elements=new Map();let begins=0,requests=0,accepted;
  const document={getElementById:id=>{if(!elements.has(id))elements.set(id,{removeAttribute(){}});return elements.get(id);}};
  const state={id:'batch',phase:'armed',permissionRequest:{id:'token'},jobs:[],entries:[]};
  const chrome={runtime:{sendMessage:async m=>{if(m.type==='school-batch-begin'&&++begins===1)throw Error('message port closed');if(m.type==='school-batch-granted')accepted=m.accepted;return{ok:true,data:state};}},permissions:{request:()=>{requests++;return Promise.resolve(true);}}};
@@ -54,7 +54,7 @@ test('real worker listeners precede synchronous creation and later reuse; both d
 });
 
 test('actual popup read-only reprepare calls neither native request nor arm; confirmation is separate',async()=>{
- const ui=readFileSync('browser-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');const elements=new Map(),messages=[];let requests=0;
+ const ui=readFileSync('test/fixtures/legacy-school-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');const elements=new Map(),messages=[];let requests=0;
  const document={getElementById:id=>{if(!elements.has(id))elements.set(id,{removeAttribute(){}});return elements.get(id);}};
  let state={id:'old',phase:'failed',code:'NO_DETAIL_PAGE_CHANGE_OBSERVED',jobs:[],entries:[{schoolId:'900101'}],attempt:{schoolId:'900101',stage:'dispatched'}};
  const chrome={tabs:{query:async()=>[{id:1}]},permissions:{request:()=>{requests++;return Promise.resolve(true);}},runtime:{sendMessage:async m=>{messages.push(m);if(m.type==='school-batch-reprepare')state={...state,id:'new',phase:'reviewed',attempt:null};if(m.type==='school-batch-arm')state={...state,phase:'armed',permissionRequest:{id:'new-request',requestInvoked:false}};return{ok:true,data:state};}}};
@@ -62,7 +62,7 @@ test('actual popup read-only reprepare calls neither native request nor arm; con
 });
 
 test('actual popup title-evidence action downloads one diagnostic without arm, request or plan mutation',async()=>{
- const ui=readFileSync('browser-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');const elements=new Map(),messages=[],files=[];let reads=0;
+ const ui=readFileSync('test/fixtures/legacy-school-extension/school-batch-ui.js','utf8').replace(/^import[^\n]*\n/gm,'');const elements=new Map(),messages=[],files=[];let reads=0;
  const document={getElementById:id=>{if(!elements.has(id))elements.set(id,{removeAttribute(){},click(){files.push(this.download);}});return elements.get(id);}};
  const state={id:'old',listTabId:1,phase:'failed',code:'NO_DETAIL_PAGE_CHANGE_OBSERVED',jobs:[],entries:[{schoolId:'900101'}],attempt:{schoolId:'900101',stage:'dispatched'}};
  const chrome={tabs:{query:async()=>[{id:1}]},permissions:{request:()=>assert.fail('permission request forbidden')},runtime:{sendMessage:async m=>{messages.push(m.type);if(m.type==='school-batch-title-evidence'){reads++;await new Promise(r=>setImmediate(r));return{ok:true,data:{schema:'career-queue-school-title-evidence-v1',jobs:[{schoolId:'900101'}]}};}return{ok:true,data:structuredClone(state)};}}};

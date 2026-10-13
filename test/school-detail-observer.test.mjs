@@ -1,6 +1,6 @@
 import test from'node:test';import assert from'node:assert/strict';
-import{observeSchoolDetail,schoolJobTab}from'../browser-extension/school-detail-observer.mjs';
-import{schoolTabBatchController}from'../browser-extension/school-tab-batch-controller.mjs';
+import{observeSchoolDetail,schoolJobTab}from'../test/fixtures/legacy-school-extension/school-detail-observer.mjs';
+import{schoolTabBatchController}from'../test/fixtures/legacy-school-extension/school-tab-batch-controller.mjs';
 const url='https://recruitstudents.torontomu.ca/myAccount/coop/postings.htm',entry={schoolId:'900101',title:'Synthetic engineer',company:'Fixture',term:'Summer 2027'};
 function fixture(){const attempt={id:'click',schoolId:entry.schoolId,baseline:[1,8],eventMark:{epoch:'one',sequence:0}},tabs=[{id:1,url,status:'complete'},{id:8,url,status:'complete'}],events=[],reads=[];let same=false,identity={ok:true,verified:true,identity:{visibleSchoolId:entry.schoolId}};
  const a={tabs:async()=>tabs,tabEvents:()=>events,getTab:async id=>tabs.find(t=>t.id===id),scan:async()=>({ok:true,entries:same?[]:[entry]}),read:async(id,e,o)=>{reads.push({id,o});return identity;},delay:async()=>{}};

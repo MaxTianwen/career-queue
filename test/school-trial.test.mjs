@@ -1,5 +1,5 @@
 import test from'node:test';import assert from'node:assert/strict';import{runInNewContext}from'node:vm';import{readFileSync}from'node:fs';
-import{schoolDetailReader}from'../browser-extension/school-detail-reader.js';import{schoolTrialController}from'../browser-extension/school-trial-controller.mjs';
+import{schoolDetailReader}from'../test/fixtures/legacy-school-extension/school-detail-reader.js';import{schoolTrialController}from'../test/fixtures/legacy-school-extension/school-trial-controller.mjs';
 const entry={schoolId:'900101',title:'Embedded Engineering Internship',company:'Example Research Agency',term:'2027 - Summer',candidateCount:1};
 function read({fields=null,auth=false}={}){const e=(value,tagName='TD')=>({value,tagName,children:[],id:'',classList:[],getClientRects:()=>[{}],getAttribute:()=>null,closest:()=>null});
  const values=fields||[['Co-op Student Position Title:',entry.title],['Term Posted:',entry.term],['Job Duration:','4 Months'],['Job Description:','Employer: Example Research Agency Branch Name: TIS. '+('Visible responsibilities and qualifications. '.repeat(400))+' END_OF_FULL_JOB The successful applicant must be a Canadian Citizen.']];const rows=values.map(([label,value])=>({...e('','TR'),children:[e(label),e(value)]}));

@@ -426,7 +426,7 @@ export class WorkspaceStore {
     const row={...pasted},link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
     const current=this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row || {};
     const previous={...link?.row,...Object.fromEntries(Object.entries(current).filter(([,value])=>value!==''&&value!=null))};
-    for(const key of ['url','externalUrl','requisitionId','duration','jd','applicationInstructions','durationSource','durationEvidence','sourceEvidence','officialTitle','fieldEvidence','eligibilityText','citizenshipInfo'])if(!row[key]&&previous[key])row[key]=previous[key];
+    for(const key of ['url','externalUrl','requisitionId','duration','jd','applicationInstructions','durationSource','durationEvidence','sourceEvidence','schoolCurrentPageEvidence','schoolCapture','officialTitle','fieldEvidence','eligibilityText','citizenshipInfo'])if(!row[key]&&previous[key])row[key]=previous[key];
     return row;
   }
   schoolListPlan(owner,text,preview) {

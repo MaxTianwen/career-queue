@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import{runInNewContext}from'node:vm';
-import{schoolVisibleNavigation}from'../browser-extension/school-visible-navigation.js';import{schoolNavigationBatch}from'../browser-extension/school-navigation-batch.mjs';
+import{schoolVisibleNavigation}from'../test/fixtures/legacy-school-extension/school-visible-navigation.js';import{schoolNavigationBatch}from'../test/fixtures/legacy-school-extension/school-navigation-batch.mjs';
 const entry={schoolId:'900101',title:'Embedded Engineering Internship',company:'Example Research Agency',term:'2027 - Summer',candidateCount:1};
 function fixture({duplicate=false,href='#',auth=false}={}){
  let clicks=0;const e=(value,tagName='TD')=>({value,tagName,children:[],classList:[],id:'',getClientRects:()=>[{}],closest:()=>null,getAttribute:()=>null,querySelectorAll:()=>[]});
