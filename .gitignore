@@ -15,3 +15,12 @@ __pycache__/
 /AGENTS.md
 # Deferred integration draft, not installed or validated in v1.0.
 /openclaw/
+
+# Local database sidecars and school exports must not enter public commits.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+/career-queue-school-*.json
