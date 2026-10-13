@@ -24,7 +24,7 @@ test('logout discards all stored positions and old-account history cannot render
 test('deadline summary keeps employer and each school deadline separate without inventing dates',()=>{
  const old=globalThis.document;globalThis.document={createElement:()=>({})};try{
  assert.equal(deadlineSummary({}).textContent,'截止日期未提供');
- const card=deadlineSummary({hasPublic:true,deadline:'2027-01-01',schoolSources:[{schoolId:'900001',row:{deadlineText:'Oct 20, 2026'}},{schoolId:'900002',row:{deadline:'2026-10-21'}}]});
+ const card=deadlineSummary({hasPublic:true,deadline:'2027-01-01',schoolSources:[{schoolId:'900001',row:{deadlineText:'Oct 20, 2026'}},{schoolId:'900002',row:{deadline:'2026-10-21'}}]},new Date('2026-10-13T12:00:00Z'));
  assert.equal(card.textContent,'官网截止：2027-01-01 · 学校截止（900001）：Oct 20, 2026 · 学校截止（900002）：2026-10-21');
  }finally{globalThis.document=old;}
 });

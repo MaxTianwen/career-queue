@@ -66,7 +66,7 @@ export async function fetchCatalogue({ readBoard = readEmployerBoard, readDetail
             let job = catalogueJob(raw, source);
             if (job && (!job.jd || raw.fullJd === false)) {
               const previous=cached.get(job.url),age=now-Date.parse(previous?.sourceEvidence?.retrievedAt || previous?.sourceUpdatedAt || '');
-              if(previous?.jd && age>=0 && age<24*60*60*1000)job={...job,...Object.fromEntries(['title','location','workMode','jd','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource','durationEvidence'].filter(k=>previous[k]).map(k=>[k,previous[k]]))};
+              if(previous?.jd && age>=0 && age<24*60*60*1000)job={...job,...Object.fromEntries(['title','location','workMode','deadline','deadlineEvidence','jd','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource','durationEvidence'].filter(k=>previous[k] && (!['deadline','deadlineEvidence'].includes(k) || !job.deadline)).map(k=>[k,previous[k]]))};
               else if(deniedHosts.has(accessScope({...job,detailFetchUrl:catalogueDetailTarget(job).url})))job={...job,detailFetchUrl:catalogueDetailTarget(job).url,detailAccessDenied:true,detailError:previous?.detailError || '此前访问被拒绝，停止自动重试'};
               else if(previous?.detailRetryAt>now)job={...job,detailError:previous.detailError,detailRetryAt:previous.detailRetryAt};
               else try {const detail=await readDetail(raw);if(detail?.jd)job=catalogueJob({...raw,...detail},source);else job={...job,detailError:'来源暂未支持完整JD',detailRetryAt:now+60*60*1000};}

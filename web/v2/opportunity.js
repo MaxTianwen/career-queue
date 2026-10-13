@@ -1,3 +1,4 @@
+import { deadlineExpired } from '../../src/deadlines.mjs';
 import { jobCategory } from '../../src/job-category.mjs';
 import { jobCountries, remoteFacts, usRemoteEligibility } from '../../src/job-country.mjs';
 import { durationFacts } from '../../src/duration-facts.mjs';
@@ -78,10 +79,11 @@ export function factBadges(job) {
  return box;
 }
 
-export function deadlineSummary(job) {
+export function deadlineSummary(job, now = new Date()) {
  const lines=[];
- if(job.hasPublic && job.deadline)lines.push('官网截止：'+job.deadline);
- const schools=(job.schoolSources||[]).map(source=>({id:source.schoolId,value:source.row?.deadlineText||source.row?.deadline})).filter(source=>source.value);
- for(const source of schools)lines.push('学校截止'+(schools.length>1?'（'+source.id+'）':'')+'：'+source.value);
+ if(job.hasPublic && job.deadline)lines.push('官网截止：'+job.deadline+(deadlineExpired(job.deadline,now)?'（已截止）':''));
+ const schools=(job.schoolSources||[]).map(source=>({id:source.schoolId,value:source.row?.deadlineText||source.row?.deadline,deadline:source.row?.deadline,status:source.row?.sourceStatus})).filter(source=>source.value);
+ for(const source of schools)lines.push('学校截止'+(schools.length>1?'（'+source.id+'）':'')+'：'+source.value+(deadlineExpired(source.deadline,now)?'（已截止）':''));
+ for(const source of job.schoolSources||[])if(/^(?:closed|expired|position closed|job closed)$/i.test(source.row?.sourceStatus?.trim()||''))lines.push('学校状态（'+source.schoolId+'）：已关闭（学校来源）');
  const p=document.createElement('p');p.className='card-deadline';p.textContent=lines.join(' · ')||'截止日期未提供';return p;
 }

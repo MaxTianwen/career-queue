@@ -9,7 +9,9 @@ export function availabilityGate(store, check = checkAvailability) {
   const checks = new Map(), busy = new Set(), ttl = 15 * 60000;
   function inputs(owner, id) {
     const context = store.materialContext(owner, id), school = store.schoolLinks(owner).find(link => link.jobId === id) ?? null;
-    return { context, school, hash: digest(JSON.stringify({ context: context.hash, school })) };
+    const publicJob = context.job.url ? store.catalogue().jobs.find(job => job.url === context.job.url) : null;
+    const deadline = publicJob?.deadline || null;
+    return { context, school, deadline, hash: digest(JSON.stringify({ context: context.hash, school, deadline })) };
   }
   const key = (owner, id, session) => `${owner}:${id}:${session}`;
   return {
@@ -20,9 +22,9 @@ export function availabilityGate(store, check = checkAvailability) {
       if (checks.size >= 500 && !checks.has(k)) fail(429, '核查请求过多，请稍后重试');
       checks.delete(k); busy.add(k);
       try {
-        const job = input.context.job;
+        const job = { ...input.context.job, deadline: input.deadline };
         let result;
-        if (deadlineExpired(extractDeadline(job).deadline, new Date(started))) result = { status: 'closed', evidence: 'JD 中的明确申请截止时间已过' };
+        if (deadlineExpired(extractDeadline(job).deadline, new Date(started))) result = { status: 'closed', evidence: '岗位已记录的明确申请截止时间已过' };
         else if (!job.url && deadlineExpired(input.school?.row.deadline, new Date(started))) result = { status: 'closed', evidence: '学校申请截止时间已过' };
         else if (!job.url) result = { status: 'unknown', evidence: '没有官网链接，请在学校或实际申请入口核实仍接受申请' };
         else {
