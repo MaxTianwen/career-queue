@@ -1,0 +1,9 @@
+{
+  "provenance": "Synthetic school and official records modelling the historical same-company/title exact-requisition matching risk covered by AMD 91320/91367 and school-official-cache regressions. No private portal text or live fetch. IDs and dates below are synthetic.",
+  "school": {"id":"990001","company":"Synthetic Employer","title":"Software Intern","location":"Markham, Ontario, Canada","term":"Summer 2027","requisitionId":"990101","jd":""},
+  "official": {"company":"Synthetic Employer","title":"Software Intern","location":"Markham, Ontario, Canada","term":"Summer 2027","requisitionId":"990101","url":"https://careers.amd.com/careers-home/jobs/990101","jd":"Summer 2027 internship. Duration: 8 months. Work in Markham, Ontario, Canada.","postedAt":"2026-10-01","postedAtKind":"official","sourceEvidence":{"url":"https://careers.amd.com/careers-home/jobs/990101","field":"JobPosting","retrievedAt":"2026-10-16T00:00:00Z"}},
+  "conflicts": [
+    {"name":"different explicit requisition despite identical title/city/cohort","requisitionId":"990102","url":"https://careers.amd.com/careers-home/jobs/990102"},
+    {"name":"matching payload ID with conflicting exact job URL","requisitionId":"990101","url":"https://careers.amd.com/careers-home/jobs/990102"}
+  ]
+}

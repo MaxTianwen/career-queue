@@ -406,6 +406,8 @@ export class WorkspaceStore {
     const row=item.row,norm=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]/g,'');
     const url=new URL(detail.url);
     if(url.protocol!=='https:' || url.username || url.password || !detail.sourceEvidence?.url || !detail.jd || detail.jd.length>60000) fail(400,'Verified official detail required');
+    const officialPathId=url.hostname==='careers.amd.com'?url.pathname.match(/\/jobs\/(\d+)/)?.[1]:null;
+    if(row.requisitionId && ((detail.requisitionId && String(row.requisitionId)!==String(detail.requisitionId)) || (officialPathId && String(row.requisitionId)!==officialPathId))) fail(409,'Official identity mismatch');
     const exactReq=row.requisitionId && String(row.requisitionId)===String(detail.requisitionId) && url.pathname.match(/\/jobs\/(\d+)/)?.[1]===String(row.requisitionId);
     if((norm(row.title)!==norm(detail.title) && !exactReq) || norm(row.company)!==norm(detail.company)) fail(409,'Official identity mismatch');
     const city=norm(row.location.split(',')[0]);
