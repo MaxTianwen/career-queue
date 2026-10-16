@@ -8,7 +8,7 @@ import { recoverAccount } from '../src/v2/account-recovery.mjs';
 const password='Synthetic original password!', next='Synthetic changed password!';
 async function fixture(t) {
   const directory=resolve('output/test-runs',`v2-account-${randomUUID()}`), database=resolve(directory,'workspace.sqlite');
-  const store=new WorkspaceStore(database); t.after(()=>store.close());
+  const store=new WorkspaceStore(database);store.db.prepare("UPDATE settings SET value=1 WHERE name='registration_open'").run(); t.after(()=>store.close());
   const a=await store.authenticate({username:'alice',password},true), b=await store.authenticate({username:'bob',password},true);
   return {store,a,b,directory,database};
 }

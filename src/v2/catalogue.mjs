@@ -1,3 +1,5 @@
+import { accessDenied, rateState, nextRateLimit } from '../detail-retry.mjs';
+import { explicitJobRequirements } from '../job-requirements.mjs';
 import {jobCategory} from '../job-category.mjs';
 import { usRemoteEligibility } from '../job-country.mjs';
 import { durationFacts } from '../duration-facts.mjs';
@@ -6,7 +8,7 @@ import { EMPLOYER_SOURCES, readEmployerBoard, readPublicJson } from '../discover
 import { classifyResume } from '../resume-track.mjs';
 import { extractDeadline, deadlineExpired } from '../deadlines.mjs';
 import { postingUrl } from '../discovery-records.mjs';
-import { digest, scoreFor } from './resume.mjs';
+import { digest, scoreFor, resumeProfile } from './resume.mjs';
 import { officialJob, SOURCE } from '../discovery.mjs';
 
 // Public index and employer boards; no personal v1 cache or Notion data.
@@ -24,6 +26,7 @@ export async function readInternshipIndex(fetchImpl = fetch) {
 }
 const canada = /\b(?:canada|canadian|toronto|markham|vaughan|waterloo|ottawa|montreal|montréal|quebec|québec|vancouver|burnaby|richmond hill|scarborough|north york|newmarket|calgary|edmonton|halifax|winnipeg|saskatoon|mississauga|ontario|british columbia|alberta)\b/i;
 export function catalogueJob(raw, source) {
+  raw = explicitJobRequirements(raw);
   if ((!raw.indexInternship && !/\b(?:intern(?:ship)?|co[ -]?op)\b/i.test(raw.title || '')) || !(canada.test(raw.location || '') || /\bremote\b/i.test(raw.location || '') || usRemoteEligibility(raw).eligible)) return null;
   const classification = classifyResume(raw);
   if (classification.track === 'unknown' && jobCategory(raw).primary!=='embedded') return null;
@@ -34,7 +37,7 @@ export function catalogueJob(raw, source) {
     durationText:String(raw.durationText || '').slice(0,2000),durationMonths:raw.durationMonths ?? null,durationRange:raw.durationRange || null,fullJd:raw.fullJd === true ? true : raw.fullJd === false ? false : null,jdCompleteness:raw.jdCompleteness || null,officialTitle:String(raw.officialTitle || '').slice(0,200),
     durationSource:raw.durationSource || null,fieldEvidence:raw.fieldEvidence || null,durationEvidence:raw.durationEvidence || null,duration:String(raw.duration || '').slice(0,2000),sourceEvidence:raw.sourceEvidence || null,durationInfo:durationFacts(raw),
     salary: String(raw.salary || '未披露').slice(0, 500), workMode: raw.workMode || 'unknown',
-    detailAccessDenied:raw.detailAccessDenied || false,detailFetchUrl:raw.detailFetchUrl || null,postedAt: raw.postedAt || null, detailError: raw.detailError || null, requisitionId: String(raw.requisitionId || (new URL(url).hostname==='careers.amd.com'?publicJobIdentity(url):'')).slice(0, 100), term: String(raw.term || '').slice(0, 100),
+    detailRateLimit:raw.detailRateLimit || null,detailRetryAt:raw.detailRetryAt || null,detailAccessDenied:raw.detailAccessDenied || false,detailFetchUrl:raw.detailFetchUrl || null,postedAt: raw.postedAt || null, postedAtKind: raw.postedAtKind || null, detailError: raw.detailError || null, requisitionId: String(raw.requisitionId || (new URL(url).hostname==='careers.amd.com'?publicJobIdentity(url):'')).slice(0, 100), term: String(raw.term || '').slice(0, 100),
     ...extractDeadline(raw), classification, jobCategory:jobCategory(raw), source: { id: source.id, name: source.name, url: source.url } };
 }
 export function catalogueDetailTarget(raw){
@@ -49,11 +52,25 @@ export async function readCatalogueDetail(raw,fetchImpl=fetch){
  const u=new URL(raw.url);let adapted=catalogueDetailTarget(raw);
  if(u.hostname==='jobs.ashbyhq.com'&&u.protocol==='http:'&&!u.port&&!u.username&&!u.password)adapted={...raw,url:raw.url.replace(/^http:/,'https:')};
  if(u.hostname==='app.careerpuck.com'&&u.protocol==='https:'&&!u.port&&!u.username&&!u.password){const m=u.pathname.match(/^\/job-board\/lyft\/job\/(\d+)$/);if(m&&u.searchParams.get('gh_jid')===m[1])adapted={...raw,url:'https://job-boards.greenhouse.io/lyft/jobs/'+m[1]};}
- const detail=await officialJob(adapted,fetchImpl) || await publicStructuredJob(adapted,fetchImpl);return detail?{...detail,url:raw.url,detailFetchUrl:adapted.url,detailAccessDenied:false,detailError:null,jdCompleteness:detail.fullJd===true?'full':/JobPosting/i.test(detail.sourceEvidence?.field || '')?'official-description':'official-detail'}:null;
+ const guardedFetch=async(...args)=>{const response=await fetchImpl(...args);if(response.status===429){const error=new Error('来源返回 HTTP 429');error.status=429;error.receivedAt=Date.now();error.retryAfter=response.headers?.get?.('retry-after')||null;throw error;}return response;};
+ const detail=await officialJob(adapted,guardedFetch) || await publicStructuredJob(adapted,guardedFetch);return detail?{...detail,url:raw.url,detailFetchUrl:adapted.url,detailAccessDenied:false,detailRateLimit:null,detailRetryAt:null,detailError:null,jdCompleteness:detail.fullJd===true?'full':/JobPosting/i.test(detail.sourceEvidence?.field || '')?'official-description':'official-detail'}:null;
 }
 export async function fetchCatalogue({ readBoard = readEmployerBoard, readDetail = readCatalogueDetail, readIndex = readInternshipIndex, sources = [INDEX_SOURCE, ...EMPLOYER_SOURCES], cachedJobs = [], now = Date.now() } = {}) {
   const jobs = new Map(), statuses = [], cached=new Map(cachedJobs.map(j=>[postingUrl(j.url),j])); let cursor = 0;
-  const deniedHosts=new Set(cachedJobs.filter(j=>j.detailAccessDenied||/HTTP (?:401|403|429)\b/.test(j.detailError||'')).map(accessScope));
+  const deniedHosts=new Set(cachedJobs.filter(accessDenied).map(accessScope));
+  const rates=new Map(),queues=new Map();
+  for(const job of cachedJobs){const state=rateState(job),scope=accessScope(job);if(state&&(!rates.has(scope)||state.nextRetryAt>rates.get(scope).nextRetryAt))rates.set(scope,state);}
+  // Serialize detail reads per host so a 429 stops queued reads immediately; no timers or automatic retries.
+  async function scopedDetail(raw){
+   const scope=accessScope({...raw,detailFetchUrl:catalogueDetailTarget(raw).url}),prior=queues.get(scope)||Promise.resolve();
+   const work=prior.catch(()=>{}).then(async()=>{
+    if(accessDenied(raw)||deniedHosts.has(scope)){deniedHosts.add(scope);const error=new Error('此前访问被拒绝，停止自动重试');error.accessStopped=true;throw error;}
+    const state=rates.get(scope);
+    if(state?.nextRetryAt>now){const error=new Error('来源返回 HTTP 429（冷却中，沿用已有正文）');error.detailRateLimit=state;throw error;}
+    try{const detail=await readDetail(raw);rates.delete(scope);return detail;}
+    catch(error){if(error.status===429||/HTTP 429\b/.test(error.message)){error.detailRateLimit=nextRateLimit(error,state,now);rates.set(scope,error.detailRateLimit);}else if(/HTTP (?:401|403)\b/.test(error.message))deniedHosts.add(scope);throw error;}
+   });queues.set(scope,work);try{return await work;}finally{if(queues.get(scope)===work)queues.delete(scope);}
+  }
   async function worker() {
     while (cursor < sources.length) {
       const source = sources[cursor++];
@@ -66,14 +83,15 @@ export async function fetchCatalogue({ readBoard = readEmployerBoard, readDetail
             let job = catalogueJob(raw, source);
             if (job && (!job.jd || raw.fullJd === false)) {
               const previous=cached.get(job.url),age=now-Date.parse(previous?.sourceEvidence?.retrievedAt || previous?.sourceUpdatedAt || '');
-              if(previous?.jd && age>=0 && age<24*60*60*1000)job={...job,...Object.fromEntries(['title','location','workMode','deadline','deadlineEvidence','jd','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource','durationEvidence'].filter(k=>previous[k] && (!['deadline','deadlineEvidence'].includes(k) || !job.deadline)).map(k=>[k,previous[k]]))};
+              if(previous?.jd && !previous.detailError && !rateState(previous) && age>=0 && age<24*60*60*1000)job={...job,...Object.fromEntries(['title','location','workMode','deadline','deadlineEvidence','jd','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource','durationEvidence'].filter(k=>previous[k] && (!['deadline','deadlineEvidence'].includes(k) || !job.deadline)).map(k=>[k,previous[k]]))};
               else if(deniedHosts.has(accessScope({...job,detailFetchUrl:catalogueDetailTarget(job).url})))job={...job,detailFetchUrl:catalogueDetailTarget(job).url,detailAccessDenied:true,detailError:previous?.detailError || '此前访问被拒绝，停止自动重试'};
-              else if(previous?.detailRetryAt>now)job={...job,detailError:previous.detailError,detailRetryAt:previous.detailRetryAt};
-              else try {const detail=await readDetail(raw);if(detail?.jd)job=catalogueJob({...raw,...detail},source);else job={...job,detailError:'来源暂未支持完整JD',detailRetryAt:now+60*60*1000};}
-              catch(error) {const detailFetchUrl=catalogueDetailTarget(job).url;if(/HTTP (?:401|403|429)\b/.test(error.message))deniedHosts.add(accessScope({url:detailFetchUrl}));job={...job,detailFetchUrl,detailAccessDenied:/HTTP (?:401|403|429)\b/.test(error.message),detailError:'正文读取失败：'+error.message,detailRetryAt:now+60*60*1000};}
+              else if(previous?.detailRetryAt>now)job={...job,detailError:previous.detailError,detailRetryAt:previous.detailRetryAt,detailRateLimit:rateState(previous)};
+              else try {const detail=await scopedDetail(raw);if(detail?.jd)job=catalogueJob({...raw,...detail},source);else job={...job,detailError:'来源暂未支持完整JD',detailRetryAt:now+60*60*1000};}
+              catch(error) {const detailFetchUrl=catalogueDetailTarget(job).url;job={...job,detailFetchUrl,detailAccessDenied:Boolean(error.accessStopped)||/HTTP (?:401|403)\b/.test(error.message),detailRateLimit:error.detailRateLimit||null,detailError:'正文读取失败：'+error.message,detailRetryAt:error.detailRateLimit?.nextRetryAt||now+60*60*1000};}
             }
             if (job) {
-              job.durationEvidence=cached.get(job.url)?.durationEvidence || job.durationEvidence;job.durationInfo=durationFacts(job);job.jobCategory=jobCategory(job);
+              job = explicitJobRequirements(job);
+              job.durationEvidence=job.durationEvidence || cached.get(job.url)?.durationEvidence;job.durationInfo=durationFacts(job);job.jobCategory=jobCategory(job);
               selected++; if(job.jd) detailed++;
               const old=jobs.get(job.id);
               const lineage=[...new Map([...(old?.sources || []),job.source].map(s=>[s.id,s])).values()];
@@ -93,10 +111,11 @@ export async function fetchCatalogue({ readBoard = readEmployerBoard, readDetail
 export function recommend(jobs, preferences, resume, now = new Date()) {
   if (preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) return [];
   const keywords = String(preferences.locations || '').split(/[,，;；/\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  const profile=resumeProfile(resume);
   return jobs.filter(job => job.hasSchool || !deadlineExpired(job.deadline, now))
     .filter(job => !preferences.jobTypes || preferences.jobTypes === 'intern,co-op' || (preferences.jobTypes === 'intern' ? /\bintern(?:ship)?\b/i : /\bco[ -]?op\b/i).test(job.title))
     .filter(job => !preferences.direction || job.classification.track === preferences.direction || (preferences.direction==='cs'&&jobCategory(job).primary==='embedded') || (preferences.direction !== 'mixed' && job.classification.track === 'mixed'))
     .filter(job => !keywords.length || keywords.some(word => `${job.location} ${job.workMode}`.toLowerCase().includes(word)))
-    .map(job => ({ ...job, match: scoreFor(job, resume) }))
+    .map(job => ({ ...job, match: scoreFor(job, resume, profile) }))
     .sort((a, b) => (b.match.score ?? -1) - (a.match.score ?? -1) || a.company.localeCompare(b.company));
 }

@@ -1,3 +1,4 @@
+import {displayDocument} from './helpers/display-dom.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -23,7 +24,7 @@ test('detail failure retains deadline and JD; a new complete description can rem
  save([catalogueJob({...raw,jd:'A complete new software internship description with no explicit closing date.',deadline:null},source)]);assert.equal(s.catalogue().jobs[0].deadline,null);
 });
 test('deadline and school closure labels distinguish exact Toronto boundary, unknown status and independent channels',()=>{
- const previous=globalThis.document;globalThis.document={createElement:()=>({})};try{
+ const previous=globalThis.document;globalThis.document=displayDocument();try{
  const job={hasPublic:true,deadline:'2026-10-12',schoolSources:[{schoolId:'900001',row:{deadline:'2026-10-20',sourceStatus:'Closed'}}]};
  assert.doesNotMatch(deadlineSummary(job,new Date('2026-10-13T03:59:59Z')).textContent,/已截止/);
  const text=deadlineSummary(job,new Date('2026-10-13T04:00:00Z')).textContent;assert.match(text,/官网截止：2026-10-12（已截止）/);assert.match(text,/学校状态（900001）：已关闭（学校来源）/);assert.doesNotMatch(text,/学校截止：2026-10-20（已截止）/);

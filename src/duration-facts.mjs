@@ -12,7 +12,7 @@ export function verifiedSchoolDisplay(job={}) {
 export function durationFacts(job={}) {
  const school=verifiedSchoolDisplay(job);
  if(school)return durationFacts({...school,sourceEvidence:job.sourceEvidence});
- const options=new Set(),ranges=[],other=[],evidence=[],review=[],intervals=[];
+ const options=new Set(),ranges=[],other=[],evidence=[],review=[],intervals=[],windows=[];
  const add=(field,quote,value)=>{evidence.push({field,quote:quote.trim(),sourceUrl:(field==='durationEvidence'?job.durationEvidence?.url:null) || job.durationSource?.url || job.sourceEvidence?.url || job.externalUrl || job.url || '',retrievedAt:(field==='durationEvidence'?job.durationEvidence?.capturedAt:null) || job.durationSource?.retrievedAt || job.sourceEvidence?.retrievedAt || job.sourceUpdatedAt || null,...value});};
  const fields=['duration','durationText','term','title','officialTitle','jd','durationEvidence'];
  for(const field of fields){let text=clean(field==='durationEvidence'?job.durationEvidence?.text:job[field]);if(!text)continue;
@@ -75,7 +75,14 @@ export function durationFacts(job={}) {
  for(const m of jd.matchAll(new RegExp(`\\bCo-op Duration\\s+This opportunity runs from\\s+(${names})\\s+(20\\d{2})\\s+through\\s+(${names})\\s+(20\\d{2})(?:, with some flexibility on start and end to accommodate academic schedules\\.)?`,'gi')))calendar(m,iso(m[2],m[1],1).slice(0,7),iso(m[4],m[3],1).slice(0,7),'month');
  for(const m of jd.matchAll(new RegExp(`\\b(?:Winter|Summer|Fall)\\s+(20\\d{2})\\s+Term\\s*\\((${names})\\s+(?:to|through)\\s+(${names})\\)`,'gi')))calendar(m,iso(m[1],m[2],1).slice(0,7),iso(m[1],m[3],1).slice(0,7),'month');
  for(const m of jd.matchAll(new RegExp(`\\b(?:Anticipated )?duration (?:will be )?from\\s+(${names})\\s+(?:through|to)\\s+(${names})\\s+(20\\d{2})(?:\\s*\\(flexible\\))?`,'gi')))calendar(m,iso(m[3],m[1],1).slice(0,7),iso(m[3],m[2],1).slice(0,7),'month');
+ // Explicit month alternatives are availability windows, never an inferred school term.
+ const windowPattern=new RegExp(`\\bFor (\\d{1,2})[- ]month internships?\\s*:\\s*must be available (${names})/(${names}) (20\\d{2})\\s*[-–]\\s*(${names})/(${names}) (20\\d{2})`,'gi');
+ for(const m of jd.matchAll(windowPattern)){
+  const startOptions=[iso(m[4],m[2],1).slice(0,7),iso(m[4],m[3],1).slice(0,7)],endOptions=[iso(m[7],m[5],1).slice(0,7),iso(m[7],m[6],1).slice(0,7)];
+  if(+m[1]<1||+m[1]>52||startOptions.some(start=>endOptions.some(end=>start>=end)))continue;
+  const value={months:+m[1],startOptions,endOptions,precision:'month-options',raw:m[0]};windows.push(value);add('jd',m[0],{kind:'availability-window',...value});
+ }
  const values=[...options].sort((a,b)=>a-b);
  const status=values.length?'known':ranges.length?'range':other.length?'nonstandard':intervals.length?'dates':review.length?'needs_review':job.jd?'not_stated':'missing_jd';
- return {version:3,placements:internshipOptions(job),options:values,ranges,other,intervals,evidence,review,status,reason:({known:'明确月数',dates:'原文起止区间，未换算为月数档位',range:'原文为区间，非可选档位',nonstandard:'原文为非标准月数或周数',needs_review:'时长原文需核对',not_stated:'已获取JD，未识别明确时长',missing_jd:job.detailError?'JD获取失败':'JD尚未获取'})[status]};
+ return {version:3,placements:internshipOptions(job),options:values,ranges,other,intervals,windows,evidence,review,status,reason:({known:'明确月数',dates:'原文起止区间，未换算为月数档位',range:'原文为区间，非可选档位',nonstandard:'原文为非标准月数或周数',needs_review:'时长原文需核对',not_stated:'已获取JD，未识别明确时长',missing_jd:job.detailError?'JD获取失败':'JD尚未获取'})[status]};
 }

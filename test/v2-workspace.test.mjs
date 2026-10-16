@@ -121,7 +121,7 @@ test('v2 password changes require own credentials and CSRF, revoke old sessions 
 test('v2 password guessing shares the persisted authentication attempt limit', async t => {
   const f = await fixture(t), a = await f.account('alice');
   const db = new DatabaseSync(f.database);
-  for (let i=0;i<20;i++) db.prepare('INSERT INTO auth_attempts VALUES (?)').run(Date.now());
+  for (let i=0;i<20;i++) db.prepare('INSERT INTO security_limits VALUES (?,?)').run(createHash('sha256').update('auth-account:alice').digest('hex'),Date.now());
   db.close();
   const result = await f.call('/api/account/password', { method: 'POST', auth: a, value: { currentPassword: password, newPassword: changedPassword, confirmPassword: changedPassword } });
   assert.equal(result.status, 429); assert.equal((await f.call('/api/session', { auth: a })).status, 200);
@@ -260,8 +260,9 @@ test('v2 generated PDF provenance blocks stale or other-job review while preserv
 async function upload(f, auth, name = 'resume.pdf') { return (await f.call('/api/files', { method: 'POST', auth, bytes: Buffer.from('%PDF-1.7 synthetic file'), headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': name } })).data; }
 async function fixture(t, options = {}) {
   const database = resolve('output/test-runs', `v2-${randomUUID()}`, 'workspace.sqlite');
+  const setup=new WorkspaceStore(database);setup.db.prepare("UPDATE settings SET value=1 WHERE name='registration_open'").run();setup.close();
   let server;
-  async function start() { server = workspaceServer({ database, ...options }); server.listen(0, '127.0.0.1'); await once(server, 'listening'); }
+  async function start() { server = workspaceServer({legacyRegistration:true, /* Existing pre-email HTTP contract fixture. */ database, ...options }); server.listen(0, '127.0.0.1'); await once(server, 'listening'); }
   async function stop() { await new Promise((done, reject) => server.close(error => error ? reject(error) : done())); }
   await start(); t.after(stop);
   function call(path, { method = 'GET', auth, value, bytes, headers = {} } = {}) {
@@ -452,7 +453,7 @@ test('v2 auth rate limit persists across restart and clears after the time windo
   let clock = Date.now(); const f = await fixture(t, { now: () => clock });
   for (let i = 0; i < 20; i++) assert.equal((await f.call('/api/login', { method: 'POST', value: { username: 'no', password: '' } })).status, 400);
   await f.restart();
-  assert.equal((await f.call('/api/login', { method: 'POST', value: { username: 'alice', password } })).status, 429);
+  assert.equal((await f.call('/api/login', { method: 'POST', value: { username: 'no', password: '' } })).status, 429);
   clock += 15 * 60 * 1000 + 1;
   assert.equal((await f.call('/api/login', { method: 'POST', value: { username: 'alice', password } })).status, 401);
 });
@@ -460,6 +461,7 @@ test('v2 auth rate limit persists across restart and clears after the time windo
 test('v2 file quota and immutable versions are enforced per owner', async t => {
   const database = resolve('output/test-runs', `v2-quota-${randomUUID()}`, 'workspace.sqlite');
   const store = new WorkspaceStore(database); t.after(() => store.close());
+  store.db.prepare("UPDATE settings SET value=1 WHERE name='registration_open'").run();
   const a = await store.authenticate({ username: 'alice', password }, true), b = await store.authenticate({ username: 'bob', password }, true);
   const bytes = Buffer.alloc(FILE_BYTES); bytes.write('%PDF-1.7');
   const files = Array.from({ length: 4 }, () => store.saveFile(a.user.id, 'resume.pdf', bytes));

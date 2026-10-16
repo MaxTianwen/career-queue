@@ -1,0 +1,2 @@
+import {allowedSchoolUrl} from './school-selected-client.mjs';
+document.getElementById('selected-open').onclick=async()=>{try{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});if(!allowedSchoolUrl(tab?.url,{list:true}))throw Error('请先打开学校原列表。');await chrome.tabs.create({url:chrome.runtime.getURL('school-selected.html')+'?tab='+tab.id});}catch(error){document.getElementById('school-status').textContent=error.message;}};

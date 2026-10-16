@@ -1,0 +1,16 @@
+[
+  {
+    "id": "91320",
+    "sourceUrl": "https://careers.amd.com/careers-home/jobs/91320?icims=1",
+    "originalResponse": "private/live-official-audit-20261014/0-response-1.txt",
+    "sha256": "eaab75daac112ca51e85c7396612a2c0ac0625c9592fffb5bfae5f41d80cce37",
+    "fixture": "Exact canonical link and JobPosting script extracted from saved official HTML; other page markup omitted."
+  },
+  {
+    "id": "91367",
+    "sourceUrl": "https://careers.amd.com/careers-home/jobs/91367?icims=1",
+    "originalResponse": "private/live-official-audit-20261014/1-response-1.txt",
+    "sha256": "3aab2f36171623b606b457078bdfcc7304a745d9d787dc1f6c7ec8442e59e316",
+    "fixture": "Exact canonical link and JobPosting script extracted from saved official HTML; other page markup omitted."
+  }
+]

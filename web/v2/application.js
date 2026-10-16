@@ -1,13 +1,28 @@
+import {applicationCells,renderApplicationTable} from './application-table.js';
+import {readView as readDisplay,saveView} from './opportunity-view.js';
 import { questionDiff } from './question-diff.js';
 const $ = selector => document.querySelector(selector);
 const el = (tag, text) => { const node = document.createElement(tag); node.textContent = text; return node; };
 const channels = { unknown: '待确认', employer: '官网', school: '学校', both: '官网 + 学校', 'school-only': '仅学校' };
+
+export function submissionSummary(records = []) {
+  if (!records.length) return '尚未记录实际提交';
+  return records.map(row => {
+    const source = row.source === 'school-portal' ? '学校 Portal 状态' : row.source === 'manual-confirmation' ? '本人确认已提交' : '已记录提交（来源待核实）';
+    return `${channels[row.channel] || '渠道待确认'}：${row.date || '提交日期未知'}，${source}`;
+  }).join('；');
+}
 
 export function localDate(date=new Date()) {
   return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
 }
 export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloadFile, filesChanged, readView=(_key,load)=>load(()=>true) }) {
   let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
+  let displayStorage;try{displayStorage=globalThis.localStorage;}catch{}let displayMode=readDisplay(displayStorage,'applications');
+  const displayControls=el('div','');displayControls.className='view-switch';displayControls.setAttribute('role','group');displayControls.setAttribute('aria-label','申请记录显示方式');
+  const tableHost=el('div',''),historyHost=el('div','');tableHost.id='applications-table';historyHost.id='applications-history';$('#applications-tab').append(tableHost,historyHost);
+  const displayButtons=[];const display=()=>{$('#applications-list').hidden=displayMode==='table';tableHost.hidden=displayMode!=='table';for(const [b,value] of displayButtons)b.setAttribute('aria-pressed',String(displayMode===value));};
+  for(const [value,label] of [['cards','卡片'],['table','列表']]){const b=el('button',label);b.type='button';b.addEventListener('click',()=>{displayMode=value;saveView(displayStorage,'applications',value);display();});displayButtons.push([b,value]);displayControls.append(b);}$('#applications-tab').insertBefore(displayControls,$('#applications-list'));display();
   const dirty = new Set();
   const preparation = $('#preparation-form');
   let preparationState = null, questionState = null, rehearsalDialog = null;
@@ -145,16 +160,16 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       $('#correction-status').textContent = '此记录已有更新；输入已保留，请取消更正，查看最新历史后重新填写。';
     }
     const pdfs = files.filter(file => file.format === 'pdf').map(file => ({ id: file.id, label: `${file.name} · ${file.sha256.slice(0, 8)}` }));
-    options(material.elements.resumeFileId, pdfs, '请选择一页简历 PDF');
-    options(material.elements.coverFileId, pdfs, '不附 Cover Letter');
+    options(material.elements.resumeFileId, pdfs.filter(f=>files.find(x=>x.id===f.id).kind!=='cover'), '请选择一页简历 PDF');
+    options(material.elements.coverFileId, pdfs.filter(f=>files.find(x=>x.id===f.id).kind!=='resume'), '不附 Cover Letter（选填）');
     if (!material.elements.resumeFileId.value && !dirty.has('material-form')) {
-      const latest = generated.find(row => !row.stale);
+      const latest = generated.find(row => !row.stale && files.some(file=>file.id===row.pdfId));
       if (latest) material.elements.resumeFileId.value = latest.pdfId;
     }
     if (!dirty.has('channel-form')) $('#channel-form').elements.channel.value = state.channel;
     options(submission.elements.materialId, state.versions.map((version, index) => ({ id: version.id, label: `版本 ${state.versions.length - index} · ${version.snapshot.resume.name}${version.stale ? ' · 依据已变化' : ''}` })), '请选择实际使用的版本');
     $('#material-context').textContent = state.context.ready ? `对应已保存的岗位与简历：${state.context.resume.name} · ${state.context.hash.slice(0, 8)}` : '先保存完整 JD，并在“我的文件”核对启用简历，再保存材料版本。';
-    $('#confirmation-status').textContent=state.submissions.length ? state.submissions.map(row=>`${channels[row.channel]}：${row.date}，本人确认已提交`).join('；') : '尚未记录实际提交';
+    $('#confirmation-status').textContent=submissionSummary(state.submissions);
     $('#application-status').textContent = state.context.ready ? '岗位与简历已就绪，可准备材料。' : '下一步：'+(!state.context.job.jd?'补充职位 JD。':'在“我的文件”启用你的简历。');
     $('#generation-panel').open=Boolean(state.context.ready);
     $('#prepare-baseline').hidden=Boolean(state.context.ready || !state.context.job.jd);
@@ -174,14 +189,16 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       }
       const select = el('button', '选用此 PDF'), view = el('button', '预览生成稿'), download = el('button', '下载 Word');
       select.type = view.type = download.type = 'button';
+      select.dataset.fileArchived=String(!files.some(file=>file.id===row.pdfId));select.disabled=select.dataset.fileArchived==='true';if(select.disabled)section.append(el('p','此生成稿已归档，仅供历史查看；还原后可重新选用。'));
       select.addEventListener('click', () => {
         if (row.stale) { $('#application-status').textContent = '该生成稿依据已变化，请重新生成。'; return; }
+        if(!files.some(file=>file.id===row.pdfId)){$('#application-status').textContent='此文件已归档，请先在回收站还原';return;}
         material.elements.resumeFileId.value = row.pdfId; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
         $('#application-status').textContent = '已选入材料，请预览后确认';
       });
-      view.addEventListener('click', () => action('#application-status', () => preview(row.pdfId)));
+      view.addEventListener('click', () => action('#application-status', () => preview(row.pdfId,!files.some(file=>file.id===row.pdfId))));
       download.addEventListener('click', () => action('#application-status', () => downloadFile({ id: row.docxId, name: 'resume.docx' })));
-      const edit = el('button', '修改文字并另存'); edit.type = 'button';
+      const edit = el('button', '修改文字并另存'); edit.type = 'button';edit.dataset.fileArchived=String(!files.some(file=>file.id===row.docxId));edit.disabled=edit.dataset.fileArchived==='true';
       edit.addEventListener('click', () => action('#application-status', async () => {
         if (row.stale || jobDirty()) throw new Error('请先保存岗位；依据已变化的稿件需要重新生成');
         if (editDraft) throw new Error('请先保存或取消当前文字编辑');
@@ -376,9 +393,9 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     preparationState = next; dirty.delete('preparation-form');
     $('#preparation-status').textContent = next.reviewed ? '准备草稿已保存并核对，尚未投递。' : '准备草稿已保存，待核对。';
   }); });
-  async function preview(fileId) {
+  async function preview(fileId,historical=false) {
     if (!fileId) throw new Error('请先选择 PDF 文件');
-    const result = await api(`/api/files/${fileId}/preview`, { method: 'POST', value: {} });
+    const result = await api(`/api/files/${fileId}/${historical?'history-preview':'preview'}`, { method: 'POST', value: {} });
     $('#pdf-title').textContent = `${result.name} · ${result.pages} 页`;
     $('#pdf-pages').replaceChildren(...result.images.map((image, index) => {
       const figure = document.createElement('figure'), img = document.createElement('img');
@@ -386,7 +403,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       figure.append(img, el('figcaption', `第 ${index + 1} / ${result.pages} 页`)); return figure;
     }));
     previewDialog.showModal(); $('#close-pdf').disabled = false; $('#close-pdf').focus();
-    $('#application-status').textContent = '预览完成；请关闭预览后核对并勾选确认。';
+    $('#application-status').textContent = historical?'历史预览完成；不作为新材料的审阅确认。':'预览完成；请关闭预览后核对并勾选确认。';
   }
   function drawHistory() {
     $('#material-history').replaceChildren();
@@ -398,7 +415,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
       for (const file of [version.snapshot.resume, version.snapshot.cover].filter(Boolean)) {
         const row = document.createElement('div'); row.className = 'actions'; row.append(el('span', `${file.name} · ${file.pages} 页`));
         const view = el('button', '预览'), download = el('button', '下载'); view.type = download.type = 'button';
-        view.addEventListener('click', () => action('#application-status', () => preview(file.id)));
+        view.addEventListener('click', () => action('#application-status', () => preview(file.id,true)));
         download.addEventListener('click', () => action('#application-status', async () => { await downloadFile(file); $('#application-status').textContent = '已交给浏览器下载原件'; }));
         row.append(view, download); section.append(row);
       }
@@ -459,15 +476,17 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   }
   function records(force=true){return readView('applications',readRecords,{force});}
   async function readRecords(current) {
-    const [rows,withdrawn]=await Promise.all([api('/api/applications'),api('/api/withdrawn-applications')]);if(!current())return;$('#applications-list').replaceChildren();
-    for(const [channel,title] of [['school','学校申请'],['employer','外部申请']]) {
-      const group=document.createElement('section');group.append(el('h3',title));
-      const entries=rows.filter(row=>row.submissions.some(record=>record.channel===channel));
+    const [rows,withdrawn]=await Promise.all([api('/api/applications'),api('/api/withdrawn-applications')]);if(!current())return;$('#applications-list').replaceChildren();historyHost.replaceChildren();renderApplicationTable(tableHost,rows,chooseJob);display();
+    for(const channel of ['all']) {
+      const group=document.createElement('section');
+      const entries=rows;group.className='application-group';
       if(!entries.length)group.append(el('p','暂无记录'));
       for(const row of entries){
-        const card=el('article','');card.className='recommendation-card';
-        card.append(el('small',row.company),el('h3',row.title),el('p',channel==='school'?'学校岗位 · 学校申请':'外部申请'));
-        if(channel==='school') {
+        const card=el('article','');card.className='recommendation-card application-record-card';card.dataset.jobId=row.jobId;card.dataset.channel=channel;
+        const data=applicationCells(row),company=el('p',data.company),heading=el('h3',data.title),source=el('span',data.source);company.className='application-card-company';heading.title=data.title;source.className='application-source-badge';source.dataset.source=data.source==='学校'?'school':'external';card.append(company,heading,source);
+        const summary=el('div','');summary.className='application-card-status';for(const value of data.status){const line=el('div',''),badge=el('span',value.slice(0,2)+' · '+value.slice(2)),matched=data.dates.find(d=>d.label===value.slice(0,2)),stamp=el('span',matched?.date||'—');badge.className='application-status-badge';badge.dataset.state=value.endsWith('已提交')?'submitted':'pending';stamp.className=matched?.date&&matched.date!=='—'?'application-date-value':'application-date-unknown';if(stamp.textContent==='—')stamp.setAttribute('aria-label','申请日期未知或尚未提交');line.append(badge,stamp);summary.append(line);}card.append(summary);
+        const recordDetails=document.createElement('details');recordDetails.className='application-record-details';recordDetails.append(el('summary','记录详情与更正'));
+        if(data.source==='学校') {
           const progress=row.channelProgress;const overview=el('div','');overview.className='channel-progress';
           overview.append(el('strong',progress.requirement),el('p',`学校 Portal：${progress.portal} · 官网：${progress.employer}`));
           if(progress.missing.includes('employer'))overview.append(el('p','尚需官网步骤：前往官网完成申请后，单独记录官网提交。'));
@@ -475,14 +494,14 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
           for(const quote of row.requirement.evidence)overview.append(el('p','原文依据：'+quote));
           const label=el('label','核对申请途径'),choice=document.createElement('select');
           for(const [value,text] of [['unknown','待确认'],['both','学校 Portal + 官网'],['school-only','仅学校 Portal']])choice.append(new Option(text,value));choice.value=['both','school-only'].includes(row.channel)?row.channel:'unknown';label.append(choice);overview.append(label);
-          const save=el('button','保存核对结果'),status=el('p','');save.type='button';status.setAttribute('role','status');save.addEventListener('click',()=>action(status,async()=>{await api(`/api/jobs/${row.jobId}/channel`,{method:'PUT',value:{channel:choice.value}});await records();if(jobId===row.jobId)await refresh();}));overview.append(save,status);card.append(overview);
+          const save=el('button','保存核对结果'),status=el('p','');save.type='button';status.setAttribute('role','status');save.addEventListener('click',()=>action(status,async()=>{await api(`/api/jobs/${row.jobId}/channel`,{method:'PUT',value:{channel:choice.value}});await records();if(jobId===row.jobId)await refresh();}));overview.append(save,status);recordDetails.append(overview);
         }
-        for(const record of row.submissions.filter(record=>record.channel===channel)){
-          card.append(el('p',`${record.date || '提交日期未知'}${record.receipt?' · '+record.receipt:''} · ${record.source==='school-portal'?'学校 Portal 状态':'本人确认'}`));
-          for(const evidence of record.portalEvidence || [])card.append(el('p',`学校 ID ${evidence.schoolId} · 首次观察 ${new Date(evidence.firstObserved).toLocaleString()}（非提交日期）`));
-          confirmationControls(card,row.jobId,record,row.schoolContext);
+        for(const record of row.submissions){
+          recordDetails.append(el('p',`${record.date || '提交日期未知'}${record.receipt?' · '+record.receipt:''} · ${record.source==='school-portal'?'学校 Portal 状态':'本人确认'}`));
+          for(const evidence of record.portalEvidence || [])recordDetails.append(el('p',`学校 ID ${evidence.schoolId} · 首次观察 ${new Date(evidence.firstObserved).toLocaleString()}（非提交日期）`));
+          confirmationControls(recordDetails,row.jobId,record,row.schoolContext);
         }
-        const button=el('button','查看材料与记录');button.addEventListener('click',()=>chooseJob(row.jobId));card.append(button);group.append(card);
+        const button=el('button','详情');button.type='button';button.className='application-detail-button';button.setAttribute('aria-label','查看 '+data.company+' · '+data.title+' 的申请详情');button.addEventListener('click',()=>chooseJob(row.jobId));card.append(recordDetails,button);group.append(card);
       }
       $('#applications-list').append(group);
     }
@@ -490,7 +509,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     if(withdrawn.length){
       const history=document.createElement('details');history.append(el('summary','已撤回历史（不计为已申请）'));
       for(const row of withdrawn)for(const record of row.withdrawn){const card=el('article','');card.className='recommendation-card';card.append(el('h3',row.company+' · '+row.title),el('p',`${channels[record.channel]} · 原记录日期 ${record.date || '提交日期未知'} · 已撤回`));confirmationControls(card,row.jobId,record,row.schoolContext);history.append(card);}
-      $('#applications-list').append(history);
+      historyHost.append(history);
     }
   }
   async function afterSave(message) {
@@ -543,9 +562,9 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   $('#material-upload').addEventListener('submit', event => { event.preventDefault(); action('#application-status', async () => {
     const file = event.target.elements.file.files[0];
     if (!file || !file.name.toLowerCase().endsWith('.pdf') || file.size > 5 * 1024 * 1024) throw new Error('请选择不超过 5MB 的 PDF');
-    const saved = await api('/api/files', { method: 'POST', file }); event.target.reset(); dirty.delete('material-upload');
+    const kind=event.target.elements.kind.value;const saved = await api('/api/files', { method: 'POST', file,kind }); event.target.reset(); dirty.delete('material-upload');
     await afterSave('PDF 原件已保存');
-    material.elements.resumeFileId.value = saved.id; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
+    material.elements[kind==='cover'?'coverFileId':'resumeFileId'].value = saved.id; material.elements.confirmed.checked = false; dirty.add('material-form'); $('#review-materials').open=true;
     try { await filesChanged(); } catch { $('#application-status').textContent = 'PDF 已保存；我的文件列表暂未刷新，可重新登录查看'; }
   }); });
   $('#preview-resume').addEventListener('click', () => action('#application-status', () => preview(material.elements.resumeFileId.value)));
@@ -591,5 +610,5 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     }).then(() => { if (savedId) focusCorrection(savedId); });
   });
   return { reset, refresh, records, clearPreview, dirty: () => dirty.size > 0,
-    clear: () => { reset(null); $('#applications-status').textContent=''; $('#applications-list').replaceChildren(); } };
+    clear: () => { reset(null); $('#applications-status').textContent=''; $('#applications-list').replaceChildren();tableHost.replaceChildren();historyHost.replaceChildren(); } };
 }

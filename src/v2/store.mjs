@@ -1,3 +1,6 @@
+import { WorkspaceSecurity } from './workspace-security.mjs';
+import { readAliases, projectAliases } from './opportunity-aliases.mjs';
+import { mergePublication } from '../publication-facts.mjs';
 import { opportunityScope } from '../opportunity-scope.mjs';
 import { durationFacts } from '../duration-facts.mjs';
 import { citizenshipFacts } from '../citizenship.mjs';
@@ -13,7 +16,7 @@ import { unifiedOpportunities, identityUrl } from './unified-opportunities.mjs';
 
 const derive = promisify(scrypt);
 const hash = value => createHash('sha256').update(value).digest('hex');
-const key = (password, salt) => derive(password, salt, 64, { N: 65536, r: 8, p: 2, maxmem: 96 * 1024 * 1024 });
+export const key = (password, salt) => derive(password, salt, 64, { N: 65536, r: 8, p: 2, maxmem: 96 * 1024 * 1024 });
 export const SESSION_MS = 8 * 60 * 60 * 1000;
 export const FILE_BYTES = 5 * 1024 * 1024;
 export function fail(status, message) { throw Object.assign(new Error(message), { status }); }
@@ -23,7 +26,7 @@ export function textField(value, max, required = false) {
   if (required && !result) fail(400, '请填写必填内容');
   return result;
 }
-function credentials(input) {
+export function credentials(input) {
   const username = textField(input.username, 40, true).toLowerCase();
   if (!/^[a-z0-9][a-z0-9_.-]{2,39}$/.test(username)) fail(400, '账号需为 3–40 位英文、数字、点、横线或下划线');
   if (typeof input.password !== 'string' || input.password.length < 12 || input.password.length > 128) fail(400, '密码需为 12–128 个字符');
@@ -62,6 +65,8 @@ export class WorkspaceStore {
     this.now = now;
     this.authBusy = 0;
     if (readOnly) return;
+    this.db.exec("CREATE TABLE IF NOT EXISTS file_kinds(file_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('resume','cover')))");
+    this.db.exec('CREATE TABLE IF NOT EXISTS file_trash(file_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, deleted_at INTEGER NOT NULL)');
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, salt TEXT NOT NULL,
@@ -81,7 +86,8 @@ export class WorkspaceStore {
       this.db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('member','admin'))");
     }
     this.db.exec(`CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
-      INSERT OR IGNORE INTO settings VALUES ('registration_open', 1);`);
+      INSERT OR IGNORE INTO settings VALUES ('registration_open', 0);`);
+    this.security = new WorkspaceSecurity(this);
     if (!this.db.prepare('PRAGMA table_info(jobs)').all().some(column => column.name === 'jd')) this.db.exec("ALTER TABLE jobs ADD COLUMN jd TEXT NOT NULL DEFAULT ''");
     this.db.exec(`CREATE TABLE IF NOT EXISTS resume_text (file_id TEXT PRIMARY KEY REFERENCES files(id), user_id TEXT NOT NULL REFERENCES users(id), text TEXT NOT NULL, text_hash TEXT NOT NULL, pages INTEGER, parser TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS active_resume (user_id TEXT PRIMARY KEY REFERENCES users(id), file_id TEXT NOT NULL REFERENCES files(id));
@@ -177,9 +183,11 @@ export class WorkspaceStore {
   }
   registrationOpen() { return this.db.prepare("SELECT value FROM settings WHERE name='registration_open'").get().value === 1; }
   setRegistration(owner, open) {
-    if (this.db.prepare('SELECT role FROM users WHERE id=?').get(owner)?.role !== 'admin') fail(403, '仅管理员可调整注册入口');
+    this.security.admin(owner);
     if (typeof open !== 'boolean') fail(400, '注册设置不正确');
-    this.db.prepare("UPDATE settings SET value=? WHERE name='registration_open'").run(open ? 1 : 0);
+    this.db.exec('BEGIN IMMEDIATE');
+    try { this.db.prepare("UPDATE settings SET value=? WHERE name='registration_open'").run(open ? 1 : 0);this.security.event(owner,open?'registration-opened':'registration-closed','registration');this.db.exec('COMMIT'); }
+    catch(error){this.db.exec('ROLLBACK');throw error;}
     return { registrationOpen: this.registrationOpen() };
   }
   // Local operator entry point only: never exposed by registration or any HTTP route.
@@ -191,66 +199,65 @@ export class WorkspaceStore {
     if (!result.changes) fail(409, '账号已存在，不覆盖密码或提升原账号权限');
     return { id, username, role: 'admin' };
   }
-  reserveAuth() {
-    const now = this.now();
-    this.db.prepare('DELETE FROM auth_attempts WHERE at < ?').run(now - 15 * 60 * 1000);
-    if (this.db.prepare('SELECT count(*) n FROM auth_attempts').get().n >= 20) fail(429, '尝试次数过多，请 15 分钟后再试');
-    if (this.authBusy >= 2) fail(429, '登录处理中，请稍后再试');
-    this.db.prepare('INSERT INTO auth_attempts VALUES (?)').run(now);
+  reserveAuth(username,source='local') {
+    if (this.authBusy >= 2) throw Object.assign(new Error('登录处理中，请稍后重试'),{status:429,retryAfter:2});
+    this.security.auth(username,source);
   }
-  async authenticate(input, register = false) {
-    if (register && !this.registrationOpen()) fail(403, '当前已关闭注册，请使用已有账号登录');
-    this.reserveAuth();
+  async authenticate(input, register = false, source='local') {
+    this.reserveAuth(input.username,source);
+    if(register&&!input.invitation&&!this.registrationOpen())fail(403,'当前已关闭注册，请使用邀请或已有账号登录');
     const { username, password } = credentials(input);
     this.authBusy++;
     try {
       let user = this.db.prepare('SELECT * FROM users WHERE username = ?').get(username);
       const salt = user?.salt ?? randomBytes(16).toString('hex');
       const derived = await key(password, salt);
-      if (register) {
-        if (!this.registrationOpen()) fail(403, '当前已关闭注册，请使用已有账号登录');
-        if (user) fail(409, '此账号不可注册，请换一个账号或登录');
-        if (this.db.prepare('SELECT count(*) n FROM users').get().n >= 20) fail(409, '本机预览最多保存 20 个账号');
-        user = { id: randomUUID(), username, role: 'member' };
-        // Concurrent registration must not replace an existing account.
-        const result = this.db.prepare('INSERT OR IGNORE INTO users(id,username,salt,password_hash) VALUES (?,?,?,?)').run(user.id, username, salt, derived.toString('hex'));
-        if (!result.changes) fail(409, '此账号不可注册，请换一个账号或登录');
-      } else if (!user || !timingSafeEqual(derived, Buffer.from(user.password_hash, 'hex'))) {
-        fail(401, '账号或密码不正确');
-      }
-      // Password derivation yields; a local reset must not revive an old-password login.
-      if (!register && this.db.prepare('SELECT password_hash FROM users WHERE id=?').get(user.id)?.password_hash !== user.password_hash) fail(401, '密码已变化，请重新登录');
       const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
       this.db.exec('BEGIN IMMEDIATE');
       try {
-        this.db.prepare('DELETE FROM sessions WHERE user_id = ? OR expires <= ?').run(user.id, this.now());
-        this.db.prepare('INSERT INTO sessions VALUES (?,?,?,?)').run(hash(token), user.id, csrf, this.now() + SESSION_MS);
+        if(register){
+          const invite=input.invitation?this.security.invitation(input.invitation,username):null;
+          if(!invite&&!this.registrationOpen())fail(403,'当前已关闭注册，请使用邀请或已有账号登录');
+          if(user)fail(409,'此账号不可注册，请换一个账号或登录');
+          if(this.db.prepare("SELECT count(*) n FROM users WHERE role='member'").get().n>=30)fail(409,'试用名额已满（最多 30 个普通账号）；已有账号请返回登录，或稍后再试。停用账号仍保留名额。');
+          user={id:randomUUID(),username,role:'member'};
+          const result=this.db.prepare('INSERT OR IGNORE INTO users(id,username,salt,password_hash) VALUES (?,?,?,?)').run(user.id,username,salt,derived.toString('hex'));
+          if(!result.changes)fail(409,'此账号不可注册，请换一个账号或登录');
+          if(invite)this.security.consume(invite,user.id);
+        }else{
+          if(!user||user.disabled_at!==null||!timingSafeEqual(derived,Buffer.from(user.password_hash,'hex')))fail(401,'账号或密码不正确');
+          const current=this.db.prepare('SELECT password_hash,disabled_at,auth_revision FROM users WHERE id=?').get(user.id);
+          if(!current||current.disabled_at!==null||current.auth_revision!==user.auth_revision||current.password_hash!==user.password_hash)fail(401,'账号状态或密码已变化，请重新登录');
+        }
+        this.db.prepare('DELETE FROM sessions WHERE user_id=? OR expires<=?').run(user.id,this.now());
+        this.db.prepare('INSERT INTO sessions VALUES (?,?,?,?)').run(hash(token),user.id,csrf,this.now()+SESSION_MS);
         this.db.exec('COMMIT');
-      } catch (error) { this.db.exec('ROLLBACK'); throw error; }
-      return { token, csrf, expires: this.now() + SESSION_MS, user: { id: user.id, username: user.username, role: user.role } };
-    } finally { this.authBusy--; }
+      }catch(error){this.db.exec('ROLLBACK');throw error;}
+      return {token,csrf,expires:this.now()+SESSION_MS,user:{id:user.id,username:user.username,role:user.role}};
+    }finally{this.authBusy--;}
   }
   session(token) {
     if (!/^[a-f0-9]{64}$/.test(token ?? '')) return null;
     return this.db.prepare(`SELECT s.user_id id, u.username, u.role, s.csrf, s.expires FROM sessions s
-      JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires>?`).get(hash(token), this.now()) ?? null;
+      JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires>? AND u.disabled_at IS NULL`).get(hash(token), this.now()) ?? null;
   }
   logout(token) { this.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hash(token)); }
   replacePassword(user, salt, derived, token) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       if (token && this.session(token)?.id !== user.id) fail(401, '会话已失效，请重新登录');
-      const changed = this.db.prepare('UPDATE users SET salt=?,password_hash=? WHERE id=? AND password_hash=?').run(salt, derived.toString('hex'), user.id, user.password_hash);
+      const changed = this.db.prepare('UPDATE users SET salt=?,password_hash=?,auth_revision=auth_revision+1 WHERE id=? AND password_hash=?').run(salt, derived.toString('hex'), user.id, user.password_hash);
       if (!changed.changes) fail(409, '密码已被其他操作更新，请重新登录或重试');
       this.db.prepare('DELETE FROM sessions WHERE user_id=?').run(user.id);
       this.db.prepare('DELETE FROM pdf_reviews WHERE user_id=?').run(user.id);
+      this.db.prepare('DELETE FROM account_email_tokens WHERE subject=?').run(user.id);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   async changePassword(token, input) {
     const session = this.session(token);
     if (!session) fail(401, '请重新登录');
-    this.reserveAuth();
+    this.reserveAuth(session.username);
     const { password } = credentials({ username: session.username, password: input.newPassword });
     credentials({ username: session.username, password: input.currentPassword });
     if (password !== input.confirmPassword) fail(400, '两次新密码不一致');
@@ -418,7 +425,7 @@ export class WorkspaceStore {
       const job=item.jobId?this.job(owner,item.jobId):{},plan=item.jobId?this.db.prepare('SELECT channel FROM application_plans WHERE user_id=? AND job_id=?').get(owner,item.jobId):null;
       const requirement=plan?{kind:({both:'both','school-only':'portal_only'}[plan.channel] || 'unknown'),source:'user',evidence:[],conflict:false}:schoolRequirement([item.row],job);
       const cached=official.get(item.schoolId),detail=cached?.source_hash===item.fingerprint?JSON.parse(cached.payload):null;
-      const officialFacts=detail?{...item.row,jd:detail.jd,externalUrl:detail.url,officialTitle:detail.title,sourceEvidence:detail.sourceEvidence,durationEvidence:detail.durationEvidence || item.row.durationEvidence || null,fullJd:detail.fullJd ?? null}:null;
+      const officialFacts=detail?{...item.row,jd:detail.jd,externalUrl:detail.url,officialTitle:detail.title,postedAt:detail.postedAt || item.row.postedAt || null,postedAtKind:detail.postedAtKind || null,sourceEvidence:detail.sourceEvidence,durationEvidence:detail.durationEvidence || item.row.durationEvidence || null,fullJd:detail.fullJd ?? null}:null;
       return {...item,officialFacts,facts:officialFacts || {...item.row,jd:item.row.jd || job.jd || ''},requirement,explicitMatch:Boolean(item.jobId && association && association.reason!=='本人从学校职位开始准备')};
     });
   }
@@ -636,9 +643,66 @@ export class WorkspaceStore {
     }
     return this.job(owner, id);
   }
-  files(owner) { return this.db.prepare('SELECT id,name,format,size,sha256,created FROM files WHERE user_id=? ORDER BY created DESC,id').all(owner); }
-  saveFile(owner, name, bytes) {
-    name = textField(name, 160, true);
+  files(owner,{includeDeleted=false}={}) {
+    const trash=this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='file_trash'").get()?this.db.prepare('SELECT file_id,deleted_at FROM file_trash WHERE user_id=?').all(owner):[];
+    return this.db.prepare('SELECT id,name,format,size,sha256,created FROM files WHERE user_id=? ORDER BY created DESC,id').all(owner).map(file=>({...file,deletedAt:trash.find(t=>t.file_id===file.id)?.deleted_at??null,origin:this.fileOrigin(owner,file.id),...this.fileKind(owner,file.id),deleteBlocked:this.fileUseReason(owner,file.id)})).filter(file=>includeDeleted||file.deletedAt===null);
+  }
+  fileKind(owner,id) {
+    const roles=new Set();if(this.db.prepare('SELECT 1 FROM active_resume WHERE user_id=? AND file_id=?').get(owner,id)||this.db.prepare('SELECT 1 FROM generated_resumes WHERE user_id=? AND (pdf_id=? OR docx_id=?)').get(owner,id,id))roles.add('resume');
+    for(const row of this.db.prepare('SELECT snapshot FROM materials WHERE user_id=?').all(owner)){const value=JSON.parse(row.snapshot);if(value.resume?.id===id)roles.add('resume');if(value.cover?.id===id)roles.add('cover');}
+    const explicit=this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='file_kinds'").get()?this.db.prepare('SELECT kind FROM file_kinds WHERE user_id=? AND file_id=?').get(owner,id)?.kind:null;if(explicit)roles.add(explicit);
+    return {kind:roles.size===1?[...roles][0]:'unknown',kindConflict:roles.size>1};
+  }
+  setFileKind(owner,id,kind){this.file(owner,id);if(!['resume','cover'].includes(kind))fail(400,'请选择简历或求职信');const current=this.fileKind(owner,id);if(current.kindConflict||(current.kind!=='unknown'&&current.kind!==kind))fail(409,'文件已有用途或历史引用，不能改为另一类；请上传独立原件');this.db.prepare('INSERT INTO file_kinds VALUES(?,?,?) ON CONFLICT(file_id) DO UPDATE SET kind=excluded.kind').run(id,owner,kind);return this.files(owner).find(f=>f.id===id);}
+  fileOrigin(owner,id) {
+    for(const row of this.db.prepare('SELECT snapshot,created FROM migration_receipts WHERE user_id=?').all(owner)){
+      const s=JSON.parse(row.snapshot),d=s.documents?.find(d=>d.fileId===id);
+      if(d)return {kind:'historical-generated',label:`历史生成稿 · ${s.original?.company || s.targetAtMigration?.company || ''} · ${d.version || d.name}`,importedAt:row.created};
+    }
+    if(this.db.prepare('SELECT id FROM generated_resumes WHERE user_id=? AND (pdf_id=? OR docx_id=?)').get(owner,id,id))return {kind:'generated',label:'本机生成稿'};
+    return {kind:'uploaded',label:'上传原件'};
+  }
+  fileUseReason(owner,id) {
+    if(this.db.prepare('SELECT 1 FROM active_resume WHERE user_id=? AND file_id=?').get(owner,id))return '当前评分简历：请先停用，再移入回收站';
+    return null;
+  }
+  fileHistoryReason(owner,id) {
+    for(const [table,label] of [['materials','申请材料历史'],['submissions','提交历史'],['generated_resumes','生成版本历史'],['migration_receipts','历史迁入记录'],['question_drafts','申请问答'],['question_history','申请问答历史'],['application_preparation','申请准备记录']]){
+      if(this.db.prepare(`SELECT * FROM ${table} WHERE user_id=?`).all(owner).some(row=>Object.values(row).some(value=>typeof value==='string'&&value.includes(id))))return `已关联${label}，归档后仍保留历史读取`;
+    }
+    return null;
+  }
+  historyFile(owner,id) {
+    const file=this.file(owner,id,{includeDeleted:true});
+    if(!this.fileHistoryReason(owner,id))fail(404,'未找到此账号的历史文件引用');
+    return file;
+  }
+  downloadFile(owner,id) {
+    try{return this.file(owner,id);}catch(error){if(error.status!==409||!this.fileHistoryReason(owner,id))throw error;return this.historyFile(owner,id);}
+  }
+  trashFile(owner,id,input) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const file=this.file(owner,id,{includeDeleted:true});
+      if(input.confirmed!==true||input.name!==file.name||input.sha256!==file.sha256)fail(409,'请核对文件名和类型后确认删除');
+      const prior=this.db.prepare('SELECT deleted_at FROM file_trash WHERE user_id=? AND file_id=?').get(owner,id);
+      if(!prior){const reason=this.fileUseReason(owner,id);if(reason)fail(409,reason);
+        this.db.prepare('INSERT INTO file_trash VALUES (?,?,?)').run(id,owner,this.now());
+        this.db.prepare('DELETE FROM pdf_reviews WHERE user_id=? AND file_id=?').run(owner,id);
+      }
+      this.db.exec('COMMIT');return {id,deleted:true};
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  restoreFile(owner,id) {
+    this.file(owner,id,{includeDeleted:true});
+    this.db.prepare('DELETE FROM file_trash WHERE user_id=? AND file_id=?').run(owner,id);
+    return {id,deleted:false};
+  }
+
+  saveFile(owner, name, bytes, kind='unknown') {
+    if(!['unknown','resume','cover'].includes(kind))fail(400,'文件用途不正确');
+    textField(name, 160, true);
+    if (/[\u0000-\u001f\u007f]/.test(name)) fail(400, '文件名不能包含控制字符');
     const format = name.split('.').pop().toLowerCase();
     if (/[\\/]/.test(name) || !['pdf', 'docx'].includes(format)) fail(400, '请选择 PDF 或 DOCX 文件');
     if (!bytes.length || bytes.length > FILE_BYTES) fail(413, '单个文件需大于 0 且不超过 5MB');
@@ -647,21 +711,22 @@ export class WorkspaceStore {
     const total = this.db.prepare('SELECT coalesce(sum(size),0) size,count(*) n FROM files WHERE user_id=?').get(owner);
     if (total.size + bytes.length > 20 * 1024 * 1024 || total.n >= 20) fail(409, '本机预览每人最多 20 个文件、合计 20MB');
     const id = randomUUID();
-    this.db.prepare('INSERT INTO files VALUES (?,?,?,?,?,?,?,?)').run(id, owner, name, format, bytes.length, hash(bytes), this.now(), bytes);
+    this.db.exec('SAVEPOINT file_upload');try{this.db.prepare('INSERT INTO files VALUES (?,?,?,?,?,?,?,?)').run(id, owner, name, format, bytes.length, hash(bytes), this.now(), bytes);if(kind!=='unknown')this.db.prepare('INSERT INTO file_kinds VALUES(?,?,?)').run(id,owner,kind);this.db.exec('RELEASE file_upload');}catch(error){this.db.exec('ROLLBACK TO file_upload; RELEASE file_upload');throw error;}
     return this.files(owner).find(file => file.id === id);
   }
-  file(owner, id) {
+  file(owner, id, {includeDeleted=false}={}) {
     const row = this.db.prepare('SELECT * FROM files WHERE user_id=? AND id=?').get(owner, id);
     if (!row) fail(404, '未找到这个文件');
+    if(!includeDeleted && this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='file_trash'").get() && this.db.prepare('SELECT 1 FROM file_trash WHERE user_id=? AND file_id=?').get(owner,id))fail(409,'文件在回收站，请先还原');
     return row;
   }
   parsedResume(owner, id) {
-    this.file(owner, id);
+    this.file(owner, id);if(this.fileKind(owner,id).kind==='cover')fail(409,'求职信不能作为评分简历');
     return this.db.prepare(`SELECT r.text,r.text_hash textHash,r.pages,r.parser,f.id fileId,f.name,f.sha256 fileSha
       FROM resume_text r JOIN files f ON f.id=r.file_id WHERE r.user_id=? AND r.file_id=? AND f.user_id=?`).get(owner, id, owner) ?? null;
   }
   saveParsed(owner, id, parsed) {
-    this.file(owner, id);
+    this.file(owner, id);if(this.fileKind(owner,id).kind==='cover')fail(409,'求职信不能作为评分简历');
     const text = textField(parsed.text, 100000, true);
     if (text.replace(/\s/g, '').length < 40) fail(422, '未提取到足够文字');
     this.db.prepare('INSERT OR IGNORE INTO resume_text VALUES (?,?,?,?,?,?)').run(id, owner, text, hash(text), parsed.pages ?? null, parsed.parser);
@@ -715,7 +780,7 @@ export class WorkspaceStore {
         submissions: rows('submissions', 'id,job_id,channel,material_id,submitted_date,receipt,created'),
         submissionCorrections: rows('submission_corrections', 'id,job_id,submission_id,revision,request_id,before_snapshot,after_snapshot,reason,actor,created')
           .map(({ before_snapshot, after_snapshot, ...row }) => ({ ...row, before: JSON.parse(before_snapshot), after: JSON.parse(after_snapshot) })),
-        files: this.files(owner).map(file => ({ ...file, archivePath: `files/${file.id}.${file.format}`, base64: Buffer.from(this.file(owner, file.id).bytes).toString('base64') })) };
+        files: this.files(owner,{includeDeleted:true}).map(file => ({ ...file, archivePath: `files/${file.id}.${file.format}`, base64: Buffer.from(this.file(owner, file.id,{includeDeleted:true}).bytes).toString('base64') })) };
       this.db.exec('COMMIT'); return data;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -849,7 +914,7 @@ export class WorkspaceStore {
     if (!context.ready) fail(409, '请先保存完整 JD 并启用自己的简历');
     if (input.confirmed !== true || input.contextHash !== context.hash) fail(409, '岗位或简历已变化，请刷新材料区并重新审阅');
     const read = (fileId, onePage) => {
-      const file = this.file(owner, textField(fileId, 36, true));
+      const file = this.file(owner, textField(fileId, 36, true));const kind=this.fileKind(owner,file.id);if(kind.kindConflict||kind.kind===(onePage?'cover':'resume'))fail(409,'文件用途与所选材料不一致，请选择对应的简历或求职信');
       const review = this.db.prepare('SELECT * FROM pdf_reviews WHERE user_id=? AND file_id=?').get(owner, file.id);
       if (file.format !== 'pdf' || !review || review.session_key !== hash(sessionKey) || this.now() - review.viewed > 15 * 60000 || review.viewed > this.now()) fail(409, '请在当前会话重新预览所选 PDF（预览有效期 15 分钟）');
       if (onePage && review.pages !== 1) fail(422, '简历必须保持一页；请修改原稿后重新上传 PDF');
@@ -1016,7 +1081,8 @@ export class WorkspaceStore {
     for (const incoming of result.jobs) {
       const facts=citizenshipFacts(incoming),prior=previous.get(incoming.id)?.citizenshipInfo;const job={...incoming,citizenshipInfo:facts.restricted?{...facts,capturedAt:new Date(this.now()).toISOString(),sourceUrl:incoming.url}:prior?.restricted?prior:facts};
       const cached = previous.get(job.id);
-      job.durationEvidence=cached?.durationEvidence || incoming.durationEvidence || null;
+      Object.assign(job,mergePublication(incoming,cached,this.now()));
+      job.durationEvidence=incoming.durationEvidence || cached?.durationEvidence || null;
       jobs.set(job.id, cached?.jd && (!job.jd || (cached.fullJd && !job.fullJd)) ? { ...job,...Object.fromEntries(['title','location','workMode','deadline','deadlineEvidence','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource'].filter(k=>cached[k] && (!['deadline','deadlineEvidence'].includes(k) || !job.deadline)).map(k=>[k,cached[k]])), sourceUpdatedAt:cached.sourceUpdatedAt || old.finishedAt || null, jd: cached.jd, stale: true, detailError: job.detailError || '正文暂不可读，保留上次正文，请核实' } : { ...job, sourceUpdatedAt:result.finishedAt || new Date(this.now()).toISOString(), stale: false });
     }
     const value = { ...result, jobs: [...jobs.values()].map(job=>({...job,durationInfo:durationFacts(job)})) };
@@ -1024,7 +1090,7 @@ export class WorkspaceStore {
     return value;
   }
   opportunities(owner) {
-    return unifiedOpportunities(owner,this.catalogue(),this.schoolOpportunities(owner),this.jobs(owner));
+    return projectAliases(unifiedOpportunities(owner,this.catalogue(),this.schoolOpportunities(owner),this.jobs(owner)),readAliases(this.db));
   }
   saveSuggested(owner, id) {
     const job = this.opportunities(owner).find(job => job.id === id);

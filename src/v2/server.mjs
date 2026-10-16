@@ -1,3 +1,4 @@
+import {EmailAccounts} from './email-accounts.mjs';
 import {schoolCapture} from './school-capture.mjs';
 import { browserFillBridge } from './browser-fill.mjs';
 import { rehearsalFields } from './fill-rehearsal.mjs';
@@ -6,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WorkspaceStore, FILE_BYTES, SESSION_MS, fail } from './store.mjs';
-import { extractResume, scoreFor } from './resume.mjs';
+import { extractResume, extractDocumentText, scoreFor, resumeProfile } from './resume.mjs';
 import { fetchCatalogue, recommend } from './catalogue.mjs';
 import { renderPdf } from './pdf-preview.mjs';
 import { prepareWord, generateWord, prepareWordEdit, editWord } from './generation.mjs';
@@ -21,7 +22,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const assets = new Map([['/src/deadlines.mjs',['../../src/deadlines.mjs','text/javascript']],['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
+const assets = new Map([['/file-preview.js',['file-preview.js','text/javascript']],['/application-table.js',['application-table.js','text/javascript']],['/files.js',['files.js','text/javascript']],['/src/publication-facts.mjs',['../../src/publication-facts.mjs','text/javascript']],['/src/deadlines.mjs',['../../src/deadlines.mjs','text/javascript']],['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
 const cookie = (token, age = SESSION_MS / 1000) => `cq_v2_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 function tokenFrom(req) { return req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('cq_v2_session='))?.slice('cq_v2_session='.length) ?? ''; }
 async function body(req, limit) {
@@ -39,16 +40,19 @@ async function jsonBody(req, limit = 16384) {
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
 
-export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, applicationForm = readGreenhouseForm, automationToken = null, online = networkAvailable } = {}) {
+export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, documentText = extractDocumentText, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, applicationForm = readGreenhouseForm, automationToken = null, online = networkAvailable, mailTransport = null, legacyRegistration = false, httpServer = null } = {}) {
   const store = new WorkspaceStore(database, { now });
+  try {
+  const emailAccounts = new EmailAccounts(store, mailTransport);
   const bridge = browserFillBridge(store);
   const gate = availabilityGate(store, availability);
   const runner = new CatalogueRunner(store, { discover:discover===fetchCatalogue?()=>fetchCatalogue({cachedJobs:store.catalogue().jobs}):discover, online, configured: typeof automationToken === 'string' && /^[a-f0-9]{64}$/.test(automationToken) });
   let parsing = false;
   let generating = false;
   let exporting = false;
-  const scored = (owner, job) => ({ ...job, eligibilityExclusion:store.citizenExclusion(owner,job), match: scoreFor(job, store.activeResume(owner)) });
-  const server = createServer(async (req, res) => {
+  const scored = (owner, job, resume=store.activeResume(owner), profile=resumeProfile(resume)) => ({ ...job, eligibilityExclusion:store.citizenExclusion(owner,job), match: scoreFor(job, resume, profile) });
+  const server = httpServer ?? createServer();
+  server.on('request', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -70,9 +74,15 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return res.end(await readFile(resolve(root, 'web/v2', name)));
       }
       if (req.method === 'GET' && path === '/api/health') return json(res, 200, { app: 'career-queue-v2-local', stage: 'workspace-preview', workspaceId: workspaceId(root), ready: true });
-      if (req.method === 'GET' && path === '/api/registration') return json(res, 200, { registrationOpen: store.registrationOpen() });
+      if (req.method === 'GET' && path === '/api/registration') return json(res, 200, { registrationOpen: store.registrationOpen(), securityVersion: 1, emailVerification: !legacyRegistration, emailReady: emailAccounts.ready });
+      const emailRoutes = {'/api/email/resend':'resend','/api/email/verify':'verify','/api/password/request':'request','/api/password/reset':'reset'};
+      if(req.method==='POST' && (emailRoutes[path] || (path==='/api/register'&&!legacyRegistration))) {
+        const input=await jsonBody(req),source=req.socket.remoteAddress||'unknown',kind=emailRoutes[path];
+        const result=kind==='verify'||kind==='reset'?await emailAccounts.complete(input,kind,source):kind==='request'?emailAccounts.requestReset(input,source):emailAccounts.requestVerification(input,source,kind==='resend');
+        return json(res,kind==='verify'||kind==='reset'?200:202,result);
+      }
       if (req.method === 'POST' && ['/api/register', '/api/login'].includes(path)) {
-        const account = await store.authenticate(await jsonBody(req), path === '/api/register');
+        const account = await store.authenticate(await jsonBody(req), path === '/api/register', req.socket.remoteAddress || 'unknown');
         const previous = tokenFrom(req);
         if (previous) store.logout(previous);
         res.setHeader('Set-Cookie', cookie(account.token));
@@ -106,6 +116,22 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return json(res, 200, result);
       }
       if (req.method === 'PUT' && path === '/api/admin/registration') return json(res, 200, store.setRegistration(owner, (await input()).registrationOpen));
+      if(['/api/admin/invitations','/api/admin/accounts','/api/admin/security-events'].includes(path)||/^\/api\/admin\/(?:invitations\/[a-f0-9-]{36}\/revoke|accounts\/[a-f0-9-]{36}\/status)$/.test(path)) {
+        store.security.admin(owner);
+        if(mutation)store.security.resource(owner,'admin');
+        if(path==='/api/admin/invitations'&&req.method==='GET')return json(res,200,store.security.invitations(owner));
+        if(path==='/api/admin/invitations'&&req.method==='POST')return json(res,201,store.security.issue(owner,await input()));
+        if(path==='/api/admin/accounts'&&req.method==='GET')return json(res,200,store.security.users(owner));
+        if(path==='/api/admin/security-events'&&req.method==='GET')return json(res,200,store.security.events(owner));
+        const invitation=path.match(/^\/api\/admin\/invitations\/([a-f0-9-]{36})\/revoke$/);
+        if(invitation&&req.method==='POST')return json(res,200,store.security.revoke(owner,invitation[1],await input()));
+        const status=path.match(/^\/api\/admin\/accounts\/([a-f0-9-]{36})\/status$/);
+        if(status&&req.method==='PUT')return json(res,200,store.security.status(owner,status[1],await input()));
+      }
+      if(mutation){
+        const kind=path==='/api/files'?'upload':/\/parse$/.test(path)?'parse':/\/(?:(?:history-)?preview|view)$/.test(path)&&path.startsWith('/api/files/')?'preview':/\/(?:generation(?:-draft)?|edit|edit-draft)$/.test(path)?'generation':path==='/api/data/export'?'export':/^\/api\/recommendations\/(update|refresh)$/.test(path)?'refresh':null;
+        if(kind)store.security.resource(owner,kind);
+      }
       if (req.method === 'POST' && path === '/api/logout') {
         store.logout(token); res.setHeader('Set-Cookie', cookie('', 0));
         return json(res, 200, { ok: true });
@@ -245,16 +271,27 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         if (operation === 'submission-confirmation' && req.method === 'POST') return json(res, 200, store.confirmSubmission(owner, id, await input()));
         if (operation === 'submission' && req.method === 'POST') return json(res, 200, store.recordSubmission(owner, id, await input()));
       }
-      const pdf = path.match(/^\/api\/files\/([a-f0-9-]{36})\/preview$/);
+      const viewing=path.match(/^\/api\/files\/([a-f0-9-]{36})\/view$/);
+      if(viewing&&req.method==='POST'){
+        await input();const file=store.file(owner,viewing[1],{includeDeleted:true});
+        if(file.size>FILE_BYTES||file.bytes.length!==file.size||digest(file.bytes)!==file.sha256)fail(422,'文件校验失败，原件保持不变');
+        if(parsing)fail(409,'正在读取另一个文件，请稍后重试');parsing=true;
+        try{const data=file.format==='pdf'?{mode:'pages',...await preview(file)}:{mode:'text',text:(await documentText(file)).text};
+          if(!store.session(token))fail(401,'请重新登录');store.file(owner,file.id,{includeDeleted:true});
+          return json(res,200,{...data,id:file.id,name:file.name,format:file.format,sha256:file.sha256});
+        }finally{parsing=false;}
+      }
+      const pdf = path.match(/^\/api\/files\/([a-f0-9-]{36})\/(preview|history-preview)$/);
       if (pdf && req.method === 'POST') {
-        const file = store.file(owner, pdf[1]);
+        const historical=pdf[2]==='history-preview';
+        const file = historical?store.historyFile(owner,pdf[1]):store.file(owner,pdf[1]);
         if (file.format !== 'pdf') fail(400, '请选择 PDF 材料');
         if (parsing) fail(409, '正在读取另一个文件，请稍后重试');
         parsing = true;
         try {
           const result = await preview(file);
           if (!store.session(token)) fail(401, '请重新登录');
-          store.markPdfViewed(owner, file.id, result.pages, session.csrf);
+          if(historical)store.historyFile(owner,file.id);else store.markPdfViewed(owner, file.id, result.pages, session.csrf);
           return json(res, 200, { ...result, id: file.id, name: file.name, sha256: file.sha256 });
         } finally { parsing = false; }
       }
@@ -295,7 +332,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       }
       const suggested = path.match(/^\/api\/recommendations\/([a-f0-9]{64})\/(?:save|prepare)$/);
       if (suggested && req.method === 'POST') return json(res, 200, scored(owner, store.saveSuggested(owner, suggested[1])));
-      if (path === '/api/jobs' && req.method === 'GET') return json(res, 200, store.jobs(owner).map(job => scored(owner, job)));
+      if (path === '/api/jobs' && req.method === 'GET') { const resume=store.activeResume(owner),profile=resumeProfile(resume);return json(res, 200, store.jobs(owner).map(job => scored(owner, job, resume, profile))); }
       if (path === '/api/jobs' && req.method === 'POST') return json(res, 201, scored(owner, store.saveJob(owner, await input())));
       const returned = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/return$/);
       if (returned && req.method === 'PUT') { await input(); return json(res, 200, scored(owner, store.returnJob(owner, returned[1]))); }
@@ -304,6 +341,13 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       const job = path.match(/^\/api\/jobs\/([a-f0-9-]{36})$/);
       if (job && req.method === 'GET') return json(res, 200, scored(owner, store.job(owner, job[1])));
       if (job && req.method === 'PUT') return json(res, 200, scored(owner, store.saveJob(owner, await input(), job[1])));
+      if(path==='/api/files/trash'&&req.method==='GET')return json(res,200,store.files(owner,{includeDeleted:true}).filter(file=>file.deletedAt!==null));
+      const fileKind=path.match(/^\/api\/files\/([a-f0-9-]{36})\/kind$/);if(fileKind&&req.method==='PUT')return json(res,200,store.setFileKind(owner,fileKind[1],(await input()).kind));
+      const fileAction=path.match(/^\/api\/files\/([a-f0-9-]{36})\/(trash|restore)$/);
+      if(fileAction&&req.method==='POST'){
+        const value=await input();
+        return json(res,200,fileAction[2]==='trash'?store.trashFile(owner,fileAction[1],value):store.restoreFile(owner,fileAction[1]));
+      }
       if (path === '/api/files' && req.method === 'GET') return json(res, 200, store.files(owner));
       if (path === '/api/files' && req.method === 'POST') {
         if (req.headers['content-type'] !== 'application/octet-stream') fail(415, '请上传原始文件');
@@ -312,30 +356,43 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         const bytes = await body(req, FILE_BYTES);
         // Recheck after an upload: logout or expiration may happen while reading the body.
         if (!store.session(token)) fail(401, '请重新登录');
-        return json(res, 201, store.saveFile(owner, name, bytes));
+        return json(res, 201, store.saveFile(owner, name, bytes,req.headers['x-file-kind']??'unknown'));
       }
-      const file = path.match(/^\/api\/files\/([a-f0-9-]{36})$/);
+      const file = path.match(/^\/api\/files\/([a-f0-9-]{36})(\/view-download)?$/);
       if (file && req.method === 'GET') {
         // A tab opened by another account must not download using a replaced shared cookie.
         if (req.headers['x-cq-csrf'] !== session.csrf) fail(403, '请从当前工作区下载');
-        const row = store.file(owner, file[1]);
+        const row = file[2]?store.file(owner,file[1],{includeDeleted:true}):store.downloadFile(owner, file[1]);
         res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('Content-Disposition', `attachment; filename="document.${row.format}"; filename*=UTF-8''${encodeURIComponent(row.name)}`);
+        res.setHeader('Content-Disposition', `attachment; filename="document.${row.format}"; filename*=UTF-8''${encodeURIComponent(row.name).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase())}`);
         return res.end(Buffer.from(row.bytes));
       }
       fail(404, '未找到此页面');
-    } catch (error) { if (!res.headersSent) json(res, error.status ?? 500, { error: error.status ? error.message : '暂时无法保存或读取，请重试' }); else res.end(); }
+    } catch (error) { if(error.retryAfter&&!res.headersSent)res.setHeader('Retry-After',String(error.retryAfter)); if (!res.headersSent) json(res, error.status ?? 500, { error: error.status ? error.message : '暂时无法保存或读取，请重试' }); else res.end(); }
   });
   server.requestTimeout = 30000;
-  server.on('close', () => store.close());
+  server.on('close', () => { emailAccounts.close(); store.close(); });
   return server;
+  } catch (error) { store.close(); throw error; }
+}
+
+// Reserve the listener before opening/migrating the database. A duplicate start is read-only.
+export async function startWorkspace({port=4322,...options}={}) {
+  const server=createServer();
+  await new Promise((done,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',()=>{server.removeListener('error',reject);done();});});
+  try {return workspaceServer({...options,httpServer:server});}
+  catch(error){await new Promise(done=>server.close(done));throw error;}
+}
+export function startupMessage(error,port=4322) {
+  return error.code==='EADDRINUSE' ? port+' 端口已被占用，本次未打开数据库。请检查已有实例，不要重复启动；不会停止现用服务。' : '本机工作区启动失败。请检查配置文件、数据目录权限和数据库完整性；不要删除原数据库。';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  let automationToken;
-  try { automationToken = JSON.parse(await readFile(resolve(root, 'private/v2-local/discovery-trigger.json'), 'utf8')).token; }
-  catch (error) { if (error.code !== 'ENOENT') throw new Error('后台入口配置不可读'); }
-  const server = workspaceServer({ automationToken });
-  server.on('error', error => { console.error(error.code === 'EADDRINUSE' ? '4322 端口已被占用，请检查已有本机预览' : '本机预览启动失败'); process.exitCode = 1; });
-  server.listen(4322, '127.0.0.1', () => console.log('Career Queue v2 本机工作区预览：http://127.0.0.1:4322/'));
+  try {
+    let automationToken;
+    try { automationToken=JSON.parse(await readFile(resolve(root,'private/v2-local/discovery-trigger.json'),'utf8')).token; }
+    catch(error){if(error.code!=='ENOENT')throw error;}
+    await startWorkspace({automationToken});
+    console.log('Career Queue v2 本机工作区预览：http://127.0.0.1:4322/');
+  } catch(error) {console.error(startupMessage(error));process.exitCode=1;}
 }

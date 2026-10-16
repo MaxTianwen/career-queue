@@ -22,7 +22,7 @@ test('diagnostic reads visible job structure, redacts contact and URL secrets, n
 });
 test('diagnostic stops on login and manifest keeps existing temporary permissions only',()=>{
  const e={getClientRects:()=>[{}]};assert.equal(runInNewContext('('+schoolDiagnostic.toString()+')("list")',{location:{protocol:'https:'},document:{querySelectorAll:()=>[e]},getComputedStyle:()=>({visibility:'visible'})}).code,'VISIBLE_AUTH_CHALLENGE');
- const m=JSON.parse(readFileSync('browser-extension/manifest.json','utf8'));assert.deepEqual(m.permissions,['activeTab','scripting']);assert.deepEqual(m.host_permissions,['http://127.0.0.1:4322/*']);assert.equal(m.version,'0.3.0');assert.equal(m.optional_host_permissions,undefined);
+ const m=JSON.parse(readFileSync('browser-extension/manifest.json','utf8'));assert.deepEqual(m.permissions,['activeTab','scripting']);assert.deepEqual(m.host_permissions,['http://127.0.0.1:4322/*']);assert.equal(m.version,'0.3.8');assert.equal(m.optional_host_permissions,undefined);
 });
 
 test('multi-job capture uses separate audit request keys and commits both rows atomically',t=>{const{s,owner,packet}=setup(t);s.syncSchoolOpportunities(owner,'|Term|ID|Job Title|Organization|Location|\n|---|---|---|---|---|\n|Summer 2027|123457|Software Intern|Example|Toronto|');packet.jobs.push({...detail,schoolId:'123457',url:'https://portal.example/jobs/123457'});const p=schoolCapture(s,owner,{packet});assert.equal(schoolCapture(s,owner,{packet,fingerprint:p.fingerprint,confirmed:true},true).updated,2);assert.equal(schoolCapture(s,owner,{packet}).count,0);});

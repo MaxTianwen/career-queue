@@ -1,0 +1,1 @@
+export function displayDocument(){return {createElement(tag){return {tagName:tag,children:[],own:'',append(...children){this.children.push(...children)},set textContent(value){this.own=value;this.children=[]},get textContent(){return this.own+this.children.map(c=>c.textContent??c).join('')}}}};}

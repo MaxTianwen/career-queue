@@ -1,0 +1,6 @@
+import {schoolLocalState} from './school-local-state.mjs';
+const $=id=>document.getElementById(id);
+try{const packet=await schoolLocalState().load('result'),d=packet?.detail;if(!d||!Number.isFinite(Date.parse(d.capturedAt))||Date.now()-Date.parse(d.capturedAt)>86400000)throw Error('没有24小时内的保存结果，请在目标详情页重新读取。');
+ for(const [label,value] of [['School ID',packet.entry.schoolId],['岗位',d.identity.title],['雇主',d.identity.company],['学期',d.identity.term],['时长原文',d.duration||'独立时长字段未知；不推测月数'],['身份依据',d.identity.visibleSchoolId?'详情独立编号及精确字段':'选中列表编号及精确详情字段'],['读取时间',d.capturedAt]]){const div=document.createElement('div'),l=document.createElement('span'),v=document.createElement('span');l.className='fact-label';l.textContent=label;v.className='fact-value';v.textContent=value;div.append(l,v);$('result-facts').append(div);}
+ $('result-jd').textContent=[d.jd,...d.fields.filter(f=>/^(?:responsibilities|qualifications|requirements)$/i.test(f.label)).map(f=>f.label+': '+f.value)].join('\n\n');const a=$('result-download');a.href=URL.createObjectURL(new Blob([JSON.stringify(packet,null,2)],{type:'application/json'}));a.download='career-queue-school-'+packet.entry.schoolId+'.json';$('result-layout').hidden=false;$('result-status').textContent='本机保存的读取快照 · 尚未导入或投递';
+}catch(error){$('result-status').textContent=error.message;}

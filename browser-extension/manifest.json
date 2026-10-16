@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Career Queue · 岗位读取助手",
-  "version": "0.3.0",
+  "version": "0.3.8",
   "description": "读取当前学校岗位，核对身份并导出；保留本人确认的官网普通文本填写。不提交。",
   "permissions": [
     "activeTab",

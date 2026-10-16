@@ -9,7 +9,7 @@ import { backupWorkspace, restoreWorkspace } from '../src/v2/backup.mjs';
 const password = 'Synthetic backup password 2026!';
 async function fixture(t) {
   const folder = resolve('output/test-runs', `v2-backup-${randomUUID()}`), source = resolve(folder, 'live/workspaces.sqlite');
-  const store = new WorkspaceStore(source); t.after(() => store.close());
+  const store = new WorkspaceStore(source);store.db.prepare("UPDATE settings SET value=1 WHERE name='registration_open'").run(); t.after(() => store.close());
   await store.createAdmin({ username: 'admin', password });
   const a = await store.authenticate({ username: 'admin', password }), b = await store.authenticate({ username: 'member', password }, true);
   const owner = a.user.id, file = store.saveFile(owner, 'same-name.pdf', Buffer.from('%PDF-1.7 synthetic'));

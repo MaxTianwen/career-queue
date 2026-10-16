@@ -3,6 +3,10 @@ import{createHash,randomUUID}from'node:crypto';
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const fail=message=>{throw Object.assign(Error(message),{status:400})};
 function plan(store,owner,packet){
+ if(packet?.schema==='career-queue-school-current-page-batch-v1'){
+  if(JSON.stringify(packet).length>800000||!Array.isArray(packet.packets)||!packet.packets.length||packet.packets.length>5)fail('请选择1至5个已核验的当前页岗位文件');
+  packet={schema:'career-queue-school-capture-v1',jobs:packet.packets.flatMap(p=>currentCapturePacket(store,owner,p).jobs)};
+ }
  if(packet?.schema==='career-queue-school-current-page-v1')packet=currentCapturePacket(store,owner,packet);
  if(packet?.schema!=='career-queue-school-capture-v1'||!Array.isArray(packet.jobs)||!packet.jobs.length||packet.jobs.length>50||JSON.stringify(packet).length>800000)fail('请导入已适配的岗位批次文件；诊断文件不能直接导入');
  const seen=new Set(),rows=[],origins=new Set();

@@ -1,3 +1,4 @@
+import {displayDocument} from './helpers/display-dom.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -22,10 +23,10 @@ test('logout discards all stored positions and old-account history cannot render
  const {win}=browser();let shown;const nav=viewNavigation({window:win,views:['discovery','files'],render:v=>shown=v});nav.visit('discovery');win.scrollY=800;nav.visit('files');nav.reset();nav.visit('discovery');assert.equal(win.scrollY,0);win.history.back();assert.equal(shown,'discovery');assert.equal(win.scrollY,0);
 });
 test('deadline summary keeps employer and each school deadline separate without inventing dates',()=>{
- const old=globalThis.document;globalThis.document={createElement:()=>({})};try{
+ const old=globalThis.document;globalThis.document=displayDocument();try{
  assert.equal(deadlineSummary({}).textContent,'截止日期未提供');
  const card=deadlineSummary({hasPublic:true,deadline:'2027-01-01',schoolSources:[{schoolId:'900001',row:{deadlineText:'Oct 20, 2026'}},{schoolId:'900002',row:{deadline:'2026-10-21'}}]},new Date('2026-10-13T12:00:00Z'));
- assert.equal(card.textContent,'官网截止：2027-01-01 · 学校截止（900001）：Oct 20, 2026 · 学校截止（900002）：2026-10-21');
+ assert.match(card.textContent,/官网截止：2027-01-01/);assert.match(card.textContent,/学校截止（900001）：Oct 20, 2026/);assert.match(card.textContent,/学校截止（900002）：2026-10-21/);assert.equal(card.children.length,3);
  }finally{globalThis.document=old;}
 });
 test('401 official API refusal is unknown with no alternate page attempt and does not mutate the job',async()=>{
@@ -45,4 +46,14 @@ test('copied school list preview, repeats, exact identities and correction prese
 test('eligibility distinguishes fully remote US restrictions, hybrid conflict and ordinary PR security review',()=>{
  const base={title:'Software Engineer Intern',location:'United States',jd:'This is a fully remote position. Must reside in the United States. Work authorization is required.'};const remote=usRemoteEligibility(base);assert.equal(remote.eligible,true);assert.ok(remote.restrictions.some(s=>s.includes('Must reside')));assert.equal(usRemoteEligibility({...base,jd:base.jd+' Hybrid schedule required.'}).eligible,false);
  for(const jd of ['Canadian citizens or permanent residents must pass a security clearance.','Candidates must pass a Canadian government security screening.'])assert.equal(citizenshipFacts({jd}).restricted,false);assert.equal(citizenshipFacts({jd:'Only Canadian citizens may apply.'}).restricted,true);
+});
+
+test('history restoration moves focus after rendering without changing saved scroll; reset rejects old focus callbacks',()=>{
+ const {win}=browser(),events=[];
+ const nav=viewNavigation({window:win,views:['applications','jobs'],render:v=>events.push('render:'+v),restore:v=>events.push('focus:'+v+':'+win.scrollY),read:v=>events.push('read:'+v)});
+ nav.visit('applications');win.scrollY=350;nav.visit('jobs');win.scrollY=120;events.length=0;
+ win.history.back();win.history.forward();
+ assert.deepEqual(events,['render:applications','focus:applications:350','read:applications','render:jobs','focus:jobs:120','read:jobs']);
+ events.length=0;nav.visit('jobs');assert.deepEqual(events,[]);
+ nav.reset();nav.visit('applications');events.length=0;win.history.back();assert.deepEqual(events,[]);
 });

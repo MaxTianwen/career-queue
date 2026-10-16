@@ -39,6 +39,12 @@ export function parseWorkday(html, candidate) {
   for (const match of html.matchAll(/<script\b[^>]*\btype\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try { collect(JSON.parse(match[1])); } catch { /* Malformed metadata is not a job. */ }
   }
+  // Explain an explicit public-page failure without treating it as permanent closure.
+  const pageUrl = [...html.matchAll(/<meta\b[^>]*>/gi)].find(m => /\bproperty\s*=\s*["']og:url["']/i.test(m[0]))?.[0].match(/\bcontent\s*=\s*["']([^"']+)["']/i)?.[1];
+  const config = html.match(/window\.workday\s*=\s*window\.workday\s*\|\|\s*\{([^]*?)\};/);
+  if (!posts.length && pageUrl === url && config && /(?:^|,)\s*postingAvailable\s*:\s*false\s*(?:,|$)/.test(config[1])) {
+    throw new Error('Workday 官网当前不提供该岗位详情（postingAvailable:false）；保留旧资料，是否停止招聘待核实');
+  }
   const matching = posts.filter(post => {
     const id = String(post.identifier?.value ?? '');
     if (!/^[a-z0-9_-]{1,100}$/i.test(id)) return false;

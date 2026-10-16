@@ -10,7 +10,7 @@ from pypdf import PdfReader
 LIMIT = 100000
 
 
-def extract(data, kind):
+def extract(data, kind, minimum=40):
     pages = None
     if kind == 'docx':
         with ZipFile(io.BytesIO(data)) as archive:
@@ -50,7 +50,7 @@ def extract(data, kind):
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', ' ', text).strip()
     if len(text) > LIMIT:
         raise ValueError('简历文字超出读取范围')
-    if len(re.sub(r'\s', '', text)) < 40:
+    if len(re.sub(r'\s', '', text)) < minimum:
         raise ValueError('没有提取到足够文字；扫描 PDF 请换为文字版 PDF 或 Word，不会使用其他简历替代')
     return {'text': text, 'pages': pages, 'parser': 'v2-text-1'}
 
@@ -60,7 +60,7 @@ if __name__ == '__main__':
         data = sys.stdin.buffer.read(5 * 1024 * 1024 + 1)
         if len(data) > 5 * 1024 * 1024:
             raise ValueError('文件超过 5MB')
-        result = extract(data, sys.argv[1])
+        result = extract(data, sys.argv[1], 1 if len(sys.argv) > 2 and sys.argv[2] == 'preview' else 40)
     except ValueError as error:
         result = {'error': str(error)}
     except Exception:

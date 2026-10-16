@@ -111,3 +111,11 @@ test('discovery integrates Workday full JD, dates and failures without replacing
   assert.equal(report.coverage.find(row => row.name === 'Workday').failed, 1);
   assert.equal(report.dataVersion, 5);
 });
+
+test('explicit Workday unavailability reports the observed fact without declaring permanent closure',()=>{
+ const url=workdayUrl(candidate.url).url,page=`<meta property="og:url" content="${url}"><script>window.workday = window.workday || {tenant:"synthetic", postingAvailable: false, siteId:"Careers"};</script>`;
+ assert.throws(()=>parseWorkday(page,candidate),/当前不提供该岗位详情.*停止招聘待核实/);
+ assert.throws(()=>parseWorkday(page.replace(url,url+'-OTHER'),candidate),/未提供与链接招聘编号相符/);
+ assert.throws(()=>parseWorkday('<p>postingAvailable: false</p>',candidate),/未提供与链接招聘编号相符/);
+ assert.equal(parseWorkday(page+html(post),candidate).requisitionId,'R_123');
+});

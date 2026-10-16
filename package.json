@@ -19,6 +19,7 @@
     "automation:status": "node src/automation-client.mjs status",
     "test:serial": "node --test --test-concurrency=1 test/*.test.mjs",
     "test:school:native": "node scripts/test-school-current-native.mjs",
-    "test:school:ui": "node scripts/test-school-current-ui.mjs"
+    "test:school:ui": "node scripts/test-school-current-ui.mjs",
+    "test:school:selected": "node scripts/test-school-selected-ui.mjs"
   }
 }

@@ -19,7 +19,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
 test('v2 complete two-account journey preserves actual documents and submissions across backup and restore', { skip: !python || process.env.CQ_V2_TEST_WORD !== '1', timeout: 180000 }, async t => {
   const directory = resolve('output/test-runs', `v2-journey-${randomUUID()}`), database = resolve(directory, 'live/workspaces.sqlite');
-  const setup = new WorkspaceStore(database);
+  const setup = new WorkspaceStore(database);setup.db.prepare("UPDATE settings SET value=1 WHERE name='registration_open'").run();
   await setup.createAdmin({ username: 'operator', password }); setup.close();
   const source = { id: 'fixture', name: 'Synthetic Board', url: 'https://example.com/careers' };
   const catalogue = [
@@ -27,7 +27,7 @@ test('v2 complete two-account journey preserves actual documents and submissions
     catalogueJob({ company: 'Synthetic Analytics', title: 'Data Analyst Intern', location: 'Vancouver, Canada', url: 'https://example.com/jobs/data', jd: 'Data analysis and SQL reports required. Data analytics internship. Four months, Summer 2028.' }, source)
   ];
   let server;
-  async function start(path) { server = workspaceServer({ database: path, discover: async () => ({ jobs: catalogue, sources: [{ ...source, count: 2, status: 'complete' }], finishedAt: new Date().toISOString() }) }); server.listen(0, '127.0.0.1'); await once(server, 'listening'); }
+  async function start(path) { server = workspaceServer({legacyRegistration:true, /* Existing pre-email HTTP contract fixture. */ database: path, discover: async () => ({ jobs: catalogue, sources: [{ ...source, count: 2, status: 'complete' }], finishedAt: new Date().toISOString() }) }); server.listen(0, '127.0.0.1'); await once(server, 'listening'); }
   async function stop() { if (server?.listening) await new Promise((done, reject) => server.close(error => error ? reject(error) : done())); }
   t.after(stop); await start(database);
   async function call(path, { auth, method = 'GET', value, bytes, headers = {} } = {}) {

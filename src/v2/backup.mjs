@@ -20,6 +20,11 @@ function validate(db) {
   }
   return Object.fromEntries(['users', 'jobs', 'files', 'materials', 'submissions', 'generated_resumes'].map(name => [name, db.prepare(`SELECT count(*) n FROM ${name}`).get().n]));
 }
+function revokeSecurity(db) {
+ for(const table of ['account_email_tokens','pending_signups'])if(db.prepare("SELECT 1 FROM sqlite_master WHERE name=? AND type='table'").get(table))db.exec('DELETE FROM '+table);
+ if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='account_invitations' AND type='table'").get())db.prepare('UPDATE account_invitations SET revoked=? WHERE used_by IS NULL AND revoked IS NULL').run(Date.now());
+ if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='security_limits' AND type='table'").get())db.exec('DELETE FROM security_limits');
+}
 async function syncFile(path) { const file = await open(path, 'r+'); try { await file.sync(); } finally { await file.close(); } }
 
 // Operator-only utility. Not exposed through any HTTP route or administrator account.
@@ -35,6 +40,7 @@ export async function backupWorkspace(source, destination) {
     counts = validate(snapshot);
     // Only the new snapshot is changed. Restored sessions and PDF approvals must never revive.
     snapshot.exec('PRAGMA journal_mode=DELETE; PRAGMA secure_delete=ON; BEGIN; DELETE FROM sessions; DELETE FROM pdf_reviews; DELETE FROM auth_attempts; COMMIT;');
+    revokeSecurity(snapshot);
     validate(snapshot);
   } finally { snapshot.close(); }
   await syncFile(target);
@@ -60,6 +66,9 @@ export async function restoreWorkspace(source, destination) {
     counts = validate(restored);
     if (JSON.stringify(counts) !== JSON.stringify(manifest.counts)) throw new Error('备份记录数量不一致');
     restored.exec('PRAGMA secure_delete=ON; BEGIN; DELETE FROM sessions; DELETE FROM pdf_reviews; DELETE FROM auth_attempts; COMMIT;');
+    revokeSecurity(restored);
+    // A restored copy must not reopen enrollment merely because the source allowed it.
+    restored.prepare("INSERT INTO settings(name,value) VALUES('registration_open',0) ON CONFLICT(name) DO UPDATE SET value=0").run();
   } finally { restored.close(); }
   await syncFile(target);
   await writeFile(resolve(destination, 'restore-verified.json'), JSON.stringify({ restoredAt: new Date().toISOString(), sourceSha256: manifest.sha256, sha256: await checksum(target), counts }, null, 2), { flag: 'wx', mode: 0o600 });

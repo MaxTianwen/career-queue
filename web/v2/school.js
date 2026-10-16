@@ -2,7 +2,7 @@ import {capturePanel} from './school-capture-ui.js';
 import { preserveList } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
-import { deadlineSummary, mountFilters, matchesOpportunity, factsLabel, factBadges } from './opportunity.js';
+import { countryCountSummary, freshnessSummary, publicationSummary, deadlineSummary, mountFilters, matchesOpportunity, factsLabel, factBadges } from './opportunity.js';
 const $ = selector => document.querySelector(selector);
 const node = (tag, text) => { const el = document.createElement(tag); el.textContent = text; return el; };
 const channelName = channel => channel === 'employer' ? '官网' : '学校';
@@ -187,8 +187,8 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
       const header=node('div','');header.className='card-header';const company=node('span',item.row.company || '学校机会');company.className='company-name';header.append(company);
       const location=node('p',item.row.location || '地点未知');location.className='card-location';
       const requirement=item.requirement || schoolRequirement([item.row]),route=node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind]);route.className='route-summary';
-      card.append(header,node('h3',item.row.title),location,factBadges({...item.facts,...item.row,hasSchool:true}),deadlineSummary({schoolSources:[{schoolId:item.schoolId,row:item.row}]}),route);
-      const details=document.createElement('details');details.className='card-detail';details.append(node('summary','学校资料与申请入口'),facts(item.row),node('small',`学校 ID ${item.schoolId} · 更新 ${new Date(item.updated).toLocaleString()}`));for(const [label,url] of [['打开学校 Portal',item.row.url],['打开官网',item.row.externalUrl]])if(url){const a=node('a',label+' ↗');a.href=url;a.target='_blank';a.rel='noopener noreferrer';details.append(a);}
+      card.append(header,node('h3',item.row.title),location,factBadges({...item.facts,...item.row,hasSchool:true}),publicationSummary({...item.facts,...item.row,hasSchool:true}),deadlineSummary({schoolSources:[{schoolId:item.schoolId,row:item.row}]}),route);
+      const details=document.createElement('details');details.className='card-detail';details.append(node('summary','学校资料与申请入口'),publicationSummary({...item.facts,...item.row,hasSchool:true},{detailed:true}),freshnessSummary({...item.facts,...item.row,hasSchool:true}),facts(item.row),node('small',`学校 ID ${item.schoolId} · 更新 ${new Date(item.updated).toLocaleString()}`));for(const [label,url] of [['打开学校 Portal',item.row.url],['打开官网',item.row.externalUrl]])if(url){const a=node('a',label+' ↗');a.href=url;a.target='_blank';a.rel='noopener noreferrer';details.append(a);}
       details.append(node('p','请核对原文申请要求；进入准备后可确认“学校 + 官网”或“仅学校”，两个提交状态分别记录。'));for(const quote of requirement.evidence)details.append(node('p',quote));card.append(details);
       const localStatus=node('p','');localStatus.setAttribute('role','status');card.append(localStatus);
       const start=node('button',item.jobId?'继续准备申请':'准备申请');start.type='button';
@@ -199,6 +199,7 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
       })); start.className='primary';const actions=node('div','');actions.className='card-actions';actions.append(start);card.append(actions);list.append(card);
     }
     if(!items.length){const empty=node('p',opportunities.length?'没有符合筛选的学校职位。':'展开上方导入入口，粘贴学校职位表格即可开始。');empty.className='empty';list.append(empty);}
+    list.prepend(countryCountSummary(opportunities.map(item=>({...item.facts,...item.row,hasSchool:true})),schoolFilters()));
     const count=node('p',`${items.length} / ${opportunities.length} 条学校职位`);count.className='list-meta';list.prepend(count);schoolView();
     $('#school-jobs-status').textContent='';
   }

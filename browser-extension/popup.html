@@ -1,15 +1,11 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Career Queue 岗位读取助手</title><link rel="stylesheet" href="popup.css"></head>
-<body><h1>Career Queue <small>0.3.0</small></h1>
-<section aria-labelledby="school-heading"><h2 id="school-heading">学校岗位读取</h2><p>请自行打开岗位详情。仅读取当前页可见字段，不点击申请或切换页面。</p>
-<button id="school-read" type="button">读取当前详情页</button>
-<p id="school-status" role="status" aria-live="polite">尚未读取。详情未显示编号时，请先在列表记住岗位。</p>
-<div id="school-result" hidden></div><a id="school-export" hidden>下载岗位 JSON</a>
-<p id="school-import-help" hidden>在本机工作台「学校职位」展开「导入学校岗位详情」，选择此 JSON，预览后确认。读取及导入均不代表投递。</p>
-<details id="school-list-panel"><summary>详情没有 School ID？先从列表选择</summary><p>打开学校列表，读取列表并选择目标，然后自己点击网页原标题打开详情。记住的身份24小时有效，不自动打开岗位。</p>
-<button id="school-list-read" type="button">读取当前列表</button><label for="school-selection">选择岗位</label><select id="school-selection" disabled><option value="">尚未读取列表</option></select><button id="school-remember" type="button" disabled>记住选中岗位</button>
-<p id="school-binding" role="status">未记住岗位。</p><button id="school-forget" type="button" disabled>清除岗位选择</button></details></section>
-<details><summary>官网普通文本填写（Greenhouse）</summary><p>使用本机工作台的临时配对码。先预览，再确认填写；不提交。</p>
-<label>临时配对码<input id="code" type="password" maxlength="64" autocomplete="off"></label><button id="preview" type="button">预览官网拟填写内容</button><div id="plan"></div><label><input id="confirmed" type="checkbox">我已核对当前岗位和全部拟填写内容</label><button id="fill" type="button" disabled>确认填写普通文本</button><p id="status" role="status"></p><p>电话、附件、资格、披露题及最终提交由本人处理。</p></details>
-<details><summary>问题诊断与使用说明</summary><p>出现错误请提供下方状态码。无需重复运行、重新授权或分享登录资料。批量自动读取尚未完成真实验证，本版不提供该入口。</p><pre id="school-diagnostic">CQ-READ/0.3.0 idle</pre><p>只访问当前标签的可见岗位内容。结果保存在扩展本机空间；下载文件含岗位正文，请仅用于本地工作台。</p></details>
-<script type="module" src="popup.js"></script><script type="module" src="school-current-ui.js"></script></body></html>
+<!doctype html><html lang="zh-CN" class="popup-root"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Career Queue 岗位读取助手</title><link rel="stylesheet" href="popup.css"><link rel="stylesheet" href="popup-shell.css"></head>
+<body class="popup"><header><h1>Career Queue</h1><span class="version">0.3.8 本地候选</span></header>
+<section aria-labelledby="school-heading"><h2 id="school-heading">学校岗位读取</h2><p class="hint">当前详情直接读取；多个岗位先在宽屏面板检查。</p>
+<div class="quick-actions"><button id="school-read" type="button">读取当前详情页</button><button id="selected-open" type="button">打开批量读取面板（先检查）</button></div>
+<p id="school-status" class="status" role="status" aria-live="polite">尚未读取。详情没有编号时，请先从列表选择。</p>
+<div id="school-result" hidden></div><div class="result-actions"><a id="school-export" hidden>下载岗位 JSON</a><a id="school-open-result" href="school-result.html" target="_blank" rel="noopener" hidden>在宽屏页面查看完整结果</a></div>
+<p id="school-import-help" hidden>工作台「学校职位」→「导入学校岗位详情」→预览后确认。读取不代表投递。</p>
+<details id="school-list-panel"><summary>详情没有 School ID？先从列表选择</summary><p class="hint">在列表选择并记住目标，再自己打开详情。选择24小时有效。</p><button id="school-list-read" type="button">读取当前列表</button><div class="binding-actions"><label for="school-selection">选择岗位<select id="school-selection" disabled><option value="">尚未读取列表</option></select></label><button id="school-remember" type="button" disabled>记住选中岗位</button></div><p id="school-binding" role="status">未记住岗位。</p><button id="school-forget" type="button" disabled>清除岗位选择</button></details></section>
+<details><summary>官网普通文本填写（Greenhouse）</summary><p class="hint">使用工作台临时配对码，先预览再确认；不提交。</p><label>临时配对码<input id="code" type="password" maxlength="64" autocomplete="off"></label><button id="preview" type="button">预览官网拟填写内容</button><div id="plan"></div><label><input id="confirmed" type="checkbox">我已核对当前岗位和全部拟填写内容</label><button id="fill" type="button" disabled>确认填写普通文本</button><p id="status" role="status"></p><p class="hint">电话、附件、资格、披露题及最终提交由本人处理。</p></details>
+<details><summary>问题诊断与使用说明</summary><p class="hint">出现错误请提供状态码。批量面板不会盲点未知脚本，也不请求新权限。</p><pre id="school-diagnostic">CQ-READ/0.3.8 idle</pre><p class="hint">仅读取可见岗位内容。下载文件含正文，仅用于本地工作台。</p></details>
+<script type="module" src="popup.js"></script><script type="module" src="school-current-ui.js"></script><script type="module" src="school-selected-launch.js"></script></body></html>

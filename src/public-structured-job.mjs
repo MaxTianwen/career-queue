@@ -1,3 +1,4 @@
+import { validPublicationInstant } from './publication-facts.mjs';
 import { fetchGreenhouse } from './greenhouse.mjs';
 import {postingText} from './discovery-sources.mjs';
 const hosts=new Set(['careers.arcresources.com','careers.rbi.com','careers.amd.com','www.google.com','stripe.com','grassvalley.applytojob.com','jobs.smartrecruiters.com','campus-globalcareers-atlassian.icims.com','careers-kinaxis.icims.com','hdks.fa.ca2.oraclecloud.com','app.careerpuck.com','fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com','www.tesla.com','www.tower-research.com','tower-research.com','ats.rippling.com','careers.trccompanies.com','rodanenergysolutionsinc.applytojob.com','www.pinterestcareers.com','apply.workable.com','jobs.ea.com']);
@@ -31,7 +32,11 @@ export function parseStructuredJob(html,candidate){
  const googleLocation=new URL(candidate.url).hostname==='www.google.com'?postingText(html.match(/preferred working location[^<]{0,100}<b>([^<]+)<\/b>/i)?.[1] || html.match(/>place<\/i><span class=["']r0wTof[^"']*["']>([^<]+)<\/span>/i)?.[1] || ''):'';
  const microLocation=new URL(candidate.url).hostname==='careers.arcresources.com'?['addressLocality','addressRegion','addressCountry'].map(k=>html.match(new RegExp('itemprop=["\']'+k+'["\'] content=["\']([^"\']+)["\']','i'))?.[1]).filter(Boolean).join(', '):'';
  const officialLocation=googleLocation || microLocation || addresses.map(a=>[a.addressLocality,a.addressRegion,typeof a.addressCountry==='string'?a.addressCountry:a.addressCountry?.name].filter(Boolean).join(', ')).join(' / ');
- return {...candidate,title:j.title||candidate.title,jd,...(officialLocation?{location:officialLocation,locationEvidence:{source:'official-detail',text:officialLocation}}:{}),detailError:null,sourceEvidence:{url:candidate.url,retrievedAt:new Date().toISOString(),field},requisitionId:String(j.identifier?.value||requestedId||''),duration:typeof j.jobDuration==='string'?j.jobDuration:candidate.duration||''};
+ const rawPostedAt=typeof j.datePosted==='string'?j.datePosted:'';
+ const normalized=rawPostedAt.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+ const publication=rawPostedAt?{postedAt:validPublicationInstant(normalized)?normalized:rawPostedAt,postedAtKind:'official'}:{};
+ const publicationEvidence=rawPostedAt?{postedAtField:'JobPosting.datePosted',postedAtRaw:rawPostedAt,publicationUrl:candidate.url}:{};
+ return {...candidate,...publication,title:j.title||candidate.title,jd,...(officialLocation?{location:officialLocation,locationEvidence:{source:'official-detail',text:officialLocation}}:{}),detailError:null,sourceEvidence:{url:candidate.url,retrievedAt:new Date().toISOString(),field,...publicationEvidence},requisitionId:String(j.identifier?.value||requestedId||''),duration:typeof j.jobDuration==='string'?j.jobDuration:candidate.duration||''};
 }
 export async function publicStructuredJob(candidate,fetchImpl=fetch){
  const url=new URL(candidate.url);if(url.protocol!=='https:'||url.port||url.username||url.password||!hosts.has(url.hostname))return null;
