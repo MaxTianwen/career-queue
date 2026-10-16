@@ -1,0 +1,36 @@
+{
+  "job": {
+    "title": "FY27 Intern - Firmware/Embedded Software Engineering Internship - Canada (12 or 16 months)",
+    "jd": "For 16-month internships: must be available May/June 2027 - August/September 2028\nFor 12-month internships: must be available May/June 2027 - May/June 2028",
+    "url": "https://careers.qualcomm.com/careers/job/446721141411"
+  },
+  "windows": [
+    {
+      "months": 16,
+      "startOptions": [
+        "2027-05",
+        "2027-06"
+      ],
+      "endOptions": [
+        "2028-08",
+        "2028-09"
+      ],
+      "precision": "month-options",
+      "raw": "For 16-month internships: must be available May/June 2027 - August/September 2028"
+    },
+    {
+      "months": 12,
+      "startOptions": [
+        "2027-05",
+        "2027-06"
+      ],
+      "endOptions": [
+        "2028-05",
+        "2028-06"
+      ],
+      "precision": "month-options",
+      "raw": "For 12-month internships: must be available May/June 2027 - May/June 2028"
+    }
+  ],
+  "cachedAt": "2026-10-16T00:46:04.583Z"
+}

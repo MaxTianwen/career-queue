@@ -1,3 +1,5 @@
+import {seasonForMonth} from '../../src/internship-options.mjs';
+import {startTerms} from '../../src/start-terms.mjs';
 import { publicationFacts, publicationLabel } from '../../src/publication-facts.mjs';
 import { deadlineExpired } from '../../src/deadlines.mjs';
 import { jobCategory } from '../../src/job-category.mjs';
@@ -12,23 +14,12 @@ export function platform(url) {
  return {name:['boards.greenhouse.io','job-boards.greenhouse.io'].includes(h)?'Greenhouse':h==='jobs.ashbyhq.com'?'Ashby':h==='jobs.lever.co'?'Lever':h.endsWith('.myworkdayjobs.com')?'Workday':'公司官网',questions};
 }
 // Preserve season/year pairs from the strongest term source; never borrow a year across alternatives.
-export function termPairs(job, fallback='') {
- const school=verifiedSchoolDisplay(job),info=durationFacts(job);
- if(info.placements.length)return [...new Map(info.placements.map(p=>{const year=/^20\d{2}/.exec(p.start||'')?.[0]||null;return [p.season+':'+year,{season:p.season,year}];})).values()];
- const text=String(school?.term||job.term||job.title||fallback).replace(/\b(20\d{2})\s+(winter|summer|fall)\b/gi,'$2 $1');
- const pairs=[];
- const pattern=/\b((?:winter|summer|fall)(?:\s*(?:\/|,|and|or|&)\s*(?:winter|summer|fall))*)\s*(20\d{2})?\b/gi;
- for(const match of text.matchAll(pattern))for(const season of match[1].toLowerCase().match(/winter|summer|fall/g))pairs.push({season,year:match[2]||null});
- if(!pairs.length){const years=[...new Set(text.match(/\b20\d{2}\b/g)||[])];for(const year of years)pairs.push({season:null,year});}
- // Only use JD term sentences when neither term nor title supplies a year/season.
- if(!pairs.length&&fallback&&text!==fallback)return termPairs({term:fallback});
- return [...new Map(pairs.map(p=>[`${p.season}:${p.year}`,p])).values()];
-}
+export function termPairs(job) {return startTerms(job);}
 const termLabels=f=>f.terms.length?f.terms.map(p=>`${p.season?p.season[0].toUpperCase()+p.season.slice(1):'学期未知'} ${p.year||'（年份待确认）'}`).join(' / '):'开始学期／年份未知';
 export function opportunityFacts(job) {
  const text=[job.term,job.duration,job.title,...String(job.jd||'').split(/[\n.!?]/).filter(s=>/\b(start|term|intern(?:ship)?s?|co.op|summer|winter|fall|duration)\b/i.test(s) && !/graduat|experience|degree/i.test(s))].filter(Boolean).join(' ');
  const school=verifiedSchoolDisplay(job);
- let seasons=[...new Set(((school?.term || text).match(/\b(winter|summer|fall)\b/gi)||[]).map(s=>s.toLowerCase()))];
+ let seasons=[...new Set(startTerms(job).map(p=>p.season).filter(Boolean))];
  const durationInfo=durationFacts(job),durations=durationInfo.options.map(n=>({min:n,max:n})),durationIssues=[...durationInfo.review,...durationInfo.intervals.map(r=>r.raw),...durationInfo.ranges.map(r=>r.raw),...durationInfo.other.map(r=>r.raw)];
  if(durationInfo.placements.length)seasons=[...new Set(durationInfo.placements.map(p=>p.season))];
  const track=job.classification?.track || classifyResume(job).track;const category=jobCategory(job);
@@ -51,6 +42,7 @@ export function matchesOpportunity(job,filters={}) {
  if(filters.months){
   const n=+filters.months,placements=f.durationInfo.placements;
   if(placements.length){if(!placements.some(p=>(!filters.season||p.season===filters.season)&&(!filters.year||!p.start||p.start.startsWith(String(filters.year)))&&n>=p.months.min&&n<=p.months.max))return false;}
+  else if(f.durationInfo.windows.length){if(!f.durationInfo.windows.some(w=>w.months===n&&w.startOptions.some(start=>(!filters.year||start.startsWith(String(filters.year)))&&(!filters.season||seasonForMonth(Number(start.slice(5,7)))===filters.season))))return false;}
   else {const lengths=[...f.durations,...f.durationInfo.ranges.filter(r=>r.unit==='months'),...f.durationInfo.other.filter(r=>r.unit==='months').map(r=>({min:r.value,max:r.value}))];if(!matches(lengths.length,lengths.some(d=>n>=d.min&&n<=d.max)))return false;}
  }
  if(filters.category && !matches(f.category.primary!=='unknown',f.category.primary===filters.category||(f.category.primary==='mixed'&&['cs','data'].includes(filters.category))))return false;
@@ -89,18 +81,18 @@ export function factsLabel(job) {
  return `${termLabels(f)} · ${f.durations.map(d=>d.min===d.max?d.min:d.min+'–'+d.max).join(' / ')||f.durationInfo.ranges.map(v=>v.min+'–'+v.max+(v.unit==='weeks'?' 周':' 个月')).join(' / ')||f.durationInfo.other.map(v=>v.value+(v.unit==='weeks'?' 周':' 个月')).join(' / ')||f.durationInfo.intervals.map(v=>v.start+' 至 '+v.end).join(' / ')||'时长未知'}${f.durations.length?' 个月':''} · ${f.platform.name} · ${!job.url?'申请入口待核实':f.platform.questions?'可读取申请问题':'准备材料后去官网申请'}`;
 }
 export function mountFilters(container,onChange,{schoolOnly=false,country='CA',publication=true}={}) {
- container.className='opportunity-filters';
+ container.className='opportunity-filters';if(publication){const scope=document.createElement('p');scope.className='muted opportunity-year-scope';scope.textContent='当前机会范围：2027年开始；开始年未知的职位保留，需核实。';container.append(scope);}
  const search=document.createElement('label');search.className='filter-search';search.textContent='搜索职位';const query=document.createElement('input');query.type='search';query.name='query';query.placeholder='职位、公司或编号';search.append(query);container.append(search);
  const extra=document.createElement('details');extra.className='filter-extra';const title=document.createElement('summary');title.textContent='更多条件';extra.append(title);
  for(const [name,label,choices] of [['year','开始年份',[['','所有年份'],...['2026','2027','2028','2029','2030'].map(y=>[y,y])]],['publication','发布时间',[['','所有发布时间'],['24h','最近 24 小时（精确时间）']]],['category','职位类别',[['','所有类别'],['cs','CS / Software'],['embedded','Firmware / Embedded'],['data','数据 / 分析']]],['season','开始学期',[['','所有学期'],['winter','Winter'],['summer','Summer'],['fall','Fall']]],['months','时长（月）',[['','所有时长'],...[3,4,8,12,16].map(n=>[String(n),n+' 个月'])]],['country','国家筛选',[['CA','加拿大'],['US','美国'],['all','全部']]],['source','职位来源',[['','全部来源'],['school','学校职位'],['public','网络发现']]],['platform','申请方式',[['','所有平台'],['Greenhouse','Greenhouse'],['Ashby','Ashby'],['Lever','Lever'],['Workday','Workday'],['公司官网','公司官网'],['学校 Portal','学校 Portal']]]]) {
-  if(schoolOnly&&name==='source'||!publication&&name==='publication')continue;
+  if(schoolOnly&&name==='source'||!publication&&name==='publication'||publication&&name==='year')continue;
   const l=document.createElement('label');l.textContent=label;const select=document.createElement('select');select.name=name;for(const [v,t] of choices)select.add(new Option(t,v));if(name==='year'){select.value=publication?'2027':'';select.dataset.defaultValue=select.value;}if(name==='country'){select.value=normalizeCountry(country);select.title='美国公司的全远程岗位归美国；现场或混合岗位按实际工作地点。未知公司国家不由Remote推断。';}l.append(select);(['source','platform'].includes(name)?extra:container).append(l);
  }
  const l=document.createElement('label');l.textContent='城市 / 地点';const input=document.createElement('input');input.name='location';input.placeholder='如 Toronto、Montreal、Remote';l.append(input);container.append(l);const locationHint=document.createElement('small');locationHint.className='muted location-filter-help';locationHint.textContent='仅匹配工作地点中包含的关键词（忽略大小写和首尾空格）；不扩展城市范围，未知地点不匹配。清空地点恢复其他筛选结果。';l.append(locationHint);
  const u=document.createElement('label');u.className='check';const c=document.createElement('input');c.type='checkbox';c.name='unknown';u.append(c,'同时保留相关条件未知的职位');extra.append(u);container.append(extra);
  const reset=document.createElement('button');reset.type='button';reset.className='filter-reset';let active=0;const syncReset=()=>{active=[...container.querySelectorAll('input,select')].filter(e=>e.type==='checkbox'?e.checked:e.name==='country'?normalizeCountry(e.value)!=='all':Boolean(e.value.trim())).length;reset.textContent=active?'清空筛选（'+active+'）':'无筛选条件';reset.setAttribute('aria-disabled',String(active===0));reset.dataset.active=String(active>0);};const notify=()=>{syncReset();onChange();};reset.addEventListener('click',()=>{if(!active)return;for(const e of container.querySelectorAll('input,select')){if(e.type==='checkbox')e.checked=false;else e.value=e.name==='country'?'all':'';}notify();});container.append(reset);syncReset();
  container.addEventListener('input',event=>{if(event.target.tagName!=='SELECT')notify();});container.addEventListener('change',notify);
- return ()=>{syncReset();return Object.fromEntries([...container.querySelectorAll('input,select')].map(e=>{if(e.name==='country')e.value=normalizeCountry(e.value);return [e.name,e.type==='checkbox'?e.checked:e.value];}));};
+ return ()=>{syncReset();const values=Object.fromEntries([...container.querySelectorAll('input,select')].map(e=>{if(e.name==='country')e.value=normalizeCountry(e.value);return [e.name,e.type==='checkbox'?e.checked:e.value];}));if(publication)values.year='2027';return values;};
 }
 
 // Fixed semantic tokens shared by discovery, school, cards and tables.

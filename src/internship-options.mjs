@@ -1,7 +1,8 @@
 const names='January|February|March|April|May|June|July|August|September|October|November|December';
 const months=names.toLowerCase().split('|');
 const date=(month,day,year)=>{const iso=`${year}-${String(months.indexOf(month.toLowerCase())+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,d=new Date(iso+'T00:00:00Z');return Number.isFinite(+d)&&d.toISOString().slice(0,10)===iso?iso:null;};
-const season=m=>m<=3?'winter':m<=8?'summer':'fall';
+export const seasonForMonth=m=>Number.isInteger(m)&&m>=1&&m<=12?(m<=3?'winter':m<=8?'summer':'fall'):null;
+const season=seasonForMonth;
 // Extract linked employer choices, never combine independently observed seasons and lengths.
 export function internshipOptions(job={}) {
  const out=[];

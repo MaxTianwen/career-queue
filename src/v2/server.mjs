@@ -1,3 +1,4 @@
+import {inOpportunityYear} from '../start-terms.mjs';
 import {EmailAccounts} from './email-accounts.mjs';
 import {schoolCapture} from './school-capture.mjs';
 import { browserFillBridge } from './browser-fill.mjs';
@@ -22,7 +23,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const assets = new Map([['/file-preview.js',['file-preview.js','text/javascript']],['/application-table.js',['application-table.js','text/javascript']],['/files.js',['files.js','text/javascript']],['/src/publication-facts.mjs',['../../src/publication-facts.mjs','text/javascript']],['/src/deadlines.mjs',['../../src/deadlines.mjs','text/javascript']],['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
+const assets = new Map([['/src/start-terms.mjs',['../../src/start-terms.mjs','text/javascript']],['/file-preview.js',['file-preview.js','text/javascript']],['/application-table.js',['application-table.js','text/javascript']],['/files.js',['files.js','text/javascript']],['/src/publication-facts.mjs',['../../src/publication-facts.mjs','text/javascript']],['/src/deadlines.mjs',['../../src/deadlines.mjs','text/javascript']],['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
 const cookie = (token, age = SESSION_MS / 1000) => `cq_v2_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 function tokenFrom(req) { return req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('cq_v2_session='))?.slice('cq_v2_session='.length) ?? ''; }
 async function body(req, limit) {
@@ -155,7 +156,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       }
       if (path === '/api/applications' && req.method === 'GET') return json(res, 200, store.applications(owner));
       if (['/api/school/capture-preview','/api/school/capture-import'].includes(path) && req.method === 'POST') return json(res,200,schoolCapture(store,owner,await input(),path.endsWith('capture-import')));
-      if (path === '/api/school/opportunities' && req.method === 'GET') return json(res,200,store.pendingSchoolOpportunities(owner));
+      if (path === '/api/school/opportunities' && req.method === 'GET') return json(res,200,store.pendingSchoolOpportunities(owner).filter(item=>inOpportunityYear({...item.facts,...item.row})));
       if (path === '/api/school/opportunities' && req.method === 'POST') return json(res,200,store.confirmSchoolOpportunities(owner,await input()));
       if (path === '/api/school/opportunities/start' && req.method === 'POST') { const value=await input(); return json(res,200,store.startSchoolOpportunity(owner,value.schoolId,value.fingerprint)); }
       if (path === '/api/school' && req.method === 'GET') return json(res, 200, store.schoolRecords(owner).map(row=>({...row,eligibilityExclusion:store.citizenExclusion(owner,{...row.row,schoolId:row.schoolId})})));
@@ -316,7 +317,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return json(res, 200, runner.setEnabled((await input()).enabled));
       }
       if (path === '/api/recommendations' && req.method === 'GET') {
-        const data = {...store.catalogue(),jobs:store.pendingOpportunities(owner)}, preferences = store.preferences(owner);
+        const data = {...store.catalogue(),jobs:store.pendingOpportunities(owner).filter(job=>inOpportunityYear(job))}, preferences = store.preferences(owner);
         return json(res, 200, { ...data, total: data.jobs.length, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
           unsupportedType: Boolean(preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) });
       }

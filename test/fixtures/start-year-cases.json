@@ -1,0 +1,104 @@
+[
+  {
+    "name": "cross-year labelled availability",
+    "job": {
+      "title": "Software Intern",
+      "jd": "For 16-month internships: must be available May/June 2027 - August/September 2028"
+    },
+    "terms": [
+      {
+        "season": "summer",
+        "year": "2027"
+      }
+    ],
+    "included": true
+  },
+  {
+    "name": "cross-year calendar work term",
+    "job": {
+      "title": "Software Intern",
+      "jd": "Co-op Duration This opportunity runs from September 2026 through August 2027"
+    },
+    "terms": [
+      {
+        "season": "fall",
+        "year": "2026"
+      }
+    ],
+    "included": false
+  },
+  {
+    "name": "metadata is not a start year",
+    "job": {
+      "title": "Software Intern",
+      "postedAt": "2027-01-01",
+      "deadline": "2028-01-01",
+      "jd": "Graduation 2027 or 2028. Internship applications close in 2026."
+    },
+    "terms": [],
+    "included": true
+  },
+  {
+    "name": "explicit start excludes end date",
+    "job": {
+      "title": "Software Intern",
+      "jd": "Start Date: May 2027. End Date: August 2028."
+    },
+    "terms": [
+      {
+        "season": null,
+        "year": "2027"
+      }
+    ],
+    "included": true
+  },
+  {
+    "name": "ambiguous title years remain unknown",
+    "job": {
+      "title": "Software Intern 2027/2028"
+    },
+    "terms": [],
+    "included": true
+  },
+  {
+    "name": "unrelated summer graduation",
+    "job": {
+      "title": "Software Intern",
+      "jd": "Candidates graduating in Summer 2028 are welcome."
+    },
+    "terms": [],
+    "included": true
+  },
+  {
+    "name": "known other cohort",
+    "job": {
+      "title": "Software Intern",
+      "term": "Summer 2028"
+    },
+    "terms": [
+      {
+        "season": "summer",
+        "year": "2028"
+      }
+    ],
+    "included": false
+  },
+  {
+    "name": "paired alternatives",
+    "job": {
+      "title": "Software Intern",
+      "term": "Summer 2026 / Winter 2027"
+    },
+    "terms": [
+      {
+        "season": "summer",
+        "year": "2026"
+      },
+      {
+        "season": "winter",
+        "year": "2027"
+      }
+    ],
+    "included": true
+  }
+]

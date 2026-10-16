@@ -21,11 +21,11 @@ test('explicit reporting alternatives retain both locations, without collecting 
  assert.equal(explicitJobRequirements(a).location,a.location);
  for(const body of ['Our offices are in Markham or Oshawa.','For example, '+jd,'The successful candidate is not expected to report to Markham or Oshawa three times per week.'])assert.equal(explicitJobRequirements({...base,jd:body}).location,base.location);
 });
-test('slash-month availability preserves alternatives and does not invent a season or exact date',()=>{
+test('slash-month availability maps known start months to Summer without inventing an exact date',()=>{
  const jd='For 16-month internships: must be available May/June 2027 - August/September 2028';
  const f=durationFacts({...base,jd});assert.deepEqual(f.options,[16]);assert.equal(f.windows.length,1);
  assert.deepEqual(f.windows[0].startOptions,['2027-05','2027-06']);assert.deepEqual(f.windows[0].endOptions,['2028-08','2028-09']);
- assert.deepEqual(f.placements,[]);assert.deepEqual(opportunityFacts({...base,jd}).seasons,[]);
+ assert.deepEqual(f.placements,[]);assert.deepEqual(opportunityFacts({...base,jd}).seasons,['summer']);
  for(const body of ['Expected graduation May/June 2027 - August/September 2028','For 16-month internships: may be available May/June 2027 - August/September 2028','For 16-month internships: must be available May/June 2028 - August/September 2027'])assert.equal(durationFacts({jd:body}).windows.length,0);
 });
 
