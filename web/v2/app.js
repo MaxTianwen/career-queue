@@ -1,6 +1,6 @@
 import {filePreview} from './file-preview.js';
 import { renderFiles } from './files.js';
-import { returnGuard, preserveList, viewLoader, viewNavigation } from './page-stability.js';
+import { returnGuard, preserveList, viewLoader, viewNavigation, invalidatesViews } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
 import { countryCountSummary, freshnessSummary, publicationSummary, deadlineSummary, factBadges, factsLabel, preparationRoute, matchesOpportunity, mountFilters, platform } from './opportunity.js';
@@ -46,7 +46,7 @@ async function api(path, { method = 'GET', value, file, kind, signal } = {}) {
     if (account && [401, 403].includes(response.status)) clearPrivate('会话已结束或账号已切换，请重新登录。');
     throw new Error(data.error || '请求失败，请重试');
   }
-  if(method!=='GET'&&path!=='/api/recommendations/update')viewReads.invalidate();
+  if(invalidatesViews(path,method))viewReads.invalidate();
   return data;
 }
 function setBusy(value) {

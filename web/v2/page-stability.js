@@ -46,3 +46,6 @@ export function viewNavigation({window:win=window,render,read=()=>{},restore=()=
   dispose(){win.removeEventListener('popstate',pop);win.history.scrollRestoration=restoration;}
  };
 }
+
+// Passive file viewing must not discard unrelated in-flight list reads. Unknown POSTs remain writes.
+export function invalidatesViews(path,method='GET'){return method!=='GET'&&path!=='/api/recommendations/update'&&!(method==='POST'&&/^\/api\/files\/[a-f0-9-]{36}\/view$/.test(path));}

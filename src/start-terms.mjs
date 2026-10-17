@@ -13,13 +13,14 @@ export function startTerms(job={}){
  // These structured intervals/windows identify start and end separately; never use end years.
  const starts=[...info.intervals.map(p=>p.start),...info.windows.flatMap(p=>p.startOptions)];
  if(starts.length)return unique(starts.map(p=>({season:seasonForMonth(Number(String(p).slice(5,7))),year:/^20\d{2}/.exec(p)?.[0]||null})));
- for(const text of [school?.term||job.term,job.title]){if(!text)continue;const named=namedTerms(text);if(named.length){const years=[...new Set(String(text).match(/\b20\d{2}\b/g)||[])];if(named.length===1&&!named[0].year&&years.length===1&&!excluded.test(text))return [{...named[0],year:years[0]}];return named;}if(!excluded.test(text)){const years=[...new Set(String(text).match(/\b20\d{2}\b/g)||[])];if(years.length===1)return [{season:null,year:years[0]}];}}
+ let yearOnly=null;
+ for(const text of [school?.term||job.term,job.title]){if(!text)continue;const named=namedTerms(text);if(named.length){const years=[...new Set(String(text).match(/\b20\d{2}\b/g)||[])];if(named.length===1&&!named[0].year&&years.length===1&&!excluded.test(text))return [{...named[0],year:years[0]}];return named;}if(!excluded.test(text)){const years=[...new Set(String(text).match(/\b20\d{2}\b/g)||[])];if(years.length===1){yearOnly=[{season:null,year:years[0]}];break;}}}
  const pairs=[];for(const sentence of String(job.jd||'').split(/[\n.!?]/)){
   if(excluded.test(sentence.replace(/\bend date[\s\S]*/i,'')))continue;
-  const start=sentence.match(/\b(?:internship\s+)?start(?: date|s|ing)?\s*(?::|in|on)?\s*(?:[A-Za-z]+\s+\d{1,2},?\s+|[A-Za-z]+\s+)?(20\d{2})(?:-\d{2}-\d{2})?/i);
-  if(start){pairs.push({season:null,year:start[1]});continue;}
+  const start=sentence.match(/\b(?:internship\s+)?start(?: date|s|ing)?\s*(?::|in|on)?\s*(?:([A-Za-z]+)\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?)?(20\d{2})(?:-(\d{2})(?:-\d{2})?)?/i);
+  if(start){const month=start[1]?'january february march april may june july august september october november december'.split(' ').indexOf(start[1].toLowerCase())+1:Number(start[3]);pairs.push({season:seasonForMonth(month),year:start[2]});continue;}
   if(/\b(?:internship|work term|co-op|starts?|starting)\b/i.test(sentence))pairs.push(...namedTerms(sentence.split(/\b(?:ends?|ending|until|through)\b/i)[0]));
  }
- return unique(pairs);
+ return yearOnly&&(!pairs.length||pairs.some(p=>p.year!==yearOnly[0].year))?yearOnly:unique(pairs);
 }
 export function inOpportunityYear(job,year='2027'){const terms=startTerms(job);return !terms.length||terms.some(p=>!p.year||p.year===String(year));}
