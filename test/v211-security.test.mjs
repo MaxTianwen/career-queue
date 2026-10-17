@@ -102,3 +102,26 @@ test('failed invitation transaction rolls back consumption and user; each expens
  await assert.rejects(f.s.authenticate({username:'rollback',password,invitation:i.code},true));assert.equal(f.s.db.prepare("SELECT count(*) n FROM users WHERE username='rollback'").get().n,0);assert.equal(f.s.security.invitation(i.code,'rollback').used_by,null);f.s.db.exec('DROP TRIGGER reject_security_event');assert.ok((await f.s.authenticate({username:'rollback',password,invitation:i.code},true)).user.id);
  for(const [kind,count] of Object.entries({upload:30,parse:30,preview:120,generation:30,export:10,admin:30})){for(let n=0;n<count;n++)f.s.security.resource('synthetic-a',kind);assert.throws(()=>f.s.security.resource('synthetic-a',kind),{status:429});assert.doesNotThrow(()=>f.s.security.resource('synthetic-b',kind));}f.advance(300001);assert.doesNotThrow(()=>f.s.security.resource('synthetic-a','upload'));
 });
+
+test('confirmation changes and file view reject both member and admin cross-owner IDs without side effects',async t=>{
+ let previews=0;const f=await fixture(t,{preview:async()=>{previews++;return{pages:1,images:['synthetic-owner-preview']};}}),a=await f.member('alice'),b=await f.member('bob');
+ const j=f.s.saveJob(a.user.id,{company:'PRIVATE_CONFIRMATION_OWNER',title:'Intern'}),file=f.s.saveFile(a.user.id,'private.pdf',Buffer.from('%PDF-1.7 synthetic owner'));
+ const confirmation={source:'manual-confirmation',confirmed:true,channel:'employer',date:new Date().toISOString().slice(0,10),receipt:'PRIVATE_RECEIPT_OWNER',requestId:randomUUID()};f.s.confirmSubmission(a.user.id,j.id,confirmation);
+ const record=f.s.application(a.user.id,j.id).submissions[0];assert.ok(record.id);
+ const before=()=>JSON.stringify(f.s.exportData(a.user.id)).replace(/"exportedAt":"[^"]+"/,'');const snapshot=before();
+ for(const auth of [b,f.root]){
+  const ownJob=f.s.saveJob(auth.user.id,{company:'Other',title:'Intern'});
+  for(const jobId of [j.id,ownJob.id])for(const action of ['correct','withdraw','restore']){
+   const r=await f.call('/api/jobs/'+jobId+'/submission-confirmations/'+record.id+'/changes',{auth,method:'POST',value:{action,confirmed:true,revision:0,requestId:randomUUID(),date:confirmation.date}});assert.equal(r.status,404);assert(!r.text.includes('PRIVATE_RECEIPT_OWNER'));
+  }
+  assert.equal((await f.call('/api/jobs/'+j.id+'/submission-confirmation',{auth,method:'POST',value:{...confirmation,requestId:randomUUID()}})).status,404);
+  for(const suffix of ['view','preview','history-preview','trash','restore'])assert.equal((await f.call('/api/files/'+file.id+'/'+suffix,{auth,method:'POST',value:{confirmed:true,name:file.name,sha256:file.sha256}})).status,404,suffix);
+  assert.equal((await f.call('/api/files/'+file.id,{auth,method:'DELETE'})).status,404);
+  assert.equal((await f.call('/api/jobs/'+j.id,{auth,method:'DELETE'})).status,404);
+  for(const path of ['/api/applications','/api/withdrawn-applications'])assert(!(await f.call(path,{auth})).text.includes('PRIVATE_CONFIRMATION_OWNER'));
+ }
+ assert.equal(previews,0);assert.equal(before(),snapshot);
+ assert.equal((await f.call('/api/files/'+file.id+'/view',{auth:a,method:'POST',value:{}})).status,200);assert.equal(previews,1);
+ assert.equal((await f.call('/api/jobs/'+j.id+'/submission-confirmations/'+record.id+'/changes',{auth:a,method:'POST',value:{action:'withdraw',confirmed:true,revision:0,requestId:randomUUID()}})).status,200);
+ assert.equal(f.s.applications(a.user.id).length,0);assert.equal(f.s.withdrawnApplications(a.user.id).length,1);
+});
