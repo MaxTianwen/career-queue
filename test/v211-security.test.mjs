@@ -10,7 +10,7 @@ import {workspaceServer} from '../src/v2/server.mjs';
 import {backupWorkspace,restoreWorkspace} from '../src/v2/backup.mjs';
 const password='Synthetic security password 2026!';
 async function fixture(t,options={}){
- const database=resolve('output/test-runs','security-'+randomUUID(),'db.sqlite');let time=Date.now();const s=new WorkspaceStore(database,{now:()=>time});t.after(()=>s.close());
+ const database=resolve('output/test-runs','security-'+randomUUID(),'db.sqlite');let time=options.initialTime??Date.now();const s=new WorkspaceStore(database,{now:()=>time});t.after(()=>s.close());
  const admin=await s.createAdmin({username:'operator',password}),root=await s.authenticate({username:'operator',password});
  const invite=name=>s.security.issue(admin.id,{username:name,confirmed:true,requestId:randomUUID()});
  const member=async name=>s.authenticate({username:name,password,invitation:invite(name).code},true);
@@ -104,9 +104,9 @@ test('failed invitation transaction rolls back consumption and user; each expens
 });
 
 test('confirmation changes and file view reject both member and admin cross-owner IDs without side effects',async t=>{
- let previews=0;const f=await fixture(t,{preview:async()=>{previews++;return{pages:1,images:['synthetic-owner-preview']};}}),a=await f.member('alice'),b=await f.member('bob');
+ let previews=0;const f=await fixture(t,{initialTime:Date.parse('2026-10-17T01:00:00Z'),preview:async()=>{previews++;return{pages:1,images:['synthetic-owner-preview']};}}),a=await f.member('alice'),b=await f.member('bob');
  const j=f.s.saveJob(a.user.id,{company:'PRIVATE_CONFIRMATION_OWNER',title:'Intern'}),file=f.s.saveFile(a.user.id,'private.pdf',Buffer.from('%PDF-1.7 synthetic owner'));
- const confirmation={source:'manual-confirmation',confirmed:true,channel:'employer',date:new Date().toISOString().slice(0,10),receipt:'PRIVATE_RECEIPT_OWNER',requestId:randomUUID()};f.s.confirmSubmission(a.user.id,j.id,confirmation);
+ const confirmation={source:'manual-confirmation',confirmed:true,channel:'employer',date:new Date(f.s.now()).toISOString().slice(0,10),timezoneOffset:0,receipt:'PRIVATE_RECEIPT_OWNER',requestId:randomUUID()};f.s.confirmSubmission(a.user.id,j.id,confirmation);
  const record=f.s.application(a.user.id,j.id).submissions[0];assert.ok(record.id);
  const before=()=>JSON.stringify(f.s.exportData(a.user.id)).replace(/"exportedAt":"[^"]+"/,'');const snapshot=before();
  for(const auth of [b,f.root]){
