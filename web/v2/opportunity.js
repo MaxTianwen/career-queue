@@ -4,7 +4,7 @@ import { publicationFacts, publicationLabel } from '../../src/publication-facts.
 import { deadlineExpired } from '../../src/deadlines.mjs';
 import { jobCategory } from '../../src/job-category.mjs';
 import { jobCountries, countryFilterFacts, remoteFacts, usRemoteEligibility } from '../../src/job-country.mjs';
-import { durationFacts, verifiedSchoolDisplay } from '../../src/duration-facts.mjs';
+import { durationFacts } from '../../src/duration-facts.mjs';
 import { classifyResume } from '../../src/resume-track.mjs';
 // Display and filtering only. Unknown facts stay unknown; never alter eligibility or records.
 export function platform(url) {
@@ -17,23 +17,28 @@ export function platform(url) {
 export function termPairs(job) {return startTerms(job);}
 const termLabels=f=>f.terms.length?f.terms.map(p=>`${p.season?p.season[0].toUpperCase()+p.season.slice(1):'学期未知'} ${p.year||'（年份待确认）'}`).join(' / '):'开始学期／年份未知';
 export function opportunityFacts(job) {
- const text=[job.term,job.duration,job.title,...String(job.jd||'').split(/[\n.!?]/).filter(s=>/\b(start|term|intern(?:ship)?s?|co.op|summer|winter|fall|duration)\b/i.test(s) && !/graduat|experience|degree/i.test(s))].filter(Boolean).join(' ');
- const school=verifiedSchoolDisplay(job);
- let seasons=[...new Set(startTerms(job).map(p=>p.season).filter(Boolean))];
+ const terms=startTerms(job);
+ let seasons=[...new Set(terms.map(p=>p.season).filter(Boolean))];
  const durationInfo=durationFacts(job),durations=durationInfo.options.map(n=>({min:n,max:n})),durationIssues=[...durationInfo.review,...durationInfo.intervals.map(r=>r.raw),...durationInfo.ranges.map(r=>r.raw),...durationInfo.other.map(r=>r.raw)];
  if(durationInfo.placements.length)seasons=[...new Set(durationInfo.placements.map(p=>p.season))];
  const track=job.classification?.track || classifyResume(job).track;const category=jobCategory(job);
- return {terms:termPairs(job,text),seasons,durations,durationIssues,durationInfo,track,category,platform:job.hasSchool&&!job.hasPublic?(job.externalUrl?platform(job.externalUrl):{name:'学校 Portal',questions:false}):platform(job.url)};
+ return {terms,seasons,durations,durationIssues,durationInfo,track,category,platform:job.hasSchool&&!job.hasPublic?(job.externalUrl?platform(job.externalUrl):{name:'学校 Portal',questions:false}):platform(job.url)};
 }
 export function normalizeCountry(value) {return value==='CA-US'?'all':['CA','US','all'].includes(value)?value:'CA';}
+// Reuse country evidence only within this call; never retain account data or time-sensitive results.
+function matchesCountry(job,country,facts=countryFilterFacts(job)) {
+ return country==='US'?(facts.usEmployerRemote||usRemoteEligibility(job).eligible):facts.countries.includes(country);
+}
 export function matchesOpportunity(job,filters={}) {
  if(filters.publication==='24h'&&!publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},filters.now??Date.now()).recent24h)return false;
  const query=String(filters.query||'').trim().toLocaleLowerCase();
  if(query&&!query.split(/\s+/).every(word=>[job.company,job.title,job.requisitionId,job.schoolId,...(job.schoolSources||[]).map(s=>s.schoolId)].join(' ').toLocaleLowerCase().includes(word)))return false;
- const f=opportunityFacts(job),unknown=filters.unknown===true;
- const countries=countryFilterFacts(job).countries,country=filters.country?normalizeCountry(filters.country):'all';if(country!=='all'&&!(country==='US'?(countryFilterFacts(job).usEmployerRemote||usRemoteEligibility(job).eligible):countries.includes(country)))return false;
+ const unknown=filters.unknown===true;
+ const country=filters.country?normalizeCountry(filters.country):'all';if(country!=='all'&&!matchesCountry(job,country))return false;
  if(filters.source==='school'&&!job.hasSchool)return false;
  if(filters.source==='public'&&!job.hasPublic)return false;
+ // Country counts and text-only filters do not need term/duration/category parsing.
+ const f=filters.year||filters.season||filters.months||filters.category||filters.platform?opportunityFacts(job):null;
  const matches=(known,match)=>known?match:unknown;
  if(filters.year){const relevant=filters.season?f.terms.filter(p=>!p.season||p.season===filters.season):f.terms;
   if(relevant.length&&!relevant.some(p=>!p.year||p.year===String(filters.year)))return false;
@@ -57,7 +62,7 @@ export function workLocations(job={}) {
 export function countryCounts(jobs,filters={}) {
  const unique=[...new Map(jobs.map(j=>[j.id||j,j])).values()].filter(j=>matchesOpportunity(j,{...filters,country:'all'}));
  let caOnly=0,usOnly=0,both=0,other=0;
- for(const j of unique){const ca=matchesOpportunity(j,{country:'CA'}),us=matchesOpportunity(j,{country:'US'});if(ca&&us)both++;else if(ca)caOnly++;else if(us)usOnly++;else other++;}
+ for(const j of unique){const facts=countryFilterFacts(j),ca=matchesCountry(j,'CA',facts),us=matchesCountry(j,'US',facts);if(ca&&us)both++;else if(ca)caOnly++;else if(us)usOnly++;else other++;}
  return {all:unique.length,CA:caOnly+both,US:usOnly+both,caOnly,usOnly,both,other};
 }
 export function countryCountSummary(jobs,filters={}) {

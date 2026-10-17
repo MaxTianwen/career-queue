@@ -1,0 +1,62 @@
+[
+  {
+    "company": "Synthetic Canada",
+    "title": "Software Intern 2027",
+    "location": "Toronto, Canada",
+    "jd": "Start Date: May 2027. Duration: 4 months. Develop software applications using JavaScript."
+  },
+  {
+    "company": "CACI",
+    "title": "Software Summer 2027 Intern",
+    "location": "Remote, United States",
+    "jd": "This is a fully remote software internship for 12 months. Build software applications. Applicants must reside in the United States."
+  },
+  {
+    "company": "Synthetic Hybrid",
+    "title": "Data Intern Fall 2027",
+    "location": "Montreal, Canada / Boston, United States",
+    "workMode": "Hybrid",
+    "jd": "This is a hybrid position. Internship duration: 8 months. Build data pipelines."
+  },
+  {
+    "company": "Unknown Location",
+    "title": "Firmware Intern",
+    "location": "Unknown",
+    "jd": "Start Date: January 2027. Internship for 16 months. Develop firmware and embedded software in C."
+  },
+  {
+    "company": "Synthetic Prior Year",
+    "title": "Software Summer 2026 Intern",
+    "location": "Waterloo, Canada",
+    "jd": "Duration: 4 months. Develop software applications. Graduation in 2027 is required."
+  },
+  {
+    "company": "Synthetic Future",
+    "title": "Software Intern",
+    "location": "Vancouver, Canada",
+    "jd": "Start Date: September 2028. End Date: December 2028. Develop software applications."
+  },
+  {
+    "company": "Synthetic School",
+    "title": "Data internship",
+    "location": "Toronto, ON",
+    "hasSchool": true,
+    "hasPublic": false,
+    "schoolSources": [
+      {
+        "schoolId": "SYN-1",
+        "row": {
+          "term": "Summer 2027",
+          "duration": "4 months"
+        }
+      }
+    ],
+    "jd": "This internship starts May 2027 and lasts 4 months. Build data pipelines."
+  },
+  {
+    "company": "Synthetic Flexible",
+    "title": "Software Intern 2027",
+    "location": "Austin, TX",
+    "jd": "Start Date: May 2027. End Date: August 2028. This is a fully remote internship. Develop software applications."
+  }
+]
