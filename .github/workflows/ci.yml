@@ -27,6 +27,15 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r scripts/requirements-test.txt
+      - name: Configure isolated document test runtime
+        run: |
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          runtime = Path('private/v2-local/runtime.json')
+          runtime.parent.mkdir(parents=True, exist_ok=True)
+          runtime.write_text(json.dumps({'python': sys.executable}), encoding='utf-8')
+          PY
       - run: npm run test:serial
       - name: Verification limits
         if: always()

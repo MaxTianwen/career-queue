@@ -15,7 +15,7 @@ export async function waitForDevToolsPort(profile, child, {timeoutMs=30000, inte
       try {
         const [port,path]=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).trim().split(/\r?\n/);
         if(/^\d+$/.test(port)&&Number(port)>0&&Number(port)<=65535&&/^\/devtools\/browser\/[\w-]+$/.test(path||''))return Number(port);
-      } catch(error) {if(error.code!=='ENOENT')throw error;}
+      } catch(error) {if(!['ENOENT','EBUSY'].includes(error.code))throw error;}
       await delay(intervalMs);
     } while(Date.now()<deadline);
     throw new Error('Timed out waiting for isolated browser DevToolsActivePort');

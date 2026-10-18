@@ -17,7 +17,7 @@ export function localDate(date=new Date()) {
   return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
 }
 export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloadFile, filesChanged, readView=(_key,load)=>load(()=>true) }) {
-  let jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
+  let generatedRows=[], jobId = null, state = null, revision = 0, requestId = 0, schoolContext = null;
   let displayStorage;try{displayStorage=globalThis.localStorage;}catch{}let displayMode=readDisplay(displayStorage,'applications');
   const displayControls=el('div','');displayControls.className='view-switch';displayControls.setAttribute('role','group');displayControls.setAttribute('aria-label','申请记录显示方式');
   const tableHost=el('div',''),historyHost=el('div','');tableHost.id='applications-table';historyHost.id='applications-history';$('#applications-tab').append(tableHost,historyHost);
@@ -133,8 +133,8 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     $('#submission-school-context').textContent = `${schoolChanged ? '学校关联已变化，请重新核对并确认。' : ''}${schoolContext ? `学校提交将对应 School ID ${schoolContext.schoolId}：${schoolContext.company} · ${schoolContext.title}` : '尚未关联 School ID；学校提交将保留为未关联记录，不自动推断学校编号。'}`;
     if (state?.context.hash !== next.context.hash) material.elements.confirmed.checked = false;
     if (draft && draft.contextHash !== next.context.hash) clearDraft();
-    if (editDraft && editDraft.contextHash !== next.context.hash) $('#word-edit-status').textContent = '岗位或简历已变化，不能保存此修改；文字已保留供你复制，请取消后重新生成。';
-    state = next;
+    if (editDraft && editDraft.contextHash !== (generated.find(row=>row.id===editDraft.parentId)?.snapshot.context.hash || next.context.hash)) $('#word-edit-status').textContent = '岗位或简历已变化，不能保存此修改；文字已保留供你复制，请取消后重新生成。';
+    state = next; generatedRows=generated;
     if (!dirty.has('preparation-form')) {
       preparation.elements.notes.value = nextPreparation.notes;
       preparation.elements.reviewed.checked = nextPreparation.reviewed;
@@ -168,9 +168,10 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     }
     if (!dirty.has('channel-form')) $('#channel-form').elements.channel.value = state.channel;
     options(submission.elements.materialId, state.versions.map((version, index) => ({ id: version.id, label: `版本 ${state.versions.length - index} · ${version.snapshot.resume.name}${version.stale ? ' · 依据已变化' : ''}` })), '请选择实际使用的版本');
-    $('#material-context').textContent = state.context.ready ? `对应已保存的岗位与简历：${state.context.resume.name} · ${state.context.hash.slice(0, 8)}` : '先保存完整 JD，并在“我的文件”核对启用简历，再保存材料版本。';
+    const selectedContext=generated.find(row=>row.pdfId===material.elements.resumeFileId.value)?.snapshot.context || state.context;
+    $('#material-context').textContent = selectedContext.ready || selectedContext.selectedResume ? `对应已保存的岗位与简历：${selectedContext.resume.name} · ${selectedContext.hash.slice(0, 8)}` : '先保存完整 JD，并在“我的文件”核对启用简历，再保存材料版本。';
     $('#confirmation-status').textContent=submissionSummary(state.submissions);
-    $('#application-status').textContent = state.context.ready ? '岗位与简历已就绪，可准备材料。' : '下一步：'+(!state.context.job.jd?'补充职位 JD。':'在“我的文件”启用你的简历。');
+    $('#application-status').textContent = selectedContext.selectedResume ? '已选本岗独立原稿的生成版本；可预览并确认材料，无需切换全局简历。' : state.context.ready ? '岗位与简历已就绪，可准备材料。' : '下一步：'+(!state.context.job.jd?'补充职位 JD。':'在“我的文件”启用你的简历。');
     $('#generation-panel').open=Boolean(state.context.ready);
     $('#prepare-baseline').hidden=Boolean(state.context.ready || !state.context.job.jd);
     $('#channel-details').open=Boolean(schoolContext && state.channel==='unknown');
@@ -572,7 +573,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
   material.addEventListener('submit', event => { event.preventDefault(); action('#application-status', async () => {
     if (jobDirty()) throw new Error('职位信息有未保存改动，请先保存职位再审阅材料');
     if (!state) throw new Error('请先刷新材料区');
-    await api(`/api/jobs/${jobId}/materials`, { method: 'POST', value: { contextHash: state.context.hash, resumeFileId: material.elements.resumeFileId.value, coverFileId: material.elements.coverFileId.value, confirmed: material.elements.confirmed.checked } });
+    await api(`/api/jobs/${jobId}/materials`, { method: 'POST', value: { contextHash: generatedRows.find(row=>row.pdfId===material.elements.resumeFileId.value)?.snapshot.context.hash || state.context.hash, resumeFileId: material.elements.resumeFileId.value, coverFileId: material.elements.coverFileId.value, confirmed: material.elements.confirmed.checked } });
     dirty.delete('material-form'); material.elements.confirmed.checked = false; await afterSave('材料版本已保存，尚未记录实际提交');
   }); });
   let confirmationRequestId=crypto.randomUUID();

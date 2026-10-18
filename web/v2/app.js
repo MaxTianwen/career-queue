@@ -1,9 +1,10 @@
+import {batchPreparation} from './batch-preparation.js';
 import {filePreview} from './file-preview.js';
 import { renderFiles } from './files.js';
 import { returnGuard, preserveList, viewLoader, viewNavigation, invalidatesViews } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
-import { countryCountSummary, freshnessSummary, publicationSummary, deadlineSummary, factBadges, factsLabel, preparationRoute, matchesOpportunity, mountFilters, platform } from './opportunity.js';
+import { orderDiscovery, discoveryBadge, countryCountSummary, freshnessSummary, publicationSummary, deadlineSummary, factBadges, factsLabel, preparationRoute, matchesOpportunity, mountFilters, platform } from './opportunity.js';
 import { applicationWorkspace } from './application.js';
 import { schoolWorkspace } from './school.js';
 import { refreshController } from './refresh-controller.js';
@@ -13,15 +14,15 @@ const viewReads=viewLoader();
 const readView=(key,load,options)=>viewReads.run(key,load,options);
 const reading=new WeakMap();
 async function backgroundRead(selector,run){const status=$(selector),ticket={epoch};reading.set(status,ticket);try{await run();if(ticket.epoch===epoch&&reading.get(status)===ticket)status.dataset.state='success';}catch(error){if(ticket.epoch===epoch&&reading.get(status)===ticket){status.dataset.state='error';status.textContent='读取未完成，已有内容保留；可重新切页或手动刷新重试。'+error.message;}}}
-let reviewedResume = null, recommendations = [], visibleRecommendations = 20;
+let reviewedResume = null, recommendations = [], visibleRecommendations = 20, refreshBatch=null;
 let emailEnabled=false, emailReady=false;
 let account = null, csrf = '', epoch = 0, registering = false, jobs = [], busy = false, expiryTimer;
 const channel = new BroadcastChannel('career-queue-v2-account');
 function clearPrivate(message = '') {
-  fileViewer.clear(false);viewReads.invalidate(); navigation.reset();
+  fileViewer.clear(false);batch.clear();viewReads.invalidate(); navigation.reset();
   document.body.classList.remove('session-check');$('#workspace').inert=false;sessionReturn.stop();
   clearTimeout(expiryTimer); updates.stop(); applications.clear(); school.clear();
-  reviewedResume = null; recommendations = []; $('#resume-text').textContent = ''; $('#resume-name').textContent = ''; $('#resume-review').hidden = true; $('#job-match').replaceChildren(); $('#recommendations-list').replaceChildren(); $('#source-status').replaceChildren(); $('#active-resume').textContent = '尚未启用简历';
+  reviewedResume = null; recommendations = []; refreshBatch=null; $('#resume-text').textContent = ''; $('#resume-name').textContent = ''; $('#resume-review').hidden = true; $('#job-match').replaceChildren(); $('#recommendations-list').replaceChildren(); $('#source-status').replaceChildren(); $('#active-resume').textContent = '尚未启用简历';
   $('#show-hidden-jobs').checked = false;
   epoch++; account = null; csrf = ''; jobs = [];
   document.body.classList.remove('signed-in'); $('#workspace').hidden = true; $('#account').hidden = true; $('#auth').hidden = false;
@@ -156,7 +157,7 @@ async function downloadFile(file) {
   }
   const blob = await response.blob();
   if (captured !== epoch) return;
-  const link = document.createElement('a'), url = URL.createObjectURL(blob); link.href = url; link.download = file.name;try{const encoded=response.headers.get('Content-Disposition')?.split("filename*=UTF-8''")[1];if(encoded)link.download=decodeURIComponent(encoded);}catch{} link.click();
+  const link = document.createElement('a'), url = URL.createObjectURL(blob); link.href = url; link.download = file.downloadName || file.name;try{const encoded=response.headers.get('Content-Disposition')?.split("filename*=UTF-8''")[1];if(encoded&&!file.downloadName)link.download=decodeURIComponent(encoded);}catch{} link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 async function enter(session) {
@@ -326,6 +327,7 @@ function openPreparation(job,from='recommendations') {
  returnPosition=window.scrollY;returnFocus=document.activeElement;returnTab=from;try{sessionStorage.setItem('cq-draft-'+account.id,job.id);}catch{}tab('jobs');selectJob(job);$('#job-detail').scrollIntoView({block:'start'});$('#selected-job-summary').focus();
 }
 $('#back-opportunities').addEventListener('click',()=>{if(allowJobSwitch()){try{sessionStorage.removeItem('cq-draft-'+account.id);}catch{}tab(returnTab);window.scrollTo(0,returnPosition);if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});}});
+const batch=batchPreparation({host:$('#recommendations-list'),api,preview:file=>fileViewer.open(file),download:downloadFile,openJob:async id=>{if(!allowJobSwitch())return;const job=await api('/api/jobs/'+id);jobs=[job,...jobs.filter(j=>j.id!==id)];drawJobs();openPreparation(job);},changed:()=>drawRecommendations()});
 const discoveryFilters=mountFilters($('#discovery-filters'),()=>{visibleRecommendations=20;drawRecommendations();});
 const discoveryView=mountView($('#recommendations-list'),'discovery',drawRecommendations);
 const savedFilters=mountFilters($('#saved-filters'),drawJobs,{publication:false});
@@ -352,7 +354,7 @@ let recommendationRevision=0;
 function loadRecommendations(force=true){return readView('discovery',readRecommendations,{force});}
 async function readRecommendations(current) {
   const revision=++recommendationRevision,captured=epoch;
-  const [data,exclusions]=await Promise.all([api('/api/recommendations'),api('/api/eligibility/exclusions')]);if(!current()||revision!==recommendationRevision||captured!==epoch)return;recommendations=data.jobs;
+  const [data,exclusions]=await Promise.all([api('/api/recommendations'),api('/api/eligibility/exclusions')]);if(!current()||revision!==recommendationRevision||captured!==epoch)return;recommendations=data.jobs;refreshBatch=data.refreshBatch||null;
   $('#recommendation-status').textContent = data.unsupportedType ? '已保存的职位类型超出本期范围，请在求职偏好中重新选择。' : data.finishedAt ? `去重库 ${data.total ?? data.jobs.length} 条 · 截止与偏好筛选后 ${data.jobs.length} 条 · 最近刷新 ${new Date(data.finishedAt).toLocaleString()}` : '尚未读取公开列表，点击“刷新公开来源”开始。';
   $('#source-status').replaceChildren(...data.sources.map(source => node('p', `${source.name} · ${{ complete: '完整读取', partial: '部分读取', failed: '读取失败' }[source.status] || '待核实'} · 读取 ${source.raw ?? source.count} 条，范围内 ${source.count} 条 · ${source.detailed ?? 0} 条正文${source.error ? ' · ' + source.error : ''}`)));
 
@@ -363,13 +365,15 @@ async function readRecommendations(current) {
 function drawRecommendations() {
   $('#recommendations-list').replaceChildren();
   const candidates=recommendations.filter(job=>!jobs.some(saved=>(job.draftIds || []).includes(saved.id)&&saved.hidden));
-  const available=candidates.filter(job=>matchesOpportunity(job,discoveryFilters()));
-  $('#recommendations-list').append(countryCountSummary(candidates,discoveryFilters()));
+  const now=Date.now(),filters={...discoveryFilters(),now};
+  const available=orderDiscovery(candidates.filter(job=>matchesOpportunity(job,filters)),now);
+  $('#recommendations-list').append(countryCountSummary(candidates,filters));
   $('#recommendations-list').append(node('p',`${available.length} 个机会 · 显示 ${Math.min(available.length,visibleRecommendations)} 个`,'list-meta'));
+  if(refreshBatch)$('#recommendations-list').append(node('p',refreshBatch.historyComplete===false?'新增历史已达到容量边界，暂不标记新增；发布时间仍独立判断。':`标记来自最近一次${refreshBatch.partial?'部分成功':'成功'}刷新（${new Date(refreshBatch.finishedAt).toLocaleString()}）；本次新增 ${refreshBatch.newIds.length} 条。标记保留到下一次成功刷新；失败不替换。历史记录始于 ${new Date(refreshBatch.startedAt).toLocaleDateString()}，不代表更早历史已完整核验。`,'discovery-batch-note muted'));
   if(!available.length)$('#recommendations-list').append(node('p',recommendations.length?'没有符合当前条件的职位。试试清空筛选，或允许保留未知条件。':'还没有可浏览的职位。点击刷新公开来源，或从学校列表开始。','empty'));
   for (const job of available.slice(0, visibleRecommendations)) {
     const card = node('article', '', 'recommendation-card'+(job.hasSchool?' school-opportunity':''));card.dataset.jobId=job.id;
-    const header=node('div','','card-header');header.append(node('span',job.company,'company-name'));card.append(header,node('h3',job.title),node('p',job.location || '地点未知','card-location'),factBadges(job),publicationSummary(job),deadlineSummary(job));
+    const header=node('div','','card-header');header.append(node('span',job.company,'company-name'));const priority=discoveryBadge(job,now);if(priority)header.append(priority);header.append(batch.checkbox(job));card.append(header,node('h3',job.title),node('p',job.location || '地点未知','card-location'),factBadges(job),publicationSummary(job),deadlineSummary(job));
     if(job.hasSchool){const confirmed=(job.schoolSources||[]).map(s=>s.requirement).filter(r=>r?.source==='user');const requirement=confirmed.length?(new Set(confirmed.map(r=>r.kind)).size===1?confirmed[0]:{kind:'unknown'}):schoolRequirement((job.schoolSources||[]).map(s=>s.row),job);card.append(node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind],'route-summary'));}
     const detail=document.createElement('details');detail.className='card-detail';detail.append(node('summary','职位详情与匹配依据'),publicationSummary(job,{detailed:true}),freshnessSummary(job));
     detail.append(node('p',`${job.workMode || '办公方式未知'} · ${job.salary || '薪资未披露'}`,'muted'));

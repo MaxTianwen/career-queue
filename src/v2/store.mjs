@@ -1,3 +1,4 @@
+import {refreshNovelty} from './refresh-novelty.mjs';
 import { WorkspaceSecurity } from './workspace-security.mjs';
 import { readAliases, projectAliases } from './opportunity-aliases.mjs';
 import { mergePublication } from '../publication-facts.mjs';
@@ -657,6 +658,7 @@ export class WorkspaceStore {
   }
   setFileKind(owner,id,kind){this.file(owner,id);if(!['resume','cover'].includes(kind))fail(400,'请选择简历或求职信');const current=this.fileKind(owner,id);if(current.kindConflict||(current.kind!=='unknown'&&current.kind!==kind))fail(409,'文件已有用途或历史引用，不能改为另一类；请上传独立原件');this.db.prepare('INSERT INTO file_kinds VALUES(?,?,?) ON CONFLICT(file_id) DO UPDATE SET kind=excluded.kind').run(id,owner,kind);return this.files(owner).find(f=>f.id===id);}
   fileOrigin(owner,id) {
+    if(this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='offline_results'").get()&&this.db.prepare('SELECT snapshot FROM offline_results WHERE user_id=?').all(owner).some(r=>Object.values(JSON.parse(r.snapshot).files).some(f=>f.id===id&&!f.reused)))return {kind:'generated',label:'离线导入成品 · 待人工核对'};
     for(const row of this.db.prepare('SELECT snapshot,created FROM migration_receipts WHERE user_id=?').all(owner)){
       const s=JSON.parse(row.snapshot),d=s.documents?.find(d=>d.fileId===id);
       if(d)return {kind:'historical-generated',label:`历史生成稿 · ${s.original?.company || s.targetAtMigration?.company || ''} · ${d.version || d.name}`,importedAt:row.created};
@@ -669,6 +671,7 @@ export class WorkspaceStore {
     return null;
   }
   fileHistoryReason(owner,id) {
+    if(this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='offline_results'").get()&&this.db.prepare('SELECT snapshot FROM offline_results WHERE user_id=?').all(owner).some(r=>Object.values(JSON.parse(r.snapshot).files).some(f=>f.id===id)))return '离线成品历史';
     for(const [table,label] of [['materials','申请材料历史'],['submissions','提交历史'],['generated_resumes','生成版本历史'],['migration_receipts','历史迁入记录'],['question_drafts','申请问答'],['question_history','申请问答历史'],['application_preparation','申请准备记录']]){
       if(this.db.prepare(`SELECT * FROM ${table} WHERE user_id=?`).all(owner).some(row=>Object.values(row).some(value=>typeof value==='string'&&value.includes(id))))return `已关联${label}，归档后仍保留历史读取`;
     }
@@ -761,10 +764,13 @@ export class WorkspaceStore {
       const migrationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM migration_receipts WHERE user_id=?').get(owner).n;
       const questionSize = ['question_drafts','question_history'].reduce((sum, table) => sum + this.db.prepare(`SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM ${table} WHERE user_id=?`).get(owner).n, 0);
       const preparationSize = this.db.prepare('SELECT coalesce(sum(length(CAST(notes AS BLOB))),0) n FROM application_preparation WHERE user_id=?').get(owner).n;
+      const offlineTables=['offline_packets','offline_results'].filter(table=>this.db.prepare("SELECT 1 FROM sqlite_master WHERE name=?").get(table));
+      const offlineSize=offlineTables.reduce((sum,table)=>sum+this.db.prepare('SELECT coalesce(sum(length(CAST(snapshot AS BLOB))),0) n FROM '+table+' WHERE user_id=?').get(owner).n,0);
       const confirmationSize=this.db.prepare('SELECT coalesce(sum(length(before_snapshot || after_snapshot || reason)),0) n FROM confirmation_changes WHERE user_id=?').get(owner).n;
-      if (confirmationSize + historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize + questionSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
+      if (offlineSize + confirmationSize + historySize + correctionSize + jdSize + schoolSize + migrationSize + preparationSize + questionSize > 24 * 1024 * 1024) fail(413, '历史内容超过本期导出限制，请使用本机完整备份');
       const rows = (table, columns) => this.db.prepare(`SELECT ${columns} FROM ${table} WHERE user_id=? ORDER BY rowid`).all(owner);
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
+        offlineExchange:Object.fromEntries(offlineTables.map(table=>[table,rows(table,'snapshot').map(r=>JSON.parse(r.snapshot))])),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
         schoolOpportunities: this.schoolOpportunities(owner), jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
         resumeText: rows('resume_text', 'file_id,text,text_hash,pages,parser'),
@@ -788,12 +794,11 @@ export class WorkspaceStore {
   }
   generatedResumes(owner, id) {
     this.job(owner, id);
-    const context = this.materialContext(owner, id);
     return this.db.prepare('SELECT id,pdf_id pdfId,docx_id docxId,snapshot,created FROM generated_resumes WHERE user_id=? AND job_id=? ORDER BY created DESC,rowid DESC').all(owner, id)
-      .map(row => ({ ...row, snapshot: JSON.parse(row.snapshot), stale: JSON.parse(row.snapshot).context.hash !== context.hash }));
+      .map(row => ({ ...row, snapshot: JSON.parse(row.snapshot), stale: !this.generationContextMatches(owner,id,JSON.parse(row.snapshot).context) }));
   }
   saveGenerated(owner, id, context, result, fingerprint, parentId = null) {
-    if (context.hash !== this.materialContext(owner, id).hash) fail(409, '生成期间岗位或简历已变化，未保存材料；请重新准备对照');
+    if (!this.generationContextMatches(owner,id,context)) fail(409, '生成期间岗位或简历已变化，未保存材料；请重新准备对照');
     let templateSha = context.resume.fileSha;
     if (parentId) {
       const parent = this.generatedResumes(owner, id).find(row => row.id === parentId);
@@ -814,10 +819,15 @@ export class WorkspaceStore {
       return this.generatedResumes(owner, id).find(row => row.id === versionId);
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
-  materialContext(owner, id) {
-    const job = this.job(owner, id), resume = this.activeResume(owner);
+  generationContextMatches(owner,id,context) {
+    try{return context.hash===this.materialContext(owner,id,context.selectedResume?context.resume?.fileId:null).hash;}catch{return false;}
+  }
+  materialContext(owner, id, resumeFileId=null) {
+    if(resumeFileId&&this.fileOrigin(owner,resumeFileId).kind!=='uploaded')fail(409,'批量原稿必须选择本人上传原件，不能使用历史生成稿');
+    const job = this.job(owner, id), resume = resumeFileId?this.parsedResume(owner,textField(resumeFileId,36,true)):this.activeResume(owner);
     const source = { job: { id: job.id, company: job.company, title: job.title, location: job.location, url: job.url, jd: job.jd },
       resume: resume ? { fileId: resume.fileId, name: resume.name, fileSha: resume.fileSha, textHash: resume.textHash } : null };
+    if(resumeFileId)source.selectedResume=true;
     return { ...source, hash: hash(JSON.stringify(source)), ready: Boolean(resume && job.jd.trim()) };
   }
   application(owner, id) {
@@ -825,7 +835,7 @@ export class WorkspaceStore {
     const requirement=schoolRequirement(this.schoolLinks(owner).filter(link=>link.jobId===id).map(link=>link.row),context.job);
     const channel = this.db.prepare('SELECT channel FROM application_plans WHERE user_id=? AND job_id=?').get(owner, id)?.channel ?? ({both:'both',portal_only:'school-only'}[requirement.kind] || 'unknown');
     const versions = this.db.prepare('SELECT id,snapshot,created FROM materials WHERE user_id=? AND job_id=? ORDER BY created DESC,rowid DESC').all(owner, id)
-      .map(row => { const snapshot = JSON.parse(row.snapshot); return { id: row.id, created: row.created, snapshot, stale: snapshot.context.hash !== context.hash }; });
+      .map(row => { const snapshot = JSON.parse(row.snapshot); return { id: row.id, created: row.created, snapshot, stale: !this.generationContextMatches(owner,id,snapshot.context) }; });
     const corrections = this.db.prepare('SELECT id,submission_id submissionId,revision,request_id requestId,before_snapshot,after_snapshot,reason,actor,created FROM submission_corrections WHERE user_id=? AND job_id=? ORDER BY revision').all(owner, id)
       .map(({ before_snapshot, after_snapshot, ...row }) => ({ ...row, before: JSON.parse(before_snapshot), after: JSON.parse(after_snapshot) }));
     const submissions = this.db.prepare('SELECT id,channel,material_id materialId,submitted_date date,receipt,created FROM submissions WHERE user_id=? AND job_id=? ORDER BY created').all(owner, id)
@@ -912,7 +922,8 @@ export class WorkspaceStore {
     this.db.prepare('INSERT INTO pdf_reviews VALUES (?,?,?,?,?) ON CONFLICT(file_id) DO UPDATE SET pages=excluded.pages,session_key=excluded.session_key,viewed=excluded.viewed').run(fileId, owner, pages, hash(sessionKey), this.now());
   }
   reviewMaterial(owner, id, input, sessionKey) {
-    const context = this.materialContext(owner, id);
+    const generatedSource=this.generatedResumes(owner,id).find(row=>row.pdfId===input.resumeFileId);
+    const context = this.materialContext(owner, id, generatedSource?.snapshot.context.selectedResume?generatedSource.snapshot.context.resume.fileId:null);
     if (!context.ready) fail(409, '请先保存完整 JD 并启用自己的简历');
     if (input.confirmed !== true || input.contextHash !== context.hash) fail(409, '岗位或简历已变化，请刷新材料区并重新审阅');
     const read = (fileId, onePage) => {
@@ -1075,7 +1086,7 @@ export class WorkspaceStore {
     return this.jobs(owner).flatMap(job => { const app = this.application(owner, job.id); return app.submissions.length ? [{ jobId: job.id, company: job.company, title: job.title, status: app.status, channel: app.channel, requirement:app.requirement, channelProgress:app.channelProgress, schoolContext:this.schoolContext(owner,job.id), submissions: app.submissions }] : []; });
   }
   catalogue() { const row = this.db.prepare('SELECT payload FROM catalogue WHERE id=1').get(); return row ? JSON.parse(row.payload) : { jobs: [], sources: [], finishedAt: null }; }
-  saveCatalogue(result) {
+  saveCatalogue(result, {refreshId=null}={}) {
     // A partial/failed source cannot erase its last successful records.
     const old = this.catalogue(), sources = new Map(result.sources.map(source => [source.id, source]));
     const jobs = new Map(old.jobs.filter(job => (job.sources || [job.source]).some(source => sources.get(source.id)?.status !== 'complete')).map(job => [job.id, { ...job, sourceUpdatedAt:job.sourceUpdatedAt || old.finishedAt || null, stale: true }]));
@@ -1087,12 +1098,14 @@ export class WorkspaceStore {
       job.durationEvidence=incoming.durationEvidence || cached?.durationEvidence || null;
       jobs.set(job.id, cached?.jd && (!job.jd || (cached.fullJd && !job.fullJd)) ? { ...job,...Object.fromEntries(['title','location','workMode','deadline','deadlineEvidence','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource'].filter(k=>cached[k] && (!['deadline','deadlineEvidence'].includes(k) || !job.deadline)).map(k=>[k,cached[k]])), sourceUpdatedAt:cached.sourceUpdatedAt || old.finishedAt || null, jd: cached.jd, stale: true, detailError: job.detailError || '正文暂不可读，保留上次正文，请核实' } : { ...job, sourceUpdatedAt:result.finishedAt || new Date(this.now()).toISOString(), stale: false });
     }
-    const value = { ...result, jobs: [...jobs.values()].map(job=>({...job,durationInfo:durationFacts(job)})) };
+    const value = { ...result, discoveryHistory:old.discoveryHistory,refreshBatch:old.refreshBatch,jobs: [...jobs.values()].map(job=>({...job,durationInfo:durationFacts(job)})) };
+    if(refreshId)Object.assign(value,refreshNovelty(old,value,refreshId,this.now(),readAliases(this.db)));
     this.db.prepare('INSERT INTO catalogue VALUES (1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(value));
     return value;
   }
   opportunities(owner) {
-    return projectAliases(unifiedOpportunities(owner,this.catalogue(),this.schoolOpportunities(owner),this.jobs(owner)),readAliases(this.db));
+    const catalogue=this.catalogue(),fresh=new Set(catalogue.refreshBatch?.newIds||[]);
+    return projectAliases(unifiedOpportunities(owner,{...catalogue,jobs:catalogue.jobs.map(j=>({...j,newInRefresh:fresh.has(j.id)}))},this.schoolOpportunities(owner),this.jobs(owner)),readAliases(this.db));
   }
   saveSuggested(owner, id) {
     const job = this.opportunities(owner).find(job => job.id === id);

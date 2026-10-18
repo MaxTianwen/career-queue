@@ -66,3 +66,16 @@ main,body.signed-in main{max-width:1376px;margin:0 auto;padding:20px 28px 72px}n
 /* Filter actions remain visible without competing with the list. */
 .opportunity-filters>.filter-reset,#school-filters>.filter-reset{background:#edf4fd;border:1px solid #8caed4;color:#174f8b;font-weight:650;padding:9px 14px;min-height:44px}.filter-reset[data-active=false]{background:#f5f7fa;border-color:#d1dae6;color:#66768a}.filter-reset[data-active=true]:hover{background:#dfeefd;border-color:#5285bd}.discovery-toolbar>div:first-child{flex:1;min-width:0}.discovery-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}.discovery-actions #view-update-progress{font-size:14px;background:transparent;border-color:transparent;color:var(--muted)}.discovery-actions #refresh-sources{min-width:112px}.refine-filters[hidden]{display:none}@media(max-width:760px){.discovery-toolbar{display:block}.discovery-actions{margin-top:12px;display:grid;grid-template-columns:1fr}.discovery-actions #refresh-sources{width:100%}.discovery-actions #view-update-progress{justify-self:end}.opportunity-filters>.filter-reset,#school-filters>.filter-reset{max-width:100%;white-space:normal}}
 .opportunity-filters>.opportunity-year-scope{grid-column:1/-1;margin:0;}
+
+/* Text and distinct borders keep refresh/publication signals readable without color. */
+.discovery-priority{display:inline-block;padding:.3rem .65rem;border:2px solid currentColor;border-radius:.35rem;font-size:.85rem;white-space:normal}.priority-new{color:#174a88;background:#e9f2ff}.priority-recent{color:#6b4700;background:#fff5d6;border-style:dashed}.discovery-batch-note{line-height:1.6}.card-header{gap:.5rem;flex-wrap:wrap}
+
+.batch-preparation{margin:1rem 0;padding:1rem;border:1px solid #cbd5e1;border-radius:.6rem}.batch-preparation label{display:block;margin:.6rem 0}.batch-preparation select{max-width:100%;width:100%}.batch-item{border-top:1px solid #cbd5e1;padding:1rem 0;overflow-wrap:anywhere}.batch-item button{margin:.25rem}.batch-item input[type=checkbox]{width:auto;margin:.5rem}
+
+.batch-pdf-preview img{display:block;width:100%;height:auto;max-width:700px}.batch-selection{display:inline-flex;align-items:center;gap:.35rem}.batch-selection input[type=checkbox]{width:20px;height:20px;min-height:20px;margin:0}.batch-item input[type=checkbox]{min-height:20px;height:20px}
+
+
+
+
+
+.offline-exchange article{border:1px solid #ddd;padding:12px;margin:12px 0;overflow-wrap:anywhere}.offline-exchange pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.offline-exchange input[type=file]{max-width:100%}.offline-exchange button{margin:4px}

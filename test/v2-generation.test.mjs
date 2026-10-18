@@ -97,3 +97,17 @@ test('v2 actual manual edit preserves fonts and originals; overflowing text is r
   await assert.rejects(editWord(owner, context, file, { ...input, edits: draft.fields.map(field => ({ paragraph: field.paragraph, text: 'This is a long synthetic sentence for overflow validation. '.repeat(33) })) }, python), error => error.status === 422 && /一页/.test(error.message));
   assert.deepEqual(file.bytes, original);
 });
+
+test('batch actual per-JD Word exports differ only through reviewed original-text reorder, preserve sources and yield previewable PDFs', {skip:!python||process.env.CQ_V2_TEST_WORD!=='1'},async()=>{
+ const {file,context,owner}=sample(),original=Buffer.from(file.bytes),results=[];
+ for(const jd of ['Python SQL pipelines automated validation tests data analysis reports.','React accessible interfaces student feedback.']){
+  const current={...context,hash:digest(jd),job:{...context.job,id:randomUUID(),jd}};
+  const draft=await prepareWord(owner,current,file,python);
+  const result=await generateWord(owner,current,file,{fingerprint:draft.fingerprint,confirmed:true,decisions:draft.groups.map(g=>({id:g.id,accepted:true}))},python);
+  assert.equal(result.validation.pages,1);assert.equal(result.validation.formattingUnchanged,true);assert.equal(result.validation.fontSizesUnchanged,true);
+  const {renderPdf}=await import('../src/v2/pdf-preview.mjs');const preview=await renderPdf({format:'pdf',bytes:result.pdf},python);assert.equal(preview.pages,1);assert(preview.images.length>0);
+  const parsed=await prepareWordEdit(owner,current,{...file,bytes:result.docx,sha256:digest(result.docx)},python);
+  results.push(parsed.fields.map(x=>x.original));assert.deepEqual(file.bytes,original);
+ }
+ assert.notDeepEqual(results[0],results[1]);assert.deepEqual([...results[0]].sort(),[...results[1]].sort());
+});

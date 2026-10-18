@@ -55,3 +55,5 @@ body>footer{display:flex;justify-content:space-between;gap:16px;padding:24px 36p
 .publication-filter-help { flex-basis:100%; margin:.25rem 0; }
 
 .file-row>div{min-width:0}.file-row strong,.file-row small{overflow-wrap:anywhere}.file-row>.actions{flex-wrap:wrap}.file-delete-confirm{grid-column:1/-1;flex-basis:100%;padding:16px;border:1px solid var(--control);border-radius:10px}.file-delete-confirm button{margin:4px 8px 4px 0}
+
+.offline-jd-body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto}.offline-jd{min-width:0}.offline-exchange [tabindex="-1"]:focus{outline:2px solid currentColor;outline-offset:3px}.offline-exchange pre{white-space:pre-wrap;overflow-wrap:anywhere}

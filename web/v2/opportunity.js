@@ -173,3 +173,16 @@ export function freshnessSummary(job,now=Date.now()) {
  else if(!job.jd)parts.push('尚无完整正文');
  p.textContent=parts.join(' · ');return p;
 }
+
+// One badge per opportunity; discovery novelty is independent of official publication.
+export function discoveryPriority(job,now=Date.now()) {
+ if(job.hasPublic&&job.newInRefresh===true)return {rank:0,label:'本次新增',kind:'new',note:'最近一次成功刷新首次记录到的公共去重岗位；不代表刚刚发布。'};
+ if(publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},now).recent24h)return {rank:1,label:'近24小时发布',kind:'recent',note:'来源明确的发布时间在过去24小时内。'};
+ return {rank:2,label:'',kind:'other',note:''};
+}
+export function orderDiscovery(jobs,now=Date.now()) {
+ return jobs.map((job,index)=>({job,index,rank:discoveryPriority(job,now).rank})).sort((a,b)=>a.rank-b.rank||a.index-b.index).map(x=>x.job);
+}
+export function discoveryBadge(job,now=Date.now()) {
+ const info=discoveryPriority(job,now);if(!info.label)return null;const badge=document.createElement('strong');badge.className='discovery-priority priority-'+info.kind;badge.textContent=info.label;badge.title=info.note;return badge;
+}

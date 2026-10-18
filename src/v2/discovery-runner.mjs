@@ -72,12 +72,11 @@ export class CatalogueRunner {
     try {
       const result = await this.discover();
       if (!result.sources?.some(s => s.status === 'complete' || s.status === 'partial')) throw Error('所有来源均未成功读取');
-      const old = new Set(this.store.catalogue().jobs.map(j => j.id));
       this.store.db.exec('BEGIN IMMEDIATE');
       try {
-        const saved = this.store.saveCatalogue(result);
+        const saved = this.store.saveCatalogue(result,{refreshId:run.id});
         Object.assign(run, { status: result.sources.every(s => s.status === 'complete') ? 'done' : 'partial',
-          count: saved.jobs.length, added: saved.jobs.filter(j => !old.has(j.id)).length,
+          count: saved.jobs.length, added: saved.refreshBatch.newIds.length,
           sources: result.sources, finishedAt: new Date(this.store.now()).toISOString() });
         if (started >= planned) this.state.lastSuccessDay = day;
         this.persist(); this.store.db.exec('COMMIT'); return saved;

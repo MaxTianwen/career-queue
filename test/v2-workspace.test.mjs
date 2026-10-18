@@ -1353,3 +1353,28 @@ test('school list HTTP writes require confirmed current preview and replay a los
  const second=await f.call('/api/school/opportunities',{auth:a,method:'POST',value});assert.deepEqual(second.data,first.data);
  assert.equal((await f.call('/api/applications',{auth:a})).data.length,1);
 });
+
+test('batch selected source stays independent of active resume; foreign files, stale JD, generated baselines and false submissions are rejected', async t => {
+ const f=await fixture(t,{...editOptions,preview:async()=>({pages:1,images:[]})}),a=await f.account('batch-alice'),b=await f.account('batch-bob'),p=await wordApplication(f,a);
+ const uploadWord=async(auth,name)=>(await f.call('/api/files',{auth,method:'POST',bytes:wordBytes,headers:{'Content-Type':'application/octet-stream','X-File-Name':name}})).data;
+ const alternate=await uploadWord(a,'data.docx'),foreign=await uploadWord(b,'foreign.docx');
+ await f.call('/api/files/'+alternate.id+'/parse',{auth:a,method:'POST',value:{}});
+ const base='/api/jobs/'+p.job.id;
+ assert.equal((await f.call(base+'/generation-draft',{auth:a,method:'POST',value:{resumeFileId:foreign.id}})).status,404);
+ const draft=await f.call(base+'/generation-draft',{auth:a,method:'POST',value:{resumeFileId:alternate.id}});assert.equal(draft.status,200,draft.text);
+ const value={...p.input,...draft.data,resumeFileId:alternate.id};
+ const saved=await f.call(base+'/generation',{auth:a,method:'POST',value});assert.equal(saved.status,200,saved.text);
+ assert.equal(saved.data.snapshot.context.resume.fileId,alternate.id);assert.equal(saved.data.snapshot.context.selectedResume,true);
+ assert.equal((await f.call('/api/resume',{auth:a})).data.fileId,p.file.id);
+ assert.equal((await f.call(base+'/application',{auth:a})).data.submissions.length,0);
+ await f.call('/api/files/'+saved.data.pdfId+'/preview',{auth:a,method:'POST',value:{}});
+ const reviewed=await f.call(base+'/materials',{auth:a,method:'POST',value:{contextHash:saved.data.snapshot.context.hash,resumeFileId:saved.data.pdfId,confirmed:true}});
+ assert.equal(reviewed.status,200,reviewed.text);assert.equal(reviewed.data.versions[0].snapshot.context.resume.fileId,alternate.id);assert.equal(reviewed.data.versions[0].stale,false);assert.equal(reviewed.data.submissions.length,0);
+ assert.equal((await f.call('/api/files/'+saved.data.pdfId,{auth:b})).status,404);
+ assert.equal((await f.call(base+'/generation-draft',{auth:a,method:'POST',value:{resumeFileId:saved.data.docxId}})).status,409);
+ assert.equal((await f.call(base+'/generation/'+saved.data.id+'/edit-draft',{auth:a,method:'POST',value:{}})).status,200);
+ await f.call(base,{auth:a,method:'PUT',value:{...p.job,jd:'Different JD requires React and accessibility.'}});
+ assert.equal((await f.call(base+'/generation',{auth:a,method:'POST',value})).status,409);
+ assert.equal((await f.call(base+'/generation',{auth:a})).data[0].stale,true);
+ assert.deepEqual((await f.call('/api/files/'+alternate.id,{auth:a})).bytes,wordBytes);
+});

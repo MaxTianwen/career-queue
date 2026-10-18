@@ -1,3 +1,4 @@
+import {OfflineExchange} from './offline-exchange.mjs';
 import {inOpportunityYear} from '../start-terms.mjs';
 import {EmailAccounts} from './email-accounts.mjs';
 import {schoolCapture} from './school-capture.mjs';
@@ -23,7 +24,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const assets = new Map([['/src/start-terms.mjs',['../../src/start-terms.mjs','text/javascript']],['/file-preview.js',['file-preview.js','text/javascript']],['/application-table.js',['application-table.js','text/javascript']],['/files.js',['files.js','text/javascript']],['/src/publication-facts.mjs',['../../src/publication-facts.mjs','text/javascript']],['/src/deadlines.mjs',['../../src/deadlines.mjs','text/javascript']],['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
+const assets = new Map([['/offline-exchange-ui.js',['offline-exchange-ui.js','text/javascript']],['/batch-preparation.js',['batch-preparation.js','text/javascript']],['/src/start-terms.mjs',['../../src/start-terms.mjs','text/javascript']],['/file-preview.js',['file-preview.js','text/javascript']],['/application-table.js',['application-table.js','text/javascript']],['/files.js',['files.js','text/javascript']],['/src/publication-facts.mjs',['../../src/publication-facts.mjs','text/javascript']],['/src/deadlines.mjs',['../../src/deadlines.mjs','text/javascript']],['/editorial.css',['editorial.css','text/css']],['/school-capture-ui.js',['school-capture-ui.js','text/javascript']],['/src/job-category.mjs',['../../src/job-category.mjs','text/javascript']],['/src/job-country.mjs',['../../src/job-country.mjs','text/javascript']],['/src/internship-options.mjs',['../../src/internship-options.mjs','text/javascript']],['/page-stability.js',['page-stability.js','text/javascript']],['/src/duration-facts.mjs',['../../src/duration-facts.mjs','text/javascript']],['/requirements.js', ['requirements.js','text/javascript']], ['/opportunity-view.js', ['opportunity-view.js','text/javascript']], ['/refresh-controller.js',['refresh-controller.js','text/javascript']],['/src/resume-track.mjs', ['../../src/resume-track.mjs', 'text/javascript']], ['/opportunity.js', ['opportunity.js', 'text/javascript']],['/question-diff.js', ['question-diff.js', 'text/javascript']], ['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/application.js', ['application.js', 'text/javascript']], ['/school.js', ['school.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
 const cookie = (token, age = SESSION_MS / 1000) => `cq_v2_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 function tokenFrom(req) { return req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('cq_v2_session='))?.slice('cq_v2_session='.length) ?? ''; }
 async function body(req, limit) {
@@ -44,6 +45,7 @@ function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'app
 export function workspaceServer({ database = resolve(root, 'private/v2-local/workspaces.sqlite'), now, extract = extractResume, discover = fetchCatalogue, preview = renderPdf, documentText = extractDocumentText, prepare = prepareWord, generate = generateWord, prepareEdit = prepareWordEdit, edit = editWord, archive = exportArchive, workUsage = wordWorkUsage, availability, applicationForm = readGreenhouseForm, automationToken = null, online = networkAvailable, mailTransport = null, legacyRegistration = false, httpServer = null } = {}) {
   const store = new WorkspaceStore(database, { now });
   try {
+  const offline=new OfflineExchange(store);
   const emailAccounts = new EmailAccounts(store, mailTransport);
   const bridge = browserFillBridge(store);
   const gate = availabilityGate(store, availability);
@@ -111,6 +113,18 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return value;
       };
       if (req.method === 'GET' && path === '/api/session') return json(res, 200, { user: { id: owner, username: session.username, role: session.role }, csrf: session.csrf, expires: session.expires });
+      if(path.startsWith('/api/offline/')) {
+        const alive=()=>!!store.session(token);
+        if(req.method==='GET'&&path==='/api/offline/results')return json(res,200,offline.list(owner));
+        if(req.method==='POST') {
+          store.security.resource(owner,path==='/api/offline/jd-preview'?'preview':'export');
+          if(path==='/api/offline/jd-preview')return json(res,200,offline.previewJobs(owner,await input()));
+          if(path==='/api/offline/export')return json(res,200,await offline.export(owner,await input(),alive));
+          if(path==='/api/offline/import-preview') {const bytes=await body(req,25*1024*1024);if(!alive())fail(401,'请重新登录');return json(res,200,await offline.preview(owner,bytes,session.csrf,alive));}
+          if(path==='/api/offline/import-confirm')return json(res,200,offline.confirm(owner,await input(),session.csrf));
+        }
+        fail(404,'离线接口不存在');
+      }
       if (req.method === 'POST' && path === '/api/account/password') {
         const result = await store.changePassword(token, await input());
         res.setHeader('Set-Cookie', cookie('', 0));
@@ -182,7 +196,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         const [, id, parentId, operation] = editing, value = await input();
         const parent = store.generatedResumes(owner, id).find(row => row.id === parentId);
         if (!parent) fail(404, '未找到此岗位的生成稿');
-        const context = store.materialContext(owner, id);
+        const context = store.materialContext(owner,id,parent.snapshot.context.selectedResume?parent.snapshot.context.resume.fileId:null);
         if (parent.stale || !context.ready) fail(409, '岗位或当前简历已变化，请重新生成后编辑');
         if (deadlineExpired(extractDeadline(context.job).deadline, new Date(store.now()))) fail(409, 'JD 中的明确截止时间已过，不能继续准备材料');
         if (operation === 'edit' && (value.contextHash !== context.hash || value.confirmed !== true || value.openConfirmed !== true)) fail(409, '请核对修改、当前依据，并确认岗位仍开放');
@@ -196,7 +210,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         try {
           const result = operation === 'edit-draft' ? await prepareEdit(owner, context, file) : await edit(owner, context, file, value);
           if (!store.session(token)) fail(401, '请重新登录；未保存修改稿');
-          if (store.materialContext(owner, id).hash !== context.hash) fail(409, '岗位或简历已变化，未保存修改稿');
+          if (!store.generationContextMatches(owner,id,context)) fail(409, '岗位或简历已变化，未保存修改稿');
           if (operation === 'edit-draft') return json(res, 200, { ...result, contextHash: context.hash, parentId, availability: checked });
           gate.require(owner, id, session.csrf, value);
           const fingerprint = digest(JSON.stringify({ context: context.hash, parentId, review: result.review }));
@@ -209,7 +223,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         store.job(owner, id);
         if (operation === 'generation' && req.method === 'GET') return json(res, 200, store.generatedResumes(owner, id));
         if (req.method === 'POST') {
-          const value = await input(), context = store.materialContext(owner, id);
+          const value = await input(), context = store.materialContext(owner,id,value.resumeFileId||null);
           if (!context.ready) fail(409, '请先保存 JD 并启用自己的 Word 简历');
           if (deadlineExpired(extractDeadline(context.job).deadline, new Date(store.now()))) fail(409, 'JD 中的明确申请截止时间已过，不能继续生成');
           const file = store.file(owner, context.resume.fileId);
@@ -224,7 +238,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
           try {
             const result = operation === 'generation-draft' ? await prepare(owner, context, file) : await generate(owner, context, file, value);
             if (!store.session(token)) fail(401, '请重新登录；未保存生成材料');
-            if (store.materialContext(owner, id).hash !== context.hash) fail(409, '岗位或简历已变化，请重新准备对照');
+            if (!store.generationContextMatches(owner,id,context)) fail(409, '岗位或简历已变化，请重新准备对照');
             if (operation === 'generation-draft') return json(res, 200, { ...result, contextHash: context.hash, availability: checked });
             gate.require(owner, id, session.csrf, value);
             const fingerprint = digest(JSON.stringify({ context: context.hash, fingerprint: value.fingerprint, decisions: value.decisions }));
@@ -317,7 +331,8 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
         return json(res, 200, runner.setEnabled((await input()).enabled));
       }
       if (path === '/api/recommendations' && req.method === 'GET') {
-        const data = {...store.catalogue(),jobs:store.pendingOpportunities(owner).filter(job=>inOpportunityYear(job))}, preferences = store.preferences(owner);
+        const {discoveryHistory,...catalogue}=store.catalogue();
+        const data = {...catalogue,jobs:store.pendingOpportunities(owner).filter(job=>inOpportunityYear(job))}, preferences = store.preferences(owner);
         return json(res, 200, { ...data, total: data.jobs.length, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
           unsupportedType: Boolean(preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) });
       }
