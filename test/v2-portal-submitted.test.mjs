@@ -38,3 +38,9 @@ test('portal legacy explicit import applies the same submitted rule atomically a
  const {s,a}=setup(t),text=paste();const input={text,fingerprint:s.schoolPreview(a,text).fingerprint,selections:[{index:0,target:'new'}],confirmed:true,requestId:randomUUID()};
  const first=s.importSchool(a,input);assert.equal(first.submissions.added,1);assert.deepEqual(s.importSchool(a,input),first);assert.equal(s.applications(a).length,1);assert.equal(s.pendingSchoolOpportunities(a).length,0);assert.equal(s.pendingOpportunities(a).length,0);
 });
+test('submitted identities match application rows through portal confirmation, withdrawal and restore',t=>{
+ const{s,a,b}=setup(t);const same=owner=>assert.deepEqual(s.submittedIdentities(owner).jobIds,new Set(s.applications(owner).map(row=>row.jobId)));
+ s.syncSchoolOpportunities(a,paste());same(a);same(b);const app=s.applications(a)[0],record=app.submissions[0];assert.ok(s.submittedIdentities(a).jobIds.has(app.jobId));
+ const change=action=>s.changeConfirmation(a,app.jobId,record.id,{action,revision:s.confirmations(a,app.jobId,true)[0].revision,confirmed:true,requestId:randomUUID(),schoolRevision:s.schoolContext(a,app.jobId).revision,date:'',receipt:'Portal evidence'});
+ change('withdraw');same(a);assert.ok(!s.submittedIdentities(a).jobIds.has(app.jobId));change('restore');same(a);assert.ok(s.submittedIdentities(a).jobIds.has(app.jobId));
+});
