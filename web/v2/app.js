@@ -42,12 +42,13 @@ async function api(path, { method = 'GET', value, file, kind, signal } = {}) {
   if (value) headers['Content-Type'] = 'application/json';
   if (file) { headers['Content-Type'] = 'application/octet-stream'; headers['X-File-Name'] = encodeURIComponent(file.name);if(kind)headers['X-File-Kind']=kind; }
   const response = await fetch(path, { method, headers, signal, credentials: 'same-origin', cache: 'no-store', body: file || (value ? JSON.stringify(value) : undefined) });
-  const data = await response.json();
+  const data = await response.json().catch(() => null);
   if (captured !== epoch) throw new Error('账号已切换，请重试');
   if (!response.ok) {
     if (account && [401, 403].includes(response.status)) clearPrivate('会话已结束或账号已切换，请重新登录。');
-    throw new Error(data.error || '请求失败，请重试');
+    throw new Error(data?.error || '请求失败，请重试');
   }
+  if (data === null) throw new Error('服务响应无法读取，请重试');
   if(invalidatesViews(path,method))viewReads.invalidate();
   return data;
 }

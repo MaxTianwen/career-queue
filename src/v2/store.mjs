@@ -644,7 +644,7 @@ export class WorkspaceStore {
     const j = jobFields(input);
     if (id) this.db.prepare('UPDATE jobs SET company=?,title=?,location=?,url=?,notes=?,jd=? WHERE user_id=? AND id=?').run(j.company, j.title, j.location, j.url, j.notes, j.jd, owner, id);
     else {
-      if (this.jobs(owner).length >= 500) fail(409, '本机预览每个账号最多保存 500 条职位');
+      if (this.db.prepare('SELECT count(*) n FROM jobs WHERE user_id=?').get(owner).n >= 500) fail(409, '本机预览每个账号最多保存 500 条职位');
       id = randomUUID();
       this.db.prepare('INSERT INTO jobs(id,user_id,company,title,location,url,notes,created,jd) VALUES (?,?,?,?,?,?,?,?,?)').run(id, owner, j.company, j.title, j.location, j.url, j.notes, this.now(), j.jd);
     }

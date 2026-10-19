@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id), status=$('status');
 let preview=null, busy=false;
 async function request(operation,code,value) {
   const response=await fetch('http://127.0.0.1:4322/api/browser-fill/'+operation,{method:'POST',credentials:'omit',redirect:'error',signal:AbortSignal.timeout(15000),headers:{'Content-Type':'application/json',Authorization:'Bearer '+code},body:JSON.stringify(value)});
-  const data=await response.json(); if (!response.ok) throw Error(data.error||'本机服务连接失败'); return data;
+  const data=await response.json().catch(()=>null); if (!response.ok) throw Error(data?.error||'本机服务连接失败'); if (data===null) throw Error('本机服务响应无法读取'); return data;
 }
 async function run(task) {
   if(busy)return; busy=true; $('code').disabled=$('confirmed').disabled=true; $('preview').disabled=$('fill').disabled=true; status.textContent='正在核对…';
