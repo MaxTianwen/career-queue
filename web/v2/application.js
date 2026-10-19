@@ -1,6 +1,7 @@
 import {applicationCells,renderApplicationTable} from './application-table.js';
 import {readView as readDisplay,saveView} from './opportunity-view.js';
 import { questionDiff } from './question-diff.js';
+import { safeHref } from './safe-url.js';
 const $ = selector => document.querySelector(selector);
 const el = (tag, text) => { const node = document.createElement(tag); node.textContent = text; return node; };
 const channels = { unknown: '待确认', employer: '官网', school: '学校', both: '官网 + 学校', 'school-only': '仅学校' };
@@ -152,7 +153,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const latest = state.versions.find(v => !v.stale);
     summary.append(el('p', latest ? '当前已审阅材料：' + latest.snapshot.resume.name : '尚无对应当前依据的已审阅材料'));
     if (latest) { const view = el('button', '预览当前已审阅简历'); view.type = 'button'; view.addEventListener('click', () => action('#preparation-status', () => preview(latest.snapshot.resume.id))); summary.append(view); }
-    if (state.context.job.url) { const link = el('a', '打开官网申请入口'); link.href = state.context.job.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; summary.append(link); }
+    if (safeHref(state.context.job.url)) { const link = el('a', '打开官网申请入口'); link.href = safeHref(state.context.job.url); link.target = '_blank'; link.rel = 'noopener noreferrer'; summary.append(link); }
     if (nextSchool) summary.append(el('p', '学校入口请在本人 portal 打开 School ID ' + nextSchool.schoolId));
     if (correctionDraft) correctionChannels(correction.elements.channel.value);
     if (correctionDraft && schoolChanged) $('#correction-status').textContent = '学校关联已变化；更正输入已保留，首次改为学校渠道前请取消并重新核对。';
@@ -308,7 +309,7 @@ export function applicationWorkspace({ api, action, jobDirty, chooseJob, downloa
     const area = $('#application-form-preview'); area.replaceChildren();
     area.append(el('h4', result.title), el('p', result.notice), el('p', '读取时间：' + new Date(result.checkedAt).toLocaleString()));
     for (const warning of result.warnings || []) area.append(el('p', warning));
-    const source = el('a', '查看官方接口来源'); source.href = result.source; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
+    const source = el('a', '查看官方接口来源'), sourceHref = safeHref(result.source); if (sourceHref) source.href = sourceHref; source.target = '_blank'; source.rel = 'noopener noreferrer'; area.append(source);
     const lines = result.questions.map(q => '[' + (q.section || '申请问题') + '] ' + (q.required ? '必填：' : '选填：') + q.label + '\n' + q.fields.map(f => '填写方式：' + ({input_file:'上传附件',textarea:'长文本',input_text:'文本',input_hidden:'官网自动处理',multi_value_single_select:'单选',multi_value_multi_select:'多选'}[f.type] || '需到官网核对') + (f.options.length ? '；选项：' + f.options.join(' / ') : '')).join('\n'));
     area.append(el('p', '仅勾选的问题会加入草稿。这里的答案是本机草稿，不会填写到官网。附件问题可记录待办，不会上传文件。'));
     const connect=document.createElement('details'); connect.id='browser-pairing'; connect.append(el('summary','连接 Brave / Chrome / Edge 填写助手'));

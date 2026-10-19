@@ -1,5 +1,6 @@
 import {capturePanel} from './school-capture-ui.js';
 import { preserveList } from './page-stability.js';
+import { safeHref } from './safe-url.js';
 import { mountView } from './opportunity-view.js';
 import { schoolRequirement } from './requirements.js';
 import { countryCountSummary, freshnessSummary, publicationSummary, deadlineSummary, mountFilters, matchesOpportunity, factsLabel, factBadges } from './opportunity.js';
@@ -168,7 +169,7 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
       for (const submission of record.submissions) card.append(node('p', `${channelName(submission.channel)}本人已记录提交 · ${submission.date}`));
       card.append(openButton(record.jobId));
       card.append(maintenanceButton(record));
-      if (record.row.url) { const link = node('a', '打开学校岗位 ↗'); link.href = record.row.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; card.append(link); }
+      if (safeHref(record.row.url)) { const link = node('a', '打开学校岗位 ↗'); link.href = safeHref(record.row.url); link.target = '_blank'; link.rel = 'noopener noreferrer'; card.append(link); }
       $('#school-records').append(card);
     }
     if (!visible.length) $('#school-records').append(node('p', pending ? '目前没有“官网已交、学校待补交”的记录。需先为岗位确认包含学校的申请渠道。' : '尚未保存学校关联。请粘贴学校列表后预览。'));
@@ -188,7 +189,7 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
       const location=node('p',item.row.location || '地点未知');location.className='card-location';
       const requirement=item.requirement || schoolRequirement([item.row]),route=node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind]);route.className='route-summary';
       card.append(header,node('h3',item.row.title),location,factBadges({...item.facts,...item.row,hasSchool:true}),publicationSummary({...item.facts,...item.row,hasSchool:true}),deadlineSummary({schoolSources:[{schoolId:item.schoolId,row:item.row}]}),route);
-      const details=document.createElement('details');details.className='card-detail';details.append(node('summary','学校资料与申请入口'),publicationSummary({...item.facts,...item.row,hasSchool:true},{detailed:true}),freshnessSummary({...item.facts,...item.row,hasSchool:true}),facts(item.row),node('small',`学校 ID ${item.schoolId} · 更新 ${new Date(item.updated).toLocaleString()}`));for(const [label,url] of [['打开学校 Portal',item.row.url],['打开官网',item.row.externalUrl]])if(url){const a=node('a',label+' ↗');a.href=url;a.target='_blank';a.rel='noopener noreferrer';details.append(a);}
+      const details=document.createElement('details');details.className='card-detail';details.append(node('summary','学校资料与申请入口'),publicationSummary({...item.facts,...item.row,hasSchool:true},{detailed:true}),freshnessSummary({...item.facts,...item.row,hasSchool:true}),facts(item.row),node('small',`学校 ID ${item.schoolId} · 更新 ${new Date(item.updated).toLocaleString()}`));for(const [label,url] of [['打开学校 Portal',item.row.url],['打开官网',item.row.externalUrl]])if(safeHref(url)){const a=node('a',label+' ↗');a.href=safeHref(url);a.target='_blank';a.rel='noopener noreferrer';details.append(a);}
       details.append(node('p','请核对原文申请要求；进入准备后可确认“学校 + 官网”或“仅学校”，两个提交状态分别记录。'));for(const quote of requirement.evidence)details.append(node('p',quote));card.append(details);
       const localStatus=node('p','');localStatus.setAttribute('role','status');card.append(localStatus);
       const start=node('button',item.jobId?'继续准备申请':'准备申请');start.type='button';

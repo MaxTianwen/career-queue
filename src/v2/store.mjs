@@ -134,6 +134,7 @@ export class WorkspaceStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS school_changes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), school_id TEXT NOT NULL,
       action TEXT NOT NULL, before_snapshot TEXT NOT NULL, after_snapshot TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, created INTEGER NOT NULL,
       request_id TEXT NOT NULL, request_hash TEXT NOT NULL, UNIQUE(user_id,request_id));
+      CREATE INDEX IF NOT EXISTS school_changes_owner_school ON school_changes(user_id,school_id);
       CREATE TABLE IF NOT EXISTS school_submission_sources (submission_id TEXT PRIMARY KEY REFERENCES submissions(id), user_id TEXT NOT NULL REFERENCES users(id),
         school_id TEXT NOT NULL, snapshot TEXT NOT NULL, basis TEXT NOT NULL, captured INTEGER NOT NULL);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS migration_receipts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
@@ -307,9 +308,9 @@ export class WorkspaceStore {
   }
   jobs(owner) { return this.db.prepare('SELECT id,company,title,location,url,notes,created,jd,hidden,returned,(SELECT school_id FROM school_links WHERE school_links.job_id=jobs.id AND school_links.user_id=jobs.user_id LIMIT 1) schoolId FROM jobs WHERE user_id=? ORDER BY created DESC,id').all(owner); }
   schoolLinks(owner) {
+    const latest = new Map(this.db.prepare('SELECT school_id schoolId,id FROM school_changes WHERE rowid IN (SELECT max(rowid) FROM school_changes WHERE user_id=? GROUP BY school_id)').all(owner).map(row => [row.schoolId, row.id]));
     return this.db.prepare('SELECT school_id schoolId,job_id jobId,snapshot,created FROM school_links WHERE user_id=? ORDER BY rowid').all(owner)
-      .map(({ snapshot, ...link }) => ({ ...link, row: JSON.parse(snapshot), revision: schoolHash({ link, snapshot,
-        event: this.db.prepare('SELECT id FROM school_changes WHERE user_id=? AND school_id=? ORDER BY rowid DESC LIMIT 1').get(owner, link.schoolId)?.id }) }));
+      .map(({ snapshot, ...link }) => ({ ...link, row: JSON.parse(snapshot), revision: schoolHash({ link, snapshot, event: latest.get(link.schoolId) }) }));
   }
   schoolHistory(owner) {
     return this.db.prepare('SELECT id,school_id schoolId,action,before_snapshot,after_snapshot,reason,actor,created FROM school_changes WHERE user_id=? ORDER BY rowid').all(owner)
@@ -551,24 +552,25 @@ export class WorkspaceStore {
     } catch(error) {this.db.exec('ROLLBACK TO portal_submitted');this.db.exec('RELEASE portal_submitted');throw error;}
   }
   submittedIdentities(owner) {
-    const jobIds=new Set(this.applications(owner).map(row=>row.jobId));
+    // Same set as applications() rows with submissions, without building every application.
+    const jobIds=new Set(this.db.prepare('SELECT id FROM jobs WHERE user_id=? AND (EXISTS (SELECT 1 FROM submissions s WHERE s.user_id=jobs.user_id AND s.job_id=jobs.id) OR EXISTS (SELECT 1 FROM submission_confirmations c WHERE c.user_id=jobs.user_id AND c.job_id=jobs.id AND NOT c.withdrawn))').all(owner).map(row=>row.id));
     const schoolIds=new Set(this.schoolSubmissionSources(owner).filter(row=>row.channel==='school').map(row=>row.schoolId));
     return {jobIds,schoolIds};
   }
-  citizenExclusion(owner,job) {
-    const preferences=this.preferences(owner);const scope=opportunityScope(job,preferences);if(scope.excluded)return scope;if(!preferences.excludeCitizenOnly)return null;
+  citizenExclusion(owner,job,preferences=this.preferences(owner)) {
+    const scope=opportunityScope(job,preferences);if(scope.excluded)return scope;if(!preferences.excludeCitizenOnly)return null;
     const sources=[job,...(job.schoolSources || []).map(source=>({...source.row,schoolId:source.schoolId}))];
     for(const source of sources){const saved=preferences.citizenExclusions?.[source.schoolId || source.id];const found=citizenshipFacts(source);const persisted=source.citizenshipInfo;
       if(saved || found.restricted || persisted?.restricted){const base=persisted?.restricted?persisted:found;return saved || {...base,sourceUrl:base.sourceUrl || source.externalUrl || source.url || '',capturedAt:base.capturedAt || source.sourceUpdatedAt || null};}
     }return null;
   }
   pendingSchoolOpportunities(owner) {
-    const {jobIds,schoolIds}=this.submittedIdentities(owner);
-    return this.schoolOpportunities(owner).map(item=>({...item,facts:{...item.facts,durationInfo:durationFacts(item.facts),eligibilityReview:citizenshipFacts(item.facts).uncertain.length>0||opportunityScope(item.facts,this.preferences(owner)).review}})).filter(item=>!schoolIds.has(item.schoolId)&&!jobIds.has(item.jobId)&&!this.citizenExclusion(owner,{...item.facts,...item.row,schoolId:item.schoolId}));
+    const {jobIds,schoolIds}=this.submittedIdentities(owner),preferences=this.preferences(owner);
+    return this.schoolOpportunities(owner).map(item=>({...item,facts:{...item.facts,durationInfo:durationFacts(item.facts),eligibilityReview:citizenshipFacts(item.facts).uncertain.length>0||opportunityScope(item.facts,preferences).review}})).filter(item=>!schoolIds.has(item.schoolId)&&!jobIds.has(item.jobId)&&!this.citizenExclusion(owner,{...item.facts,...item.row,schoolId:item.schoolId},preferences));
   }
   pendingOpportunities(owner) {
-    const {jobIds,schoolIds}=this.submittedIdentities(owner);
-    return this.opportunities(owner).map(job=>({...job,durationInfo:durationFacts(job),eligibilityReview:citizenshipFacts(job).uncertain.length>0||opportunityScope(job,this.preferences(owner)).review})).filter(job=>!job.draftIds.some(id=>jobIds.has(id))&&!job.schoolSources.some(source=>schoolIds.has(source.schoolId))&&!this.citizenExclusion(owner,job));
+    const {jobIds,schoolIds}=this.submittedIdentities(owner),preferences=this.preferences(owner);
+    return this.opportunities(owner).map(job=>({...job,durationInfo:durationFacts(job),eligibilityReview:citizenshipFacts(job).uncertain.length>0||opportunityScope(job,preferences).review})).filter(job=>!job.draftIds.some(id=>jobIds.has(id))&&!job.schoolSources.some(source=>schoolIds.has(source.schoolId))&&!this.citizenExclusion(owner,job,preferences));
   }
   eligibilityExclusions(owner){return this.opportunities(owner).flatMap(job=>{const reason=this.citizenExclusion(owner,job);return reason?[{id:job.id,company:job.company,title:job.title,schoolIds:job.schoolSources.map(s=>s.schoolId),reason}]:[];});}
   schoolPreview(owner, text) {
@@ -642,7 +644,7 @@ export class WorkspaceStore {
     const j = jobFields(input);
     if (id) this.db.prepare('UPDATE jobs SET company=?,title=?,location=?,url=?,notes=?,jd=? WHERE user_id=? AND id=?').run(j.company, j.title, j.location, j.url, j.notes, j.jd, owner, id);
     else {
-      if (this.jobs(owner).length >= 500) fail(409, '本机预览每个账号最多保存 500 条职位');
+      if (this.db.prepare('SELECT count(*) n FROM jobs WHERE user_id=?').get(owner).n >= 500) fail(409, '本机预览每个账号最多保存 500 条职位');
       id = randomUUID();
       this.db.prepare('INSERT INTO jobs(id,user_id,company,title,location,url,notes,created,jd) VALUES (?,?,?,?,?,?,?,?,?)').run(id, owner, j.company, j.title, j.location, j.url, j.notes, this.now(), j.jd);
     }

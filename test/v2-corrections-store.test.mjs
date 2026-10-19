@@ -118,3 +118,12 @@ test('v2 existing databases add correction support without changing submissions 
   assert.deepEqual(reopened.application(f.owner, f.job.id), result);
   assert.equal(reopened.db.prepare('PRAGMA foreign_key_check').all().length, 0);
 });
+
+test('submitted identities match application rows for recorded submissions and stay owner-scoped', t => {
+  const f = fixture(t), unsubmitted = f.store.saveJob(f.owner, { company: 'Synthetic Other', title: 'Intern', jd: 'Python' });
+  const fromApplications = owner => new Set(f.store.applications(owner).map(row => row.jobId));
+  assert.deepEqual(f.store.submittedIdentities(f.owner).jobIds, fromApplications(f.owner));
+  assert.ok(f.store.submittedIdentities(f.owner).jobIds.has(f.job.id));
+  assert.ok(!f.store.submittedIdentities(f.owner).jobIds.has(unsubmitted.id));
+  assert.equal(f.store.submittedIdentities(f.other).jobIds.size, 0);
+});

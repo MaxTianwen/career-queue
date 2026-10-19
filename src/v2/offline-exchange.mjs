@@ -62,7 +62,7 @@ export class OfflineExchange{
   if(new Set(input.items.map(x=>x.jobId)).size!==input.items.length)fail(400,'岗位重复');
   const capacity=this.exportCapacity(owner,input.items.length);if(capacity.requiresAcknowledgement&&input.capacityAcknowledged!==true)return {exported:false,capacity,errors:[{jobId:'',error:capacity.message+' 请减少岗位，或确认先导出、按容量选择导入。'}]};
   if(this.store.db.prepare('SELECT count(*) n FROM offline_packets WHERE user_id=?').get(owner).n>=50)fail(409,'任务包已达50批上限，请联系本机维护者');
-  const errors=[],items=[],sources=new Map(),id=randomUUID(),date=new Date(this.store.now()).toISOString().slice(0,10).replaceAll('-','');
+  const errors=[],items=[],sources=new Map(),id=randomUUID(),today=new Date(this.store.now()),date=String(today.getFullYear())+String(today.getMonth()+1).padStart(2,'0')+String(today.getDate()).padStart(2,'0');
   for(const selection of input.items){try{
    const job=this.current(owner,selection),review=jdReview(job.jd);if(review.missing)fail(422,'缺少JD正文，请先补全岗位正文');if(selection.jdHash!==review.sha256)fail(409,'JD正文已变化或尚未预览，请重新预览核对；旧确认已失效');
    const routed=this.store.resolveResume(owner,this.store.job(owner,selection.jobId));

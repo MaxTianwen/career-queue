@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node scripts/run-tests.mjs",
     "start": "node src/dashboard.mjs",
     "start:v2": "node src/v2/server.mjs",
     "admin:v2": "node scripts/create-v2-admin.mjs",
@@ -17,7 +17,7 @@
     "cli": "node src/cli.mjs",
     "discover": "node src/automation-client.mjs discover",
     "automation:status": "node src/automation-client.mjs status",
-    "test:serial": "node --test --test-concurrency=1 test/*.test.mjs",
+    "test:serial": "node scripts/run-tests.mjs --serial",
     "test:school:native": "node scripts/test-school-current-native.mjs",
     "test:school:ui": "node scripts/test-school-current-ui.mjs",
     "test:school:selected": "node scripts/test-school-selected-ui.mjs"
