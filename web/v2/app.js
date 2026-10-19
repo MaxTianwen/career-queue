@@ -1,5 +1,6 @@
 import {batchPreparation} from './batch-preparation.js';
 import {filePreview} from './file-preview.js';
+import {safeHref} from './safe-url.js';
 import { renderFiles } from './files.js';
 import { returnGuard, preserveList, viewLoader, viewNavigation, invalidatesViews } from './page-stability.js';
 import { mountView } from './opportunity-view.js';
@@ -90,7 +91,7 @@ function selectJob(job, preserveApplication = false) {
   $('#job-title').textContent = job?.schoolId ? '学校职位与申请准备' : job ? '职位与备注' : '准备职位资料';
   $('#job-status').textContent = ''; $('#job-match').replaceChildren(matchView(job?.match,job));
   $('#job-link').hidden = !job?.url;
-  if (job?.url) $('#job-link').href = job.url; else $('#job-link').removeAttribute('href');
+  const jobHref = safeHref(job?.url); if (jobHref) $('#job-link').href = jobHref; else $('#job-link').removeAttribute('href');
   for (const node of document.querySelectorAll('.job-card')) node.setAttribute('aria-pressed', String(node.dataset.id === job?.id));
 }
 function jobDirty() {
@@ -390,10 +391,10 @@ function drawRecommendations() {
       detail.append(node('p',`学校 ID ${source.schoolId} · 更新 ${new Date(source.updated).toLocaleString()} · 状态 ${source.row.sourceStatus || '未知'} · 截止 ${source.row.deadlineText || '未知'}`));
       detail.append(node('p',`${source.row.company} · ${source.row.title} · ${source.row.location || '地点未知'} · ${source.row.term || '学期未知'} · 官网编号 ${source.row.requisitionId || '未知'}`));
       if(source.conflicts.length)detail.append(node('p','已明确关联，但来源字段不同：'+source.conflicts.join(' / ')));
-      for(const [label,url] of [['学校原文',source.row.url],['学校提供的官网链接',source.row.externalUrl]])if(url){const a=node('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';detail.append(a);}
+      for(const [label,url] of [['学校原文',source.row.url],['学校提供的官网链接',source.row.externalUrl]])if(safeHref(url)){const a=node('a',label);a.href=safeHref(url);a.target='_blank';a.rel='noopener noreferrer';detail.append(a);}
     }
     if(/remote/i.test(job.location))detail.append(node('p','远程地点来自招聘信息；加拿大工作资格需核实。','muted'));
-    const link=node('a','官网申请 ↗');link.href=job.url;link.target='_blank';link.rel='noreferrer noopener';link.className='button-link';link.addEventListener('click',event=>event.stopPropagation());
+    const link=node('a','官网申请 ↗'),linkHref=safeHref(job.url);if(linkHref)link.href=linkHref;link.target='_blank';link.rel='noreferrer noopener';link.className='button-link';link.addEventListener('click',event=>event.stopPropagation());
     let savedJob=job.draftIds?.length===1?jobs.find(row=>job.draftIds.includes(row.id)):null;
     const prepare=node('button',savedJob?'继续准备申请':'准备申请');prepare.type='button';prepare.className='primary';
     const submitted=node('button','已提交？');submitted.type='button';submitted.className='quiet';

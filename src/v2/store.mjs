@@ -134,6 +134,7 @@ export class WorkspaceStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS school_changes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), school_id TEXT NOT NULL,
       action TEXT NOT NULL, before_snapshot TEXT NOT NULL, after_snapshot TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, created INTEGER NOT NULL,
       request_id TEXT NOT NULL, request_hash TEXT NOT NULL, UNIQUE(user_id,request_id));
+      CREATE INDEX IF NOT EXISTS school_changes_owner_school ON school_changes(user_id,school_id);
       CREATE TABLE IF NOT EXISTS school_submission_sources (submission_id TEXT PRIMARY KEY REFERENCES submissions(id), user_id TEXT NOT NULL REFERENCES users(id),
         school_id TEXT NOT NULL, snapshot TEXT NOT NULL, basis TEXT NOT NULL, captured INTEGER NOT NULL);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS migration_receipts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
