@@ -4,6 +4,7 @@ import {EmailAccounts} from './email-accounts.mjs';
 import {schoolCapture} from './school-capture.mjs';
 import { browserFillBridge } from './browser-fill.mjs';
 import { rehearsalFields } from './fill-rehearsal.mjs';
+import {classifyResumeDuties} from './resume-routing.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -53,7 +54,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
   let parsing = false;
   let generating = false;
   let exporting = false;
-  const scored = (owner, job, resume=store.activeResume(owner), profile=resumeProfile(resume)) => ({ ...job, eligibilityExclusion:store.citizenExclusion(owner,job), match: scoreFor(job, resume, profile) });
+  const scored = (owner, job, cache) => {const {resume,selection}=store.resolveResume(owner,job,cache);return {...job,resumeSelection:selection,eligibilityExclusion:store.citizenExclusion(owner,job),match:{...scoreFor(job,resume),selection,...(!resume?{reason:selection.reason}: {})}};};
   const server = httpServer ?? createServer();
   server.on('request', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -310,6 +311,12 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
           return json(res, 200, { ...result, id: file.id, name: file.name, sha256: file.sha256 });
         } finally { parsing = false; }
       }
+      if(path==='/api/resume-routing'&&req.method==='GET')return json(res,200,{bindings:store.resumeBindings(owner),legacy:store.activeResume(owner)?.name||null});
+      const baselineRoute=path.match(/^\/api\/resume-routing\/(cs|data)$/);
+      if(baselineRoute&&req.method==='PUT')return json(res,200,store.setResumeBaseline(owner,baselineRoute[1],await input()));
+      const resumeRoute=path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/resume-selection$/);
+      if(resumeRoute&&req.method==='GET')return json(res,200,store.resolveResume(owner,store.job(owner,resumeRoute[1])).selection);
+      if(resumeRoute&&req.method==='PUT')return json(res,200,store.setResumeOverride(owner,resumeRoute[1],await input()));
       if (path === '/api/resume' && req.method === 'GET') return json(res, 200, store.activeResume(owner));
       if (path === '/api/resume/activate' && req.method === 'POST') return json(res, 200, store.activateResume(owner, await input()));
       if (path === '/api/resume/clear' && req.method === 'POST') { store.clearResume(owner); return json(res, 200, { ok: true }); }
@@ -332,8 +339,8 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       }
       if (path === '/api/recommendations' && req.method === 'GET') {
         const {discoveryHistory,...catalogue}=store.catalogue();
-        const data = {...catalogue,jobs:store.pendingOpportunities(owner).filter(job=>inOpportunityYear(job))}, preferences = store.preferences(owner);
-        return json(res, 200, { ...data, total: data.jobs.length, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs, preferences, store.activeResume(owner), new Date(store.now())),
+        const data = {...catalogue,jobs:store.pendingOpportunities(owner).filter(job=>inOpportunityYear(job))}, preferences = store.preferences(owner),scoreCache={};
+        return json(res, 200, { ...data, total: data.jobs.length, refreshing: Boolean(runner.pending), jobs: recommend(data.jobs.map(job=>({...job,classification:classifyResumeDuties(job)})), preferences, null, new Date(store.now())).map(job=>scored(owner,job,scoreCache)),
           unsupportedType: Boolean(preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) });
       }
       if(path === '/api/eligibility/exclusions' && req.method === 'GET')return json(res,200,store.eligibilityExclusions(owner));
@@ -348,7 +355,7 @@ export function workspaceServer({ database = resolve(root, 'private/v2-local/wor
       }
       const suggested = path.match(/^\/api\/recommendations\/([a-f0-9]{64})\/(?:save|prepare)$/);
       if (suggested && req.method === 'POST') return json(res, 200, scored(owner, store.saveSuggested(owner, suggested[1])));
-      if (path === '/api/jobs' && req.method === 'GET') { const resume=store.activeResume(owner),profile=resumeProfile(resume);return json(res, 200, store.jobs(owner).map(job => scored(owner, job, resume, profile))); }
+      if (path === '/api/jobs' && req.method === 'GET') { const cache={};return json(res, 200, store.jobs(owner).map(job => scored(owner, job,cache))); }
       if (path === '/api/jobs' && req.method === 'POST') return json(res, 201, scored(owner, store.saveJob(owner, await input())));
       const returned = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/return$/);
       if (returned && req.method === 'PUT') { await input(); return json(res, 200, scored(owner, store.returnJob(owner, returned[1]))); }

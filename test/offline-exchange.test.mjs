@@ -137,3 +137,17 @@ test('offline reuse of unchanged uploaded originals preserves source origin and 
  }});
  const p=await f.offline.preview(f.owner,same,'s');assert.equal(p.capacity.newFiles,2);const saved=f.offline.confirm(f.owner,confirmInput(p),'s');assert.equal(saved.results[0].files.resume_docx.id,f.resume.id);assert.equal(f.store.files(f.owner).length,4);assert.equal(f.store.fileOrigin(f.owner,f.resume.id).kind,'uploaded');assert.equal(f.store.fileOrigin(f.owner,f.cover.id).kind,'uploaded');assert.equal((await f.offline.export(f.owner,f.input)).exported,true);
 });
+
+
+test('offline malformed per-job sources/files preserve valid rows, reject all-invalid, and reuse repaired legacy returns',async t=>{
+ const f=setup(t);addJobs(f,2);const {bytes}=await packReturn(f);
+ for(const field of ['sources','files'])for(const value of [undefined,null,[],42,'invalid',{}]){
+  const malformed=await alter(bytes,d=>{if(value===undefined)delete d.manifest.items[0][field];else d.manifest.items[0][field]=value;});
+  const p=await f.offline.preview(f.owner,malformed,'s');assert(p.canConfirm,field+' '+JSON.stringify(value));assert.equal(p.errors.length,0);assert(p.rows[0].errors.some(e=>e.includes(field)));assert.equal(p.rows[1].errors.length,0);
+  assert.throws(()=>f.offline.confirm(f.owner,confirmInput(p,[p.rows[0].jobId]),'s'),/检查未通过/);
+  const receipt=f.offline.confirm(f.owner,confirmInput(p,[p.rows[1].jobId]),'s');assert.equal(receipt.results.length,1);assert.deepEqual(f.offline.confirm(f.owner,confirmInput(p,[p.rows[1].jobId]),'s'),receipt);
+ }
+ const bad=await f.offline.preview(f.owner,await alter(bytes,d=>{delete d.manifest.items[0].sources;delete d.manifest.items[1].files;}),'s');assert.equal(bad.canConfirm,false);assert(bad.rows.every(r=>r.errors.length));assert.throws(()=>f.offline.confirm(f.owner,confirmInput(bad),'s'),/有效岗位/);
+ // Existing format has no routing fingerprint; repaired return still reuses the valid imported job.
+ const fixed=await f.offline.preview(f.owner,bytes,'s');assert.deepEqual(fixed.rows.map(r=>r.alreadyImported),[false,true]);const saved=f.offline.confirm(f.owner,confirmInput(fixed),'s');assert.equal(saved.createdCount,1);assert.equal(saved.reusedCount,1);assert.equal(f.offline.list(f.owner).length,2);assert.equal(f.store.files(f.owner).length,10);
+});

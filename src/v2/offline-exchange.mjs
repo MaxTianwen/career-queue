@@ -65,11 +65,13 @@ export class OfflineExchange{
   const errors=[],items=[],sources=new Map(),id=randomUUID(),date=new Date(this.store.now()).toISOString().slice(0,10).replaceAll('-','');
   for(const selection of input.items){try{
    const job=this.current(owner,selection),review=jdReview(job.jd);if(review.missing)fail(422,'缺少JD正文，请先补全岗位正文');if(selection.jdHash!==review.sha256)fail(409,'JD正文已变化或尚未预览，请重新预览核对；旧确认已失效');
+   const routed=this.store.resolveResume(owner,this.store.job(owner,selection.jobId));
+   if((routed.selection.mode!=='legacy'||routed.resume)&&(!routed.selection.ready||selection.resumeId!==routed.resume?.fileId))fail(409,routed.selection.reason||'导出原件与本岗评分选择不一致，请刷新并保存单岗选择');
    const resume=this.source(owner,selection.resumeId,'resume'),cover=this.source(owner,selection.coverId,'cover');
    for(const source of [resume,cover])if(!sources.has(source.id)){const inspection=await archiveTool({action:'inspect',kind:'docx',base64:Buffer.from(source.bytes).toString('base64')});sources.set(source.id,{source,inspection});}
    const stem=(job.company+'_'+job.title).replace(/[^\p{L}\p{N}_-]/gu,'_').slice(0,55),base=`results/${job.jobId}/`;
    const files={};for(const kind of ['resume','cover'])for(const ext of ['docx','pdf'])files[kind+'_'+ext]=base+(kind==='resume'?'Resume_':'CoverLetter_')+stem+'_'+date+'_v01.'+ext;
-   items.push({...job,jobHash:jsonHash(job),jdReview:{...review,confirmed:selection.jdConfirmed===true,status:selection.jdConfirmed===true?'用户已核对当前正文（非程序完整性认证）':'未人工核对，不得称为完整JD'},sources:Object.fromEntries([['resume',resume],['cover',cover]].map(([kind,f])=>[kind,{id:f.id,version:f.id,sha256:f.sha256,name:f.name,path:`sources/${f.id}.docx`,styleFingerprint:sources.get(f.id).inspection.styleFingerprint}])),files});
+   items.push({...job,...(routed.selection.mode!=='legacy'?{resumeSelection:routed.selection}:{}),jobHash:jsonHash(job),jdReview:{...review,confirmed:selection.jdConfirmed===true,status:selection.jdConfirmed===true?'用户已核对当前正文（非程序完整性认证）':'未人工核对，不得称为完整JD'},sources:Object.fromEntries([['resume',resume],['cover',cover]].map(([kind,f])=>[kind,{id:f.id,version:f.id,sha256:f.sha256,name:f.name,path:`sources/${f.id}.docx`,styleFingerprint:sources.get(f.id).inspection.styleFingerprint}])),files});
   }catch(e){errors.push({jobId:selection.jobId,error:e.message});}}
   if(errors.length)return {errors,exported:false};
   const manifest={format:'career-queue-offline-v1',packetId:id,created:new Date(this.store.now()).toISOString(),rulesSha256:digest(RULES),items};
@@ -85,7 +87,7 @@ export class OfflineExchange{
   this.store.db.prepare('INSERT INTO offline_packets VALUES(?,?,?,?)').run(id,owner,this.store.now(),JSON.stringify(manifest));
   return {exported:true,capacity,packetId:id,name:`CareerQueue_${date}_${id.slice(0,8)}.zip`,base64:zip.base64,count:items.length};
  });}
- checkCurrent(owner,item){if(jsonHash(this.current(owner,item))!==item.jobHash)fail(409,'岗位JD、公司职位或入口已变化，请重新导出');for(const [kind,s]of Object.entries(item.sources)){const f=this.source(owner,s.id,kind);if(f.sha256!==s.sha256)fail(409,'源模板版本已变化，请重新导出');}}
+ checkCurrent(owner,item){const currentSelection=this.store.resolveResume(owner,this.store.job(owner,item.jobId)).selection;if(currentSelection.mode!=='legacy'&&currentSelection.file?.fileId!==item.sources.resume.id)fail(409,'本岗简历选择已变化，请重新导出；旧任务包保留');if(item.resumeSelection&&this.store.resolveResume(owner,this.store.job(owner,item.jobId)).selection.fingerprint!==item.resumeSelection.fingerprint)fail(409,'本岗简历选择已变化，请重新导出；旧任务包保留');if(jsonHash(this.current(owner,item))!==item.jobHash)fail(409,'岗位JD、公司职位或入口已变化，请重新导出');for(const [kind,s]of Object.entries(item.sources)){const f=this.source(owner,s.id,kind);if(f.sha256!==s.sha256)fail(409,'源模板版本已变化，请重新导出');}}
  sweep(){for(const [key,value]of this.pending)if(value.expires<this.store.now())this.pending.delete(key);}
  async preview(owner,bytes,sessionKey,alive=()=>true){return this.exclusive(async()=>{
   this.sweep();for(const [key,value]of this.pending)if(value.owner===owner)this.pending.delete(key);
@@ -98,8 +100,13 @@ export class OfflineExchange{
    const expected=packet.items.find(i=>i.jobId===item.jobId);if(!expected){globalErrors.push('未知岗位ID：'+String(item.jobId));continue;}
    const errors=[],warnings=['真实性、资格、贡献边界及ATS效果未自动验证','Word未由本机Office重新渲染；最终版式、链接目标、Word一页和PDF是否来自最终Word须人工核对'],documents=[];
    if(item.company!==expected.company||item.title!==expected.title)errors.push('公司/职位不匹配');
-   if(item.jobHash!==expected.jobHash||jsonHash(item.sources)!==jsonHash(expected.sources))errors.push('JD或源模板指纹/版本不匹配');
-   if(jsonHash(item.files)!==jsonHash(expected.files))errors.push('成品路径不匹配');
+   const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+   const sourcesValid=object(item.sources)&&['resume','cover'].every(kind=>object(item.sources[kind])&&Object.keys(expected.sources[kind]).every(key=>typeof item.sources[kind][key]==='string'));
+   const filesValid=object(item.files)&&Object.keys(expected.files).every(key=>typeof item.files[key]==='string');
+   if(!sourcesValid)errors.push('sources 缺失或格式不正确：每岗须保留 resume / cover 原件版本对象');
+   if(!filesValid)errors.push('files 缺失或格式不正确：每岗须保留四份成品路径');
+   if(item.jobHash!==expected.jobHash||sourcesValid&&jsonHash(item.sources)!==jsonHash(expected.sources))errors.push('JD或源模板指纹/版本不匹配');
+   if(filesValid&&jsonHash(item.files)!==jsonHash(expected.files))errors.push('成品路径不匹配');
    try{this.checkCurrent(owner,expected);}catch(e){errors.push(e.message);}
    if(!Array.isArray(item.changes)||item.changes.length<1||item.changes.length>100||item.changes.some(c=>!c||['before','after','reason','source'].some(k=>typeof c[k]!=='string'||c[k].length>5000)))errors.push('缺少有效逐处改动记录（无需改动也须说明）');
    if(!Array.isArray(item.unresolved)||item.unresolved.length>30||item.unresolved.some(s=>typeof s!=='string'||s.length>2000))errors.push('未解决事项格式不正确');

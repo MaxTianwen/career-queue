@@ -21,7 +21,7 @@ export function opportunityFacts(job) {
  let seasons=[...new Set(terms.map(p=>p.season).filter(Boolean))];
  const durationInfo=durationFacts(job),durations=durationInfo.options.map(n=>({min:n,max:n})),durationIssues=[...durationInfo.review,...durationInfo.intervals.map(r=>r.raw),...durationInfo.ranges.map(r=>r.raw),...durationInfo.other.map(r=>r.raw)];
  if(durationInfo.placements.length)seasons=[...new Set(durationInfo.placements.map(p=>p.season))];
- const track=job.classification?.track || classifyResume(job).track;const category=jobCategory(job);
+ const track=job.classification?.track || classifyResume(job).track;const category=job.resumeSelection?{primary:job.resumeSelection.classification.category,label:job.resumeSelection.classification.label,evidence:Object.values(job.resumeSelection.classification.evidence).flat()}:jobCategory(job);
  return {terms,seasons,durations,durationIssues,durationInfo,track,category,platform:job.hasSchool&&!job.hasPublic?(job.externalUrl?platform(job.externalUrl):{name:'学校 Portal',questions:false}):platform(job.url)};
 }
 export function normalizeCountry(value) {return value==='CA-US'?'all':['CA','US','all'].includes(value)?value:'CA';}
@@ -176,13 +176,19 @@ export function freshnessSummary(job,now=Date.now()) {
 
 // One badge per opportunity; discovery novelty is independent of official publication.
 export function discoveryPriority(job,now=Date.now()) {
- if(job.hasPublic&&job.newInRefresh===true)return {rank:0,label:'本次新增',kind:'new',note:'最近一次成功刷新首次记录到的公共去重岗位；不代表刚刚发布。'};
+ const first=Date.parse(job.firstSeenAt),age=Number(now)-first;
+ if(job.hasPublic&&Number.isFinite(first)&&age>=0&&age<86400000)return {rank:0,label:'24小时内新增',kind:'new',note:'首次发现至今未满24小时；不代表刚刚发布，重复刷新不会延长。'};
  if(publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},now).recent24h)return {rank:1,label:'近24小时发布',kind:'recent',note:'来源明确的发布时间在过去24小时内。'};
  return {rank:2,label:'',kind:'other',note:''};
 }
 export function orderDiscovery(jobs,now=Date.now()) {
- return jobs.map((job,index)=>({job,index,rank:discoveryPriority(job,now).rank})).sort((a,b)=>a.rank-b.rank||a.index-b.index).map(x=>x.job);
+ // Date-only sources retain day precision: compare calendar days, then exact instants
+ // within a day when both are known. Never turn a date into an invented midnight.
+ const key=job=>{const p=publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},now);return {p,day:p.precision==='instant'?new Date(p.instant).toISOString().slice(0,10):p.precision==='date'?p.raw:''};};
+ const stable=j=>String(j.id||j.url||[j.company,j.title,j.location].join('|'));
+ return jobs.map(job=>({job,...key(job)})).sort((a,b)=>b.day.localeCompare(a.day)||((a.p.precision==='instant'?0:1)-(b.p.precision==='instant'?0:1))||(a.p.precision==='instant'&&b.p.precision==='instant'?b.p.instant-a.p.instant:0)||stable(a.job).localeCompare(stable(b.job))).map(x=>x.job);
 }
 export function discoveryBadge(job,now=Date.now()) {
- const info=discoveryPriority(job,now);if(!info.label)return null;const badge=document.createElement('strong');badge.className='discovery-priority priority-'+info.kind;badge.textContent=info.label;badge.title=info.note;return badge;
+ const info=discoveryPriority(job,now),recent=publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},now).recent24h;if(!info.label)return null;
+ const badge=document.createElement('strong');badge.className='discovery-priority priority-'+info.kind;badge.textContent=info.label+(info.kind==='new'&&recent?' · 近24小时发布':'');badge.title=info.note;return badge;
 }

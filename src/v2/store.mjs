@@ -1,6 +1,7 @@
 import {refreshNovelty} from './refresh-novelty.mjs';
 import { WorkspaceSecurity } from './workspace-security.mjs';
 import { readAliases, projectAliases } from './opportunity-aliases.mjs';
+import {installResumeRouting,resolveResume,routingBindings,setBaseline,setOverride} from './resume-routing.mjs';
 import { mergePublication } from '../publication-facts.mjs';
 import { opportunityScope } from '../opportunity-scope.mjs';
 import { durationFacts } from '../duration-facts.mjs';
@@ -93,6 +94,7 @@ export class WorkspaceStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS resume_text (file_id TEXT PRIMARY KEY REFERENCES files(id), user_id TEXT NOT NULL REFERENCES users(id), text TEXT NOT NULL, text_hash TEXT NOT NULL, pages INTEGER, parser TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS active_resume (user_id TEXT PRIMARY KEY REFERENCES users(id), file_id TEXT NOT NULL REFERENCES files(id));
       CREATE TABLE IF NOT EXISTS catalogue (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL);`);
+    installResumeRouting(this.db);
     this.db.exec(`CREATE TABLE IF NOT EXISTS application_plans (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), channel TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS pdf_reviews (file_id TEXT PRIMARY KEY REFERENCES files(id), user_id TEXT NOT NULL REFERENCES users(id), pages INTEGER NOT NULL, session_key TEXT NOT NULL, viewed INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS materials (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), job_id TEXT NOT NULL REFERENCES jobs(id), fingerprint TEXT NOT NULL, snapshot TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(user_id,job_id,fingerprint));
@@ -667,6 +669,7 @@ export class WorkspaceStore {
     return {kind:'uploaded',label:'上传原件'};
   }
   fileUseReason(owner,id) {
+    if(this.db.prepare('SELECT 1 FROM resume_track_baselines WHERE user_id=? AND file_id=?').get(owner,id)||this.db.prepare('SELECT 1 FROM job_resume_overrides WHERE user_id=? AND file_id=?').get(owner,id))return 'CS/Data基准或单岗原件仍在使用，请先解除绑定';
     if(this.db.prepare('SELECT 1 FROM active_resume WHERE user_id=? AND file_id=?').get(owner,id))return '当前评分简历：请先停用，再移入回收站';
     return null;
   }
@@ -737,6 +740,10 @@ export class WorkspaceStore {
     this.db.prepare('INSERT OR IGNORE INTO resume_text VALUES (?,?,?,?,?,?)').run(id, owner, text, hash(text), parsed.pages ?? null, parsed.parser);
     return this.parsedResume(owner, id);
   }
+  resumeBindings(owner) { return routingBindings(this,owner); }
+  setResumeBaseline(owner,track,input) { return setBaseline(this,owner,track,input); }
+  setResumeOverride(owner,id,input) { return setOverride(this,owner,id,input); }
+  resolveResume(owner,job,cache) { return resolveResume(this,owner,job,cache); }
   activeResume(owner) {
     const row = this.db.prepare('SELECT file_id FROM active_resume WHERE user_id=?').get(owner);
     return row ? this.parsedResume(owner, row.file_id) : null;
@@ -772,7 +779,7 @@ export class WorkspaceStore {
       const data = { format: 'career-queue-personal-export', version: 1, exportedAt: new Date(this.now()).toISOString(),
         offlineExchange:Object.fromEntries(offlineTables.map(table=>[table,rows(table,'snapshot').map(r=>JSON.parse(r.snapshot))])),
         account: { id: account.id, username: account.username }, preferences: JSON.parse(account.preferences),
-        schoolOpportunities: this.schoolOpportunities(owner), jobs: this.jobs(owner), activeResume: this.activeResume(owner), migrationReceipts: this.migrationReceipts(owner),
+        schoolOpportunities: this.schoolOpportunities(owner), jobs: this.jobs(owner), activeResume: this.activeResume(owner), resumeBaselines:this.resumeBindings(owner), resumeOverrides:this.db.prepare('SELECT job_id jobId,file_id fileId FROM job_resume_overrides WHERE user_id=?').all(owner), migrationReceipts: this.migrationReceipts(owner),
         resumeText: rows('resume_text', 'file_id,text,text_hash,pages,parser'),
         channels: rows('application_plans', 'job_id,channel'),
         questionHistory: rows('question_history', 'job_id,revision,basis,snapshot,updated,archived').map(row => ({...row, snapshot:JSON.parse(row.snapshot)})),
@@ -824,10 +831,13 @@ export class WorkspaceStore {
   }
   materialContext(owner, id, resumeFileId=null) {
     if(resumeFileId&&this.fileOrigin(owner,resumeFileId).kind!=='uploaded')fail(409,'批量原稿必须选择本人上传原件，不能使用历史生成稿');
-    const job = this.job(owner, id), resume = resumeFileId?this.parsedResume(owner,textField(resumeFileId,36,true)):this.activeResume(owner);
+    const job = this.job(owner, id), resolved=this.resolveResume(owner,job);
+    if(resolved.selection.mode!=='legacy'&&resumeFileId&&resumeFileId!==resolved.resume?.fileId)fail(409,'所选原件与本岗评分基准不一致，请先保存单岗覆盖');
+    const resume=resolved.selection.mode==='legacy'&&resumeFileId?this.parsedResume(owner,textField(resumeFileId,36,true)):resolved.resume;
     const source = { job: { id: job.id, company: job.company, title: job.title, location: job.location, url: job.url, jd: job.jd },
       resume: resume ? { fileId: resume.fileId, name: resume.name, fileSha: resume.fileSha, textHash: resume.textHash } : null };
     if(resumeFileId)source.selectedResume=true;
+    if(resolved.selection.mode!=='legacy')source.resumeSelection=resolved.selection;
     return { ...source, hash: hash(JSON.stringify(source)), ready: Boolean(resume && job.jd.trim()) };
   }
   application(owner, id) {
@@ -1091,15 +1101,21 @@ export class WorkspaceStore {
     const old = this.catalogue(), sources = new Map(result.sources.map(source => [source.id, source]));
     const jobs = new Map(old.jobs.filter(job => (job.sources || [job.source]).some(source => sources.get(source.id)?.status !== 'complete')).map(job => [job.id, { ...job, sourceUpdatedAt:job.sourceUpdatedAt || old.finishedAt || null, stale: true }]));
     const previous = new Map(old.jobs.map(job => [job.id, job]));
+    const firstSeenById={...old.discoveryHistory?.firstSeenById};
+    const seen=new Set([...(old.discoveryHistory?.seenIds||[]),...old.jobs.map(j=>j.id)]);
+    for(const j of old.jobs)if(j.firstSeenAt&&!firstSeenById[j.id])firstSeenById[j.id]=j.firstSeenAt;
     for (const incoming of result.jobs) {
       const facts=citizenshipFacts(incoming),prior=previous.get(incoming.id)?.citizenshipInfo;const job={...incoming,citizenshipInfo:facts.restricted?{...facts,capturedAt:new Date(this.now()).toISOString(),sourceUrl:incoming.url}:prior?.restricted?prior:facts};
       const cached = previous.get(job.id);
-      Object.assign(job,mergePublication(incoming,cached,this.now()));
+      Object.assign(job,mergePublication(incoming,cached||((seen.has(job.id)||old.discoveryHistory?.complete===false)?{firstSeenAt:firstSeenById[job.id]||null}:undefined),this.now()));
+      if(firstSeenById[job.id])job.firstSeenAt=firstSeenById[job.id];
+      if(job.firstSeenAt)firstSeenById[job.id]=job.firstSeenAt;
       job.durationEvidence=incoming.durationEvidence || cached?.durationEvidence || null;
       jobs.set(job.id, cached?.jd && (!job.jd || (cached.fullJd && !job.fullJd)) ? { ...job,...Object.fromEntries(['title','location','workMode','deadline','deadlineEvidence','requisitionId','sourceEvidence','fieldEvidence','duration','durationText','durationMonths','durationRange','fullJd','jdCompleteness','officialTitle','durationSource'].filter(k=>cached[k] && (!['deadline','deadlineEvidence'].includes(k) || !job.deadline)).map(k=>[k,cached[k]])), sourceUpdatedAt:cached.sourceUpdatedAt || old.finishedAt || null, jd: cached.jd, stale: true, detailError: job.detailError || '正文暂不可读，保留上次正文，请核实' } : { ...job, sourceUpdatedAt:result.finishedAt || new Date(this.now()).toISOString(), stale: false });
     }
     const value = { ...result, discoveryHistory:old.discoveryHistory,refreshBatch:old.refreshBatch,jobs: [...jobs.values()].map(job=>({...job,durationInfo:durationFacts(job)})) };
     if(refreshId)Object.assign(value,refreshNovelty(old,value,refreshId,this.now(),readAliases(this.db)));
+    value.discoveryHistory={...value.discoveryHistory,firstSeenById};
     this.db.prepare('INSERT INTO catalogue VALUES (1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(value));
     return value;
   }

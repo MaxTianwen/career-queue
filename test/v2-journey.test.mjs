@@ -23,8 +23,8 @@ test('v2 complete two-account journey preserves actual documents and submissions
   await setup.createAdmin({ username: 'operator', password }); setup.close();
   const source = { id: 'fixture', name: 'Synthetic Board', url: 'https://example.com/careers' };
   const catalogue = [
-    catalogueJob({ company: 'Synthetic Software', title: 'Software Developer Intern', location: 'Toronto, Canada', url: 'https://example.com/jobs/software', jd: 'Python SQL pipelines automated validation tests required. Software development internship. Four months, Summer 2028.' }, source),
-    catalogueJob({ company: 'Synthetic Analytics', title: 'Data Analyst Intern', location: 'Vancouver, Canada', url: 'https://example.com/jobs/data', jd: 'Data analysis and SQL reports required. Data analytics internship. Four months, Summer 2028.' }, source)
+    catalogueJob({ company: 'Synthetic Software', title: 'Software Developer Intern', location: 'Toronto, Canada', url: 'https://example.com/jobs/software', jd: 'Develop software applications and REST APIs. Python SQL automated validation tests required. Software development internship. Four months, Summer 2028.' }, source),
+    catalogueJob({ company: 'Synthetic Analytics', title: 'Data Analyst Intern', location: 'Vancouver, Canada', url: 'https://example.com/jobs/data', jd: 'Analyze datasets and build analytical reports. SQL required. Data analytics internship. Four months, Summer 2028.' }, source)
   ];
   let server;
   async function start(path) { server = workspaceServer({legacyRegistration:true, /* Existing pre-email HTTP contract fixture. */ database: path, discover: async () => ({ jobs: catalogue, sources: [{ ...source, count: 2, status: 'complete' }], finishedAt: new Date().toISOString() }) }); server.listen(0, '127.0.0.1'); await once(server, 'listening'); }

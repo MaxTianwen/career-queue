@@ -22,7 +22,7 @@ function clearPrivate(message = '') {
   fileViewer.clear(false);batch.clear();viewReads.invalidate(); navigation.reset();
   document.body.classList.remove('session-check');$('#workspace').inert=false;sessionReturn.stop();
   clearTimeout(expiryTimer); updates.stop(); applications.clear(); school.clear();
-  reviewedResume = null; recommendations = []; refreshBatch=null; $('#resume-text').textContent = ''; $('#resume-name').textContent = ''; $('#resume-review').hidden = true; $('#job-match').replaceChildren(); $('#recommendations-list').replaceChildren(); $('#source-status').replaceChildren(); $('#active-resume').textContent = '尚未启用简历';
+  $('#resume-routing').replaceChildren();reviewedResume = null; recommendations = []; refreshBatch=null; $('#resume-text').textContent = ''; $('#resume-name').textContent = ''; $('#resume-review').hidden = true; $('#job-match').replaceChildren(); $('#recommendations-list').replaceChildren(); $('#source-status').replaceChildren(); $('#active-resume').textContent = '尚未启用简历';
   $('#show-hidden-jobs').checked = false;
   epoch++; account = null; csrf = ''; jobs = [];
   document.body.classList.remove('signed-in'); $('#workspace').hidden = true; $('#account').hidden = true; $('#auth').hidden = false;
@@ -88,7 +88,7 @@ function selectJob(job, preserveApplication = false) {
   $('#job-mode').textContent = job?.schoolId ? '学校职位 · School ID '+job.schoolId : job ? 'APPLICATION DRAFT' : 'NEW OPPORTUNITY';
   $('#back-school-jobs').hidden = !job?.schoolId;
   $('#job-title').textContent = job?.schoolId ? '学校职位与申请准备' : job ? '职位与备注' : '准备职位资料';
-  $('#job-status').textContent = ''; $('#job-match').replaceChildren(matchView(job?.match));
+  $('#job-status').textContent = ''; $('#job-match').replaceChildren(matchView(job?.match,job));
   $('#job-link').hidden = !job?.url;
   if (job?.url) $('#job-link').href = job.url; else $('#job-link').removeAttribute('href');
   for (const node of document.querySelectorAll('.job-card')) node.setAttribute('aria-pressed', String(node.dataset.id === job?.id));
@@ -170,10 +170,11 @@ async function enter(session) {
   $('#admin-panel').hidden=account.role!=='admin';
   $('#auth-form').reset();$('#auth').hidden=true;$('#workspace').hidden=false;$('#account').hidden=false;$('#notice').textContent='';
   document.body.classList.add('signed-in');tab('recommendations');
+    void showResumeBindings();
   void backgroundRead('#notice',()=>readView('basics',async current=>{
    const [rows,files,resume,registration]=await Promise.all([api('/api/jobs'),api('/api/files'),api('/api/resume'),account.role==='admin'?api('/api/registration'):null]);
    if(captured!==epoch||!current())return;
-   jobs=rows;drawJobs();fileTrashMode=false;drawFiles(files);$('#clear-resume').hidden=!resume;$('#active-resume').textContent=resume?`当前评分基准：${resume.name} · ${resume.textHash.slice(0,8)}`:'尚未启用简历；可以浏览职位，暂不评分';
+   jobs=rows;drawJobs();fileTrashMode=false;drawFiles(files);$('#clear-resume').hidden=!resume;$('#active-resume').textContent=resume?`旧版单简历记录（设置方向基准后不使用）：${resume.name} · ${resume.textHash.slice(0,8)}`:'尚未启用简历；可以浏览职位，暂不评分';
    if(registration){$('#admin-form').elements.registrationOpen.value=String(registration.registrationOpen);$('#account-management').hidden=!registration.securityVersion;}
    try{const draft=jobs.find(job=>job.id===sessionStorage.getItem('cq-draft-'+account.id));if(draft&&document.body.dataset.view==='recommendations'&&!jobDirty())openPreparation(draft);}catch{}
   }));
@@ -303,15 +304,17 @@ async function boot() {
 }
 
 function node(tag, text, className) { const el = document.createElement(tag); el.textContent = text; if (className) el.className = className; return el; }
-function matchView(match) {
+function matchView(match,job) {
   const box = node('div', '', 'match-view');
   if (!match) return box;
+  if(match.selection){const s=match.selection;box.append(node('p',s.classification.label+' · '+(s.mode==='manual'?'单岗覆盖':s.mode==='legacy'?'旧版单简历':'按JD职责选择'),'resume-routing-summary'),node('p',s.reason||s.classification.basis,'muted'));for(const line of Object.values(s.classification.evidence).flat())box.append(node('small','JD依据：'+line));}
+  if(job){const choose=node('button','选择／覆盖本岗简历');choose.type='button';choose.addEventListener('click',()=>openResumeChoice(job,box));box.append(choose);}
   box.append(node('strong', match.score === null ? '暂不评分' : `${match.score} / 100 · 关键词证据覆盖`));
   if (match.reason) box.append(node('p', match.reason, 'muted'));
   if (match.source) box.append(node('small', `基于 ${match.source.name} · 简历 ${match.source.textHash.slice(0,8)} · JD ${match.source.jdHash.slice(0,8)}`));
   if (match.score !== null) {
     const detail = document.createElement('details'); detail.append(node('summary', '匹配依据与未体现要求'));
-    detail.append(node('p', '这是本地规则的文字覆盖度，不是 ATS 通过率；简历未体现不等于不会。', 'muted'));
+    detail.append(node('p', '这是本地规则的文字覆盖参考，不是雇主 ATS 分数或录取概率；简历未体现不等于不会。', 'muted'));
     for (const item of [...(match.matched || []), ...(match.gaps || [])]) {
       detail.append(node('strong', `${item.name} · ${item.level > 0 ? item.level < 1 ? '基础接触' : '有证据' : '未体现'}`));
       detail.append(node('p', item.evidence || '当前简历没有对应文字', 'quote'));
@@ -369,15 +372,16 @@ function drawRecommendations() {
   const available=orderDiscovery(candidates.filter(job=>matchesOpportunity(job,filters)),now);
   $('#recommendations-list').append(countryCountSummary(candidates,filters));
   $('#recommendations-list').append(node('p',`${available.length} 个机会 · 显示 ${Math.min(available.length,visibleRecommendations)} 个`,'list-meta'));
-  if(refreshBatch)$('#recommendations-list').append(node('p',refreshBatch.historyComplete===false?'新增历史已达到容量边界，暂不标记新增；发布时间仍独立判断。':`标记来自最近一次${refreshBatch.partial?'部分成功':'成功'}刷新（${new Date(refreshBatch.finishedAt).toLocaleString()}）；本次新增 ${refreshBatch.newIds.length} 条。标记保留到下一次成功刷新；失败不替换。历史记录始于 ${new Date(refreshBatch.startedAt).toLocaleDateString()}，不代表更早历史已完整核验。`,'discovery-batch-note muted'));
+  if(refreshBatch)$('#recommendations-list').append(node('p',refreshBatch.historyComplete===false?'新增历史已达到容量边界，暂不标记新增；发布时间仍独立判断。':`标记来自最近一次${refreshBatch.partial?'部分成功':'成功'}刷新（${new Date(refreshBatch.finishedAt).toLocaleString()}）；本次新增 ${refreshBatch.newIds.length} 条。新增提示按首次发现时间保留24小时，重复刷新不重置；近24小时发布独立依据官方时间。默认按发布时间从新到旧，未知置后；仅日期按日期排序，同日精确时间优先。历史记录始于 ${new Date(refreshBatch.startedAt).toLocaleDateString()}，不代表更早历史已完整核验。`,'discovery-batch-note muted'));
   if(!available.length)$('#recommendations-list').append(node('p',recommendations.length?'没有符合当前条件的职位。试试清空筛选，或允许保留未知条件。':'还没有可浏览的职位。点击刷新公开来源，或从学校列表开始。','empty'));
   for (const job of available.slice(0, visibleRecommendations)) {
     const card = node('article', '', 'recommendation-card'+(job.hasSchool?' school-opportunity':''));card.dataset.jobId=job.id;
     const header=node('div','','card-header');header.append(node('span',job.company,'company-name'));const priority=discoveryBadge(job,now);if(priority)header.append(priority);header.append(batch.checkbox(job));card.append(header,node('h3',job.title),node('p',job.location || '地点未知','card-location'),factBadges(job),publicationSummary(job),deadlineSummary(job));
+    if(job.resumeSelection){const s=job.resumeSelection;card.append(node('p',s.classification.label+' · '+(s.file?'评分 / 优化原件：'+s.file.name:'待选择简历')+' · '+(job.match?.score==null?'暂不评分':job.match.score+' / 100 本地规则参考')+(s.mode==='manual'?' · 单岗覆盖':s.mode==='legacy'?' · 旧版单简历':''),'card-resume-selection'));}
     if(job.hasSchool){const confirmed=(job.schoolSources||[]).map(s=>s.requirement).filter(r=>r?.source==='user');const requirement=confirmed.length?(new Set(confirmed.map(r=>r.kind)).size===1?confirmed[0]:{kind:'unknown'}):schoolRequirement((job.schoolSources||[]).map(s=>s.row),job);card.append(node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind],'route-summary'));}
     const detail=document.createElement('details');detail.className='card-detail';detail.append(node('summary','职位详情与匹配依据'),publicationSummary(job,{detailed:true}),freshnessSummary(job));
     detail.append(node('p',`${job.workMode || '办公方式未知'} · ${job.salary || '薪资未披露'}`,'muted'));
-    detail.append(node('small',`来源：${(job.sources || [job.source]).map(s=>s.name).join(' / ')}${job.stale?' · 待核实更新':''}`),matchView(job.match),node('pre',job.jd || job.detailError || '暂无完整 JD'));
+    detail.append(node('small',`来源：${(job.sources || [job.source]).map(s=>s.name).join(' / ')}${job.stale?' · 待核实更新':''}`),matchView(job.match,job),node('pre',job.jd || job.detailError || '暂无完整 JD'));
     if(job.hasPublic) detail.append(node('p','网络来源更新：'+(job.publicUpdated || '未知')+' · '+(job.stale?'状态待核实':'以官网当前状态为准')));
     for(const source of job.schoolSources || []) {
       detail.append(node('p',`学校 ID ${source.schoolId} · 更新 ${new Date(source.updated).toLocaleString()} · 状态 ${source.row.sourceStatus || '未知'} · 截止 ${source.row.deadlineText || '未知'}`));
@@ -407,19 +411,24 @@ function drawRecommendations() {
   discoveryView();
   $('#more-recommendations').hidden = available.length <= visibleRecommendations;
 }
+async function showResumeBindings(){const ticket=epoch;try{const data=await api('/api/resume-routing');if(ticket!==epoch)return;const panel=$('#resume-routing');panel.replaceChildren(node('strong','按岗位JD使用CS / Data基准'),node('p','上传原件后点击解析、核对文字并指定方向。混合、未知或缺少模板时可为单岗选择；不根据文件名猜测。离线优化需要Word原件；PDF可评分但不能作为Word优化源。'));
+ for(const track of ['cs','data']){const row=node('p',track.toUpperCase()+'：'+(data.bindings[track]?.name||'尚未指定'));if(data.bindings[track]){const clear=node('button','解除'+track.toUpperCase()+'绑定');clear.type='button';clear.addEventListener('click',()=>action('#file-status',async()=>{await api('/api/resume-routing/'+track,{method:'PUT',value:{fileId:null}});await refreshAssessment();}));row.append(clear);}panel.append(row);}}catch(e){if(ticket===epoch)$('#resume-routing').textContent=e.message;}}
+async function openResumeChoice(job,box){const ticket=epoch;if(box.querySelector('.resume-choice'))return;const panel=node('div','','resume-choice'),status=node('p');box.append(panel);try{const files=await api('/api/files');if(ticket!==epoch)return;const select=node('select');select.setAttribute('aria-label','本岗简历原件');select.add(new Option('恢复按JD自动选择',''));for(const f of files.filter(f=>f.kind!=='cover'&&f.origin.kind==='uploaded'))select.add(new Option(f.name,f.id));const preview=node('pre'),confirmed=node('input');confirmed.type='checkbox';const label=node('label','我已核对文字并确认本岗使用该原件（评分与导出同步）');label.append(confirmed);let parsed=null;select.addEventListener('change',async()=>{parsed=null;confirmed.checked=false;preview.textContent='';if(!select.value)return;try{const id=select.value,value=await api('/api/files/'+id+'/parse',{method:'POST',value:{}});if(ticket===epoch&&select.value===id){parsed=value;preview.textContent=value.text;}}catch(e){status.textContent=e.message;}});const save=node('button','保存本岗选择');save.type='button';save.addEventListener('click',()=>action(status,async()=>{if(select.value&&(!parsed||!confirmed.checked))throw Error('请核对提取文字并勾选确认');const saved=job.id.length===36?job:await api('/api/recommendations/'+job.id+'/prepare',{method:'POST',value:{}});await api('/api/jobs/'+saved.id+'/resume-selection',{method:'PUT',value:select.value?{fileId:parsed.fileId,fileSha:parsed.fileSha,textHash:parsed.textHash,confirmed:true}:{fileId:null}});await refreshAssessment();}));panel.append(select,preview,label,save,status);}catch(e){status.textContent=e.message;panel.append(status);}}
 async function refreshAssessment() {
+  await showResumeBindings();
   const resume = await api('/api/resume');
   $('#clear-resume').hidden=!resume;await refreshFiles();
-  $('#active-resume').textContent = resume ? `当前评分基准：${resume.name} · ${resume.textHash.slice(0,8)}` : '尚未启用简历；可以浏览职位，暂不评分';
+  $('#active-resume').textContent = resume ? `旧版单简历记录（设置方向基准后不使用）：${resume.name} · ${resume.textHash.slice(0,8)}` : '尚未启用简历；可以浏览职位，暂不评分';
   jobs = await api('/api/jobs'); drawJobs();
   // Keep every unsaved form value; only refresh its saved assessment.
   const current = jobs.find(job => job.id === $('#job-form').elements.id.value);
-  $('#job-match').replaceChildren($('#job-form').elements.jd.value !== (current?.jd ?? '') ? node('p', 'JD 已修改；保存后重新计算匹配度', 'muted') : matchView(current?.match));
+  $('#job-match').replaceChildren($('#job-form').elements.jd.value !== (current?.jd ?? '') ? node('p', 'JD 已修改；保存后重新计算匹配度', 'muted') : matchView(current?.match,current));
   await loadRecommendations(); await applications.refresh(); await applications.records();
 }
 $('#activate-form').addEventListener('submit', event => { event.preventDefault(); action('#resume-status', async () => {
   if (!reviewedResume) throw new Error('请先解析并核对文件');
-  await api('/api/resume/activate', { method: 'POST', value: { fileId: reviewedResume.fileId, fileSha: reviewedResume.fileSha, textHash: reviewedResume.textHash, confirmed: event.target.elements.confirmed.checked } });
+  const track=event.target.elements.track.value;
+  await api(track==='legacy'?'/api/resume/activate':'/api/resume-routing/'+track, { method:track==='legacy'?'POST':'PUT', value: { fileId: reviewedResume.fileId, fileSha: reviewedResume.fileSha, textHash: reviewedResume.textHash, confirmed: event.target.elements.confirmed.checked } });
   $('#resume-status').textContent = '已启用';
   try { await refreshAssessment(); } catch { $('#resume-status').textContent = '简历已启用，但评分刷新失败。请重新登录查看，不必重新启用。'; }
 }); });
