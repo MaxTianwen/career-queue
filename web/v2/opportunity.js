@@ -192,3 +192,16 @@ export function discoveryBadge(job,now=Date.now()) {
  const info=discoveryPriority(job,now),recent=publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},now).recent24h;if(!info.label)return null;
  const badge=document.createElement('strong');badge.className='discovery-priority priority-'+info.kind;badge.textContent=info.label+(info.kind==='new'&&recent?' · 近24小时发布':'');badge.title=info.note;return badge;
 }
+
+// Visual normalization only; the stored match score and ordering are untouched.
+export function displayScore(value) {
+ return typeof value==='number' && Number.isFinite(value) ? Math.max(0,Math.min(100,Math.round(value))) : null;
+}
+export function scoreRing(value) {
+ const score=displayScore(value),wrap=document.createElement('div'),ring=document.createElement('span'),label=document.createElement('span');
+ wrap.className='match-score';ring.className='score-ring';
+ ring.dataset.level=score===null?'unknown':score>=75?'high':score>=40?'medium':'low';
+ ring.style.setProperty('--score',score??0);ring.textContent=score===null?'—':String(score);
+ ring.setAttribute('role','img');ring.setAttribute('aria-label',score===null?'匹配分未知，暂不评分':`匹配分 ${score} / 100`);
+ label.className='score-label';label.textContent=score===null?'暂不评分':'匹配分';label.setAttribute('aria-hidden','true');wrap.append(ring,label);return wrap;
+}
