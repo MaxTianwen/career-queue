@@ -6,7 +6,7 @@ A local workspace for Canadian co-op and internship discovery, school opportunit
 
 ## Run
 
-Use Node.js 22+ (CI uses Node.js 24), then run `npm run start:v2` and open `http://127.0.0.1:4322/`. Use an existing local account or `npm run admin:v2`. If the background service is running, open the page without starting another instance. The legacy app uses `npm start` on port 4317; data is not migrated automatically.
+Use Node.js 22.13+ (CI tests Node.js 22 and 24), then run `npm run start:v2` and open `http://127.0.0.1:4322/`. Use an existing local account or `npm run admin:v2`. If the background service is running, open the page without starting another instance. The legacy app uses `npm start` on port 4317; data is not migrated automatically.
 
 Document operations need Python with `python -m pip install -r scripts/requirements-test.txt`. Set its absolute executable path in the private local file `private/v2-local/runtime.json`, for example `{"python":"C:/path/to/python.exe"}`. Preserve existing settings. Legacy document tests also read the `python` field in `private/resume-templates/templates.json`. Do not commit these files. Local Word generation requires Microsoft Word; returned offline PDFs are inspected with Python libraries, and returned DOCX files are not rendered again by Office.
 
