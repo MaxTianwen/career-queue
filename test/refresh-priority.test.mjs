@@ -24,8 +24,16 @@ test('priority separates new from publication, overlaps have one rank, and count
  const a={...job('new'),hasPublic:true,newInRefresh:true,firstSeenAt:new Date(now).toISOString(),postedAt:'2026-10-18T11:00:00Z'},b={...job('recent'),hasPublic:true,postedAt:'2026-10-17T12:00:00Z'},c={...job('old'),hasPublic:true,postedAt:'2026-10-18',firstSeenAt:new Date(now).toISOString()};assert.deepEqual(orderDiscovery([c,b,a],now).map(j=>j.id),[a.id,c.id,b.id]);assert.equal(discoveryPriority(a,now).label,'24小时内新增');assert.equal(discoveryPriority(b,now).label,'近24小时发布');assert.equal(discoveryPriority(b,now+1).rank,2);assert.equal(discoveryPriority(c,now).rank,0);
  assert(matchesOpportunity(a,{country:'CA',location:'toronto',year:'2027',season:'summer',months:'4'}));assert(!matchesOpportunity(a,{country:'US'}));assert(!matchesOpportunity(a,{location:'Boston'}));assert(!matchesOpportunity(a,{year:'2028'}));assert(!matchesOpportunity(a,{months:'8'}));assert.deepEqual(orderDiscovery([c,b],now+1).map(j=>j.id),[c.id,b.id]);assert.deepEqual(orderDiscovery([b,c],now+1).map(j=>j.id),[c.id,b.id]);
 });
-test('bounded public history fails closed rather than classifying forgotten jobs as new',()=>{
- const previous={jobs:[],discoveryHistory:{startedAt:'2026-10-18',seenIds:Array.from({length:100000},(_,i)=>String(i)),complete:true}};const next=refreshNovelty(previous,{jobs:[job('overflow')],sources:[{...source,status:'complete'}]},'run',now);assert.equal(next.discoveryHistory.complete,false);assert.equal(next.discoveryHistory.seenIds.length,100000);assert.deepEqual(next.refreshBatch.newIds,[]);
+test('bounded public history rolls forward: oldest unseen identities fall out and novelty stays on',()=>{
+ const ids=Array.from({length:100000},(_,i)=>String(i)),overflow=job('overflow');
+ const next=refreshNovelty({jobs:[],discoveryHistory:{startedAt:'2026-10-18',seenIds:ids,complete:true}},{jobs:[{...job('x'),id:'0'},overflow],sources:[{...source,status:'complete'}]},'run',now);
+ assert.equal(next.discoveryHistory.complete,true);assert.equal(next.refreshBatch.historyComplete,true);assert.equal(next.discoveryHistory.seenIds.length,100000);assert.deepEqual(next.refreshBatch.newIds,[overflow.id]);
+ assert.deepEqual(next.discoveryHistory.seenIds.slice(-2),['0',overflow.id]);assert.ok(!next.discoveryHistory.seenIds.includes('1'));assert.equal(next.discoveryHistory.seenIds[0],'2');
+});
+test('history disabled by the former cap recovers on the next refresh',()=>{
+ const seenJob=job('seen'),fresh=job('fresh');
+ const next=refreshNovelty({jobs:[],discoveryHistory:{startedAt:'2026-10-18',seenIds:[seenJob.id],complete:false}},{jobs:[seenJob,fresh],sources:[{...source,status:'complete'}]},'run',now);
+ assert.equal(next.discoveryHistory.complete,true);assert.deepEqual(next.refreshBatch.newIds,[fresh.id]);
 });
 
 test('approved compatible aliases count once and cannot make a known opportunity new; conflicts remain separate',()=>{

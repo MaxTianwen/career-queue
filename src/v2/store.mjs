@@ -1117,7 +1117,8 @@ export class WorkspaceStore {
     }
     const value = { ...result, discoveryHistory:old.discoveryHistory,refreshBatch:old.refreshBatch,jobs: [...jobs.values()].map(job=>({...job,durationInfo:durationFacts(job)})) };
     if(refreshId)Object.assign(value,refreshNovelty(old,value,refreshId,this.now(),readAliases(this.db)));
-    value.discoveryHistory={...value.discoveryHistory,firstSeenById};
+    const kept=refreshId?new Set(value.discoveryHistory.seenIds):null;
+    value.discoveryHistory={...value.discoveryHistory,firstSeenById:kept?Object.fromEntries(Object.entries(firstSeenById).filter(([id])=>kept.has(id))):firstSeenById};
     this.db.prepare('INSERT INTO catalogue VALUES (1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(value));
     return value;
   }

@@ -291,7 +291,7 @@ const sessionReturn=returnGuard({
 });
 window.addEventListener('pagehide',()=>sessionReturn.hide());
 window.addEventListener('pageshow',event=>{if(event.persisted&&account)void sessionReturn.show();});
-document.addEventListener('visibilitychange',()=>{if(!account)return;if(document.hidden)sessionReturn.hide();else void sessionReturn.show();});
+document.addEventListener('visibilitychange',()=>{if(!account)return;if(document.hidden)sessionReturn.leave();else void sessionReturn.resume();});
 async function boot() {
   setBusy(true);
   try {

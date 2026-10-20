@@ -1,7 +1,10 @@
 // Privacy masking retains layout and scroll; returning validates the session only.
-export function returnGuard({validate,mask,clearPreview,invalid}) {
- let epoch=0;
- return {hide(){epoch++;clearPreview();mask(true);},async show(){const ticket=++epoch;try{const valid=await validate();if(ticket!==epoch)return;if(!valid)return invalid();mask(false);}catch{if(ticket===epoch)invalid();}},stop(){epoch++;}};
+export function returnGuard({validate,mask,clearPreview,invalid,grace=600000,now=Date.now}) {
+ let epoch=0,leftAt=null;
+ const hide=()=>{epoch++;clearPreview();mask(true);};
+ const show=async()=>{const ticket=++epoch;try{const valid=await validate();if(ticket!==epoch)return;if(!valid)return invalid();mask(false);}catch{if(ticket===epoch)invalid();}};
+ // Tab switches shorter than grace keep the workspace visible and only re-check the session; longer absences mask and clear like pagehide.
+ return {hide,show,stop(){epoch++;},leave(){epoch++;leftAt=now();},async resume(){const away=leftAt===null?Infinity:now()-leftAt;leftAt=null;if(away>=grace){hide();return show();}const ticket=++epoch;try{const valid=await validate();if(ticket===epoch&&!valid)invalid();}catch{if(ticket===epoch)invalid();}}};
 }
 // Keep expanded details, focus, pagination and the visible card's screen position on data refresh.
 export function preserveList(container,render,{window:win=window,document:doc=document}={}){

@@ -14,3 +14,10 @@ test('reimport preserves newer school evidence when an older linked snapshot has
 
 
 test('saved and preparation summaries retain season-duration relationships too',()=>{const summary=factsLabel({durationEvidence:{text:amd}});assert.match(summary,/Winter 4 \/ 8 个月/);assert.match(summary,/Summer 4 \/ 8 个月/);assert.match(summary,/Fall 4 个月/);assert.ok(!summary.includes('Fall 4 / 8'));assert.match(factsLabel({jd:amazon}),/3–4（范围）/);});
+test('brief tab switch keeps workspace and preview, re-checks the session; long absence masks and clears',async()=>{
+ let clock=0,masks=[],preview=0,invalid=0,valid=true;const g=returnGuard({validate:async()=>valid,mask:x=>masks.push(x),clearPreview:()=>preview++,invalid:()=>invalid++,grace:600000,now:()=>clock});
+ g.leave();clock+=599999;await g.resume();assert.deepEqual(masks,[]);assert.equal(preview,0);assert.equal(invalid,0);
+ g.leave();clock+=1000;valid=false;await g.resume();assert.deepEqual(masks,[]);assert.equal(invalid,1);
+ valid=true;g.leave();clock+=600000;await g.resume();assert.deepEqual(masks,[true,false]);assert.equal(preview,1);
+ g.leave();clock+=10;valid=false;const late=g.resume();g.leave();await late;assert.equal(invalid,1);
+});
