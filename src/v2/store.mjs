@@ -498,11 +498,12 @@ export class WorkspaceStore {
       this.db.exec('RELEASE school_list_sync'); return {updated:rows.length,preview:nextPreview,submissions};
     } catch(error) { this.db.exec('ROLLBACK TO school_list_sync; RELEASE school_list_sync'); throw error; }
   }
-  startSchoolOpportunity(owner, schoolId, fingerprint) {
+  // A portal-reported submission is a fact to record even when local eligibility rules would hide the posting.
+  startSchoolOpportunity(owner, schoolId, fingerprint, { portalSubmitted = false } = {}) {
     const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
     if (!item) fail(404,'学校职位不存在');
     if (schoolHash(item.row)!==fingerprint) fail(409,'学校列表已更新，请刷新后重新选择');
-    if(this.citizenExclusion(owner,{...item.facts,schoolId}))fail(409,'该岗位已按本账号的地区或公民资格条件排除；可在资格依据中核对');
+    if(!portalSubmitted&&this.citizenExclusion(owner,{...item.facts,schoolId}))fail(409,'该岗位已按本账号的地区或公民资格条件排除；可在资格依据中核对');
     if (item.jobId) return this.job(owner,item.jobId);
     if (this.schoolSubmissionSources(owner,schoolId).some(s=>s.channel==='school')) fail(409,'已有学校提交历史，请在学校对照核查原关联');
     this.db.exec('SAVEPOINT school_start');
@@ -537,7 +538,7 @@ export class WorkspaceStore {
         const legacy=this.schoolSubmissionSources(owner,schoolId).filter(row=>row.channel==='school').map(row=>({id:row.submissionId,jobId:row.jobId}));
         const found=[...new Map([...historic,...legacy].map(row=>[row.id,row])).values()];
         if(found.length>1)fail(409,'学校编号对应多个历史提交，请先核对记录');
-        let existing=found[0],job=existing?this.job(owner,existing.jobId):this.startSchoolOpportunity(owner,schoolId,item.fingerprint);
+        let existing=found[0],job=existing?this.job(owner,existing.jobId):this.startSchoolOpportunity(owner,schoolId,item.fingerprint,{portalSubmitted:true});
         existing ||= this.application(owner,job.id).submissions.find(row=>row.channel==='school');
         let id=existing?.id;
         if(!id) {
