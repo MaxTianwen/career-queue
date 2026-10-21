@@ -1,6 +1,6 @@
 import {jobCategory} from './job-category.mjs';
 import { classifyResume } from './resume-track.mjs';
-const ca=/\b(?:canada|canadian|toronto|markham|vaughan|waterloo|ottawa|montr[eé]al|qu[eé]bec|vancouver|burnaby|richmond hill|scarborough|north york|newmarket|calgary|edmonton|halifax|winnipeg|saskatoon|mississauga|ontario|british columbia|alberta|manitoba|saskatchewan|newfoundland|st\.? john'?s|vernon|victoria|kitchener|guelph|burlington|oakville|fredericton)\b/i;
+const ca=/\b(?:canada|canadian|toronto|markham|vaughan|waterloo|ottawa|montr[eé]al|qu[eé]bec|vancouver|burnaby|richmond hill|scarborough|north york|newmarket|calgary|edmonton|halifax|winnipeg|saskatoon|mississauga|ontario|british columbia|alberta|manitoba|saskatchewan|newfoundland|st\.? john'?s|vernon|victoria|kitchener|guelph|burlington|oakville|fredericton|gta|greater toronto)\b/i;
 const us=/\b(?:United States(?: of America)?|U\.?S\.?A?\.?|California|Minnesota|Maine|Texas|Ohio|Vermont|New York|San Francisco|Seattle|Boston|Austin)\b/i;
 // US postal states require address punctuation; CA alone remains ambiguous (e.g. Toronto, CA).
 const usPostal=/(?:,|\()\s*(?:AL|AK|AZ|AR|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)(?=\b)/;

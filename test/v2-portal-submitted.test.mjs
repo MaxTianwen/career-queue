@@ -51,3 +51,10 @@ test('applications() equals the per-job derivation for submitted, withdrawn and 
  const app=s.applications(a)[0],record=app.submissions[0];s.changeConfirmation(a,app.jobId,record.id,{action:'withdraw',revision:s.confirmations(a,app.jobId,true)[0].revision,confirmed:true,requestId:randomUUID(),schoolRevision:s.schoolContext(a,app.jobId).revision,date:'',receipt:'Portal evidence'});
  assert.deepEqual(s.applications(a),legacy(a));assert.equal(s.applications(a).length,0);
 });
+test('portal submitted row outside the account scope is still recorded and does not abort the batch',t=>{
+ const{s,a}=setup(t);s.db.prepare('UPDATE users SET preferences=? WHERE id=?').run(JSON.stringify({opportunityScope:'canada-or-remote'}),a);
+ const text=paste('900001').replace('|Toronto|','|London, UK|')+'\n'+paste('900002','').split('\n')[2];
+ const result=s.syncSchoolOpportunities(a,text);assert.equal(result.updated,2);assert.equal(result.submissions.added,1);
+ assert.equal(s.schoolOpportunities(a).length,2);assert.equal(s.applications(a)[0].submissions[0].channel,'school');assert.deepEqual(s.pendingSchoolOpportunities(a).map(item=>item.schoolId),['900002']);
+ assert.throws(()=>{s.syncSchoolOpportunities(a,paste('900003','').replace('|Toronto|','|London, UK|'));const item=s.schoolOpportunities(a).find(row=>row.schoolId==='900003');s.startSchoolOpportunity(a,item.schoolId,item.fingerprint);},/资格条件排除/);
+});
