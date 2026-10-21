@@ -14,7 +14,7 @@
 
 ## 运行
 
-需要 Node.js 22+。在项目目录执行：
+需要 Node.js 22.13+。在项目目录执行：
 
 ```sh
 npm run start:v2

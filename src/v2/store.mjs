@@ -341,9 +341,9 @@ export class WorkspaceStore {
         status: !locked && app.submissions.some(record => record.channel === 'school') ? '当前 School ID 尚无学校提交记录' : app.status, required: app.required };
     });
   }
-  schoolContext(owner, jobId) {
+  schoolContext(owner, jobId, links = this.schoolLinks(owner)) {
     this.job(owner, jobId);
-    const link = this.schoolLinks(owner).find(link => link.jobId === jobId);
+    const link = links.find(link => link.jobId === jobId);
     return link ? { schoolId: link.schoolId, revision: link.revision, company: link.row.company, title: link.row.title } : null;
   }
   checkSchoolRevision(owner, jobId, revision) {
@@ -551,9 +551,12 @@ export class WorkspaceStore {
       this.db.exec('RELEASE portal_submitted');return result;
     } catch(error) {this.db.exec('ROLLBACK TO portal_submitted');this.db.exec('RELEASE portal_submitted');throw error;}
   }
-  submittedIdentities(owner) {
+  submittedJobIds(owner) {
     // Same set as applications() rows with submissions, without building every application.
-    const jobIds=new Set(this.db.prepare('SELECT id FROM jobs WHERE user_id=? AND (EXISTS (SELECT 1 FROM submissions s WHERE s.user_id=jobs.user_id AND s.job_id=jobs.id) OR EXISTS (SELECT 1 FROM submission_confirmations c WHERE c.user_id=jobs.user_id AND c.job_id=jobs.id AND NOT c.withdrawn))').all(owner).map(row=>row.id));
+    return new Set(this.db.prepare('SELECT id FROM jobs WHERE user_id=? AND (EXISTS (SELECT 1 FROM submissions s WHERE s.user_id=jobs.user_id AND s.job_id=jobs.id) OR EXISTS (SELECT 1 FROM submission_confirmations c WHERE c.user_id=jobs.user_id AND c.job_id=jobs.id AND NOT c.withdrawn))').all(owner).map(row=>row.id));
+  }
+  submittedIdentities(owner) {
+    const jobIds=this.submittedJobIds(owner);
     const schoolIds=new Set(this.schoolSubmissionSources(owner).filter(row=>row.channel==='school').map(row=>row.schoolId));
     return {jobIds,schoolIds};
   }
@@ -842,9 +845,9 @@ export class WorkspaceStore {
     if(resolved.selection.mode!=='legacy')source.resumeSelection=resolved.selection;
     return { ...source, hash: hash(JSON.stringify(source)), ready: Boolean(resume && job.jd.trim()) };
   }
-  application(owner, id) {
+  application(owner, id, links = this.schoolLinks(owner)) {
     const context = this.materialContext(owner, id);
-    const requirement=schoolRequirement(this.schoolLinks(owner).filter(link=>link.jobId===id).map(link=>link.row),context.job);
+    const requirement=schoolRequirement(links.filter(link=>link.jobId===id).map(link=>link.row),context.job);
     const channel = this.db.prepare('SELECT channel FROM application_plans WHERE user_id=? AND job_id=?').get(owner, id)?.channel ?? ({both:'both',portal_only:'school-only'}[requirement.kind] || 'unknown');
     const versions = this.db.prepare('SELECT id,snapshot,created FROM materials WHERE user_id=? AND job_id=? ORDER BY created DESC,rowid DESC').all(owner, id)
       .map(row => { const snapshot = JSON.parse(row.snapshot); return { id: row.id, created: row.created, snapshot, stale: !this.generationContextMatches(owner,id,snapshot.context) }; });
@@ -1095,7 +1098,8 @@ export class WorkspaceStore {
     return this.application(owner, id);
   }
   applications(owner) {
-    return this.jobs(owner).flatMap(job => { const app = this.application(owner, job.id); return app.submissions.length ? [{ jobId: job.id, company: job.company, title: job.title, status: app.status, channel: app.channel, requirement:app.requirement, channelProgress:app.channelProgress, schoolContext:this.schoolContext(owner,job.id), submissions: app.submissions }] : []; });
+    const submitted = this.submittedJobIds(owner), links = this.schoolLinks(owner);
+    return this.jobs(owner).filter(job => submitted.has(job.id)).flatMap(job => { const app = this.application(owner, job.id, links); return app.submissions.length ? [{ jobId: job.id, company: job.company, title: job.title, status: app.status, channel: app.channel, requirement:app.requirement, channelProgress:app.channelProgress, schoolContext:this.schoolContext(owner,job.id,links), submissions: app.submissions }] : []; });
   }
   catalogue() { const row = this.db.prepare('SELECT payload FROM catalogue WHERE id=1').get(); return row ? JSON.parse(row.payload) : { jobs: [], sources: [], finishedAt: null }; }
   saveCatalogue(result, {refreshId=null}={}) {
