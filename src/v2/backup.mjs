@@ -11,21 +11,55 @@ async function checksum(path) {
   return hash.digest('hex');
 }
 function validate(db) {
-  if (db.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok' || db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('数据库完整性校验未通过');
-  for (const name of ['users', 'jobs', 'files', 'resume_text', 'active_resume', 'materials', 'submissions', 'generated_resumes', 'settings', 'sessions', 'pdf_reviews']) {
-    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)) throw new Error('不是当前 v2 工作区备份');
+  if (
+    db.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok' ||
+    db.prepare('PRAGMA foreign_key_check').all().length
+  )
+    throw new Error('数据库完整性校验未通过');
+  for (const name of [
+    'users',
+    'jobs',
+    'files',
+    'resume_text',
+    'active_resume',
+    'materials',
+    'submissions',
+    'generated_resumes',
+    'settings',
+    'sessions',
+    'pdf_reviews'
+  ]) {
+    if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name))
+      throw new Error('不是当前 v2 工作区备份');
   }
   for (const file of db.prepare('SELECT size,sha256,bytes FROM files').iterate()) {
-    if (file.size !== file.bytes.length || createHash('sha256').update(file.bytes).digest('hex') !== file.sha256) throw new Error('备份文件内容校验未通过');
+    if (file.size !== file.bytes.length || createHash('sha256').update(file.bytes).digest('hex') !== file.sha256)
+      throw new Error('备份文件内容校验未通过');
   }
-  return Object.fromEntries(['users', 'jobs', 'files', 'materials', 'submissions', 'generated_resumes'].map(name => [name, db.prepare(`SELECT count(*) n FROM ${name}`).get().n]));
+  return Object.fromEntries(
+    ['users', 'jobs', 'files', 'materials', 'submissions', 'generated_resumes'].map(name => [
+      name,
+      db.prepare(`SELECT count(*) n FROM ${name}`).get().n
+    ])
+  );
 }
 function revokeSecurity(db) {
- for(const table of ['account_email_tokens','pending_signups'])if(db.prepare("SELECT 1 FROM sqlite_master WHERE name=? AND type='table'").get(table))db.exec('DELETE FROM '+table);
- if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='account_invitations' AND type='table'").get())db.prepare('UPDATE account_invitations SET revoked=? WHERE used_by IS NULL AND revoked IS NULL').run(Date.now());
- if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='security_limits' AND type='table'").get())db.exec('DELETE FROM security_limits');
+  for (const table of ['account_email_tokens', 'pending_signups'])
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE name=? AND type='table'").get(table))
+      db.exec('DELETE FROM ' + table);
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='account_invitations' AND type='table'").get())
+    db.prepare('UPDATE account_invitations SET revoked=? WHERE used_by IS NULL AND revoked IS NULL').run(Date.now());
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='security_limits' AND type='table'").get())
+    db.exec('DELETE FROM security_limits');
 }
-async function syncFile(path) { const file = await open(path, 'r+'); try { await file.sync(); } finally { await file.close(); } }
+async function syncFile(path) {
+  const file = await open(path, 'r+');
+  try {
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+}
 
 // Operator-only utility. Not exposed through any HTTP route or administrator account.
 export async function backupWorkspace(source, destination) {
@@ -33,19 +67,39 @@ export async function backupWorkspace(source, destination) {
   await mkdir(destination); // Existing directories, including live workspaces, are refused.
   const target = resolve(destination, 'workspaces.sqlite');
   const live = new DatabaseSync(source, { readOnly: true });
-  try { await backup(live, target); } finally { live.close(); }
+  try {
+    await backup(live, target);
+  } finally {
+    live.close();
+  }
   const snapshot = new DatabaseSync(target);
   let counts;
   try {
     counts = validate(snapshot);
     // Only the new snapshot is changed. Restored sessions and PDF approvals must never revive.
-    snapshot.exec('PRAGMA journal_mode=DELETE; PRAGMA secure_delete=ON; BEGIN; DELETE FROM sessions; DELETE FROM pdf_reviews; DELETE FROM auth_attempts; COMMIT;');
+    snapshot.exec(
+      'PRAGMA journal_mode=DELETE; PRAGMA secure_delete=ON; BEGIN; DELETE FROM sessions; DELETE FROM pdf_reviews; DELETE FROM auth_attempts; COMMIT;'
+    );
     revokeSecurity(snapshot);
     validate(snapshot);
-  } finally { snapshot.close(); }
+  } finally {
+    snapshot.close();
+  }
   await syncFile(target);
-  const manifest = { format: 'career-queue-v2-backup', version: 1, createdAt: new Date().toISOString(), sha256: await checksum(target), counts,
-    excludes: ['active sessions', 'PDF preview approvals', 'Word working directories', 'runtime configuration', 'v1 / Notion data'] };
+  const manifest = {
+    format: 'career-queue-v2-backup',
+    version: 1,
+    createdAt: new Date().toISOString(),
+    sha256: await checksum(target),
+    counts,
+    excludes: [
+      'active sessions',
+      'PDF preview approvals',
+      'Word working directories',
+      'runtime configuration',
+      'v1 / Notion data'
+    ]
+  };
   const manifestPath = resolve(destination, 'manifest.json');
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { flag: 'wx', mode: 0o600 });
   await syncFile(manifestPath);
@@ -54,23 +108,44 @@ export async function backupWorkspace(source, destination) {
 export async function restoreWorkspace(source, destination) {
   const manifestPath = resolve(source, 'manifest.json');
   if ((await stat(manifestPath)).size > 16384) throw new Error('备份清单不正确');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')), from = resolve(source, 'workspaces.sqlite');
-  if (manifest.format !== 'career-queue-v2-backup' || manifest.version !== 1 || !/^[a-f0-9]{64}$/.test(manifest.sha256) || await checksum(from) !== manifest.sha256) throw new Error('备份校验失败；未恢复任何记录');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')),
+    from = resolve(source, 'workspaces.sqlite');
+  if (
+    manifest.format !== 'career-queue-v2-backup' ||
+    manifest.version !== 1 ||
+    !/^[a-f0-9]{64}$/.test(manifest.sha256) ||
+    (await checksum(from)) !== manifest.sha256
+  )
+    throw new Error('备份校验失败；未恢复任何记录');
   await mkdir(destination); // Never replace or merge into an existing directory.
   const target = resolve(destination, 'workspaces.sqlite');
   await copyFile(from, target, constants.COPYFILE_EXCL);
-  if (await checksum(target) !== manifest.sha256) throw new Error('复制期间备份发生变化，停止恢复');
+  if ((await checksum(target)) !== manifest.sha256) throw new Error('复制期间备份发生变化，停止恢复');
   const restored = new DatabaseSync(target);
   let counts;
   try {
     counts = validate(restored);
     if (JSON.stringify(counts) !== JSON.stringify(manifest.counts)) throw new Error('备份记录数量不一致');
-    restored.exec('PRAGMA secure_delete=ON; BEGIN; DELETE FROM sessions; DELETE FROM pdf_reviews; DELETE FROM auth_attempts; COMMIT;');
+    restored.exec(
+      'PRAGMA secure_delete=ON; BEGIN; DELETE FROM sessions; DELETE FROM pdf_reviews; DELETE FROM auth_attempts; COMMIT;'
+    );
     revokeSecurity(restored);
     // A restored copy must not reopen enrollment merely because the source allowed it.
-    restored.prepare("INSERT INTO settings(name,value) VALUES('registration_open',0) ON CONFLICT(name) DO UPDATE SET value=0").run();
-  } finally { restored.close(); }
+    restored
+      .prepare("INSERT INTO settings(name,value) VALUES('registration_open',0) ON CONFLICT(name) DO UPDATE SET value=0")
+      .run();
+  } finally {
+    restored.close();
+  }
   await syncFile(target);
-  await writeFile(resolve(destination, 'restore-verified.json'), JSON.stringify({ restoredAt: new Date().toISOString(), sourceSha256: manifest.sha256, sha256: await checksum(target), counts }, null, 2), { flag: 'wx', mode: 0o600 });
+  await writeFile(
+    resolve(destination, 'restore-verified.json'),
+    JSON.stringify(
+      { restoredAt: new Date().toISOString(), sourceSha256: manifest.sha256, sha256: await checksum(target), counts },
+      null,
+      2
+    ),
+    { flag: 'wx', mode: 0o600 }
+  );
   return counts;
 }

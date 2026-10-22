@@ -1,18 +1,382 @@
-export function offlineExchangeUI({panel,selection,api,exclusive,status,preview,download}){
- const names={resume_docx:'简历 Word',resume_pdf:'简历 PDF',cover_docx:'求职信 Word',cover_pdf:'求职信 PDF'};
- const el=(tag,text='')=>{const n=document.createElement(tag);n.textContent=text;return n;},box=el('section'),result=el('div');box.className='offline-exchange';
- box.append(el('h3','离线批量定制'));const help=el('details');help.append(el('summary','任务包与返回要求'),el('p','建议每批3岗，最多5岗。任务包仅含所选JD与本人原件，由你自行上传对话AI。导回每岗Word/PDF成品后先预览、再确认保存；不代表已申请。'));box.append(help);
- const exp=el('button','下载所选岗位任务包'),input=el('input'),load=el('button','检查返回ZIP'),history=el('button','读取已导入版本');exp.type=load.type=history.type='button';exp.className='primary';exp.dataset.offline='export';input.type='file';input.accept='.zip';input.dataset.offline='zip';input.setAttribute('aria-label','选择返回ZIP');load.dataset.offline='inspect';history.dataset.offline='history';box.append(exp,input,load,history,result);panel.append(box);
- let epoch=0,busy=false,capacityAccepted=false,capacityKey='';const reviews=new Map(),jdArea=el('div'),feedback=el('p');feedback.tabIndex=-1;feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');feedback.setAttribute('aria-atomic','true');result.tabIndex=-1;result.setAttribute('aria-label','离线导入结果');box.insertBefore(jdArea,result);box.insertBefore(feedback,result);
- function announce(message,error=false,target=feedback){status.textContent=message;feedback.textContent=message;feedback.setAttribute('role',error?'alert':'status');target.focus({preventScroll:true});target.scrollIntoView({block:'nearest',behavior:'instant'});}
- const wrap=work=>async()=>{if(busy)return;const ticket=epoch;busy=true;box.setAttribute('aria-busy','true');try{await exclusive(async alive=>{try{await work(()=>alive()&&ticket===epoch);}catch(e){if(alive()&&ticket===epoch)announce(e.message,true);}});}finally{if(ticket===epoch){busy=false;box.removeAttribute('aria-busy');}}};
- const button=(label,work)=>{const b=el('button',label);b.type='button';b.addEventListener('click',wrap(work));return b;};
- function links(row,node){for(const [label,url]of [['官网入口',row.url],...(row.school||[]).flatMap(s=>[['学校入口 '+s.schoolId,s.url],['学校提供官网 '+s.schoolId,s.externalUrl]])])if(url&&/^https:\/\//.test(url)){const a=el('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';node.append(a,document.createTextNode(' '));}}
- function versions(rows){result.replaceChildren();for(const row of rows){const node=el('article');node.className='offline-result';node.dataset.jobId=row.jobId;node.append(el('h4',row.company+' · '+row.title),el('p',row.status+' · 版本 '+row.id),el('p','官网与学校状态仍独立；本次没有产生任何申请记录。'));links(row,node);for(const warning of row.warnings)node.append(el('p','待人工核对：'+warning));for(const [key,file]of Object.entries(row.files)){node.append(button('预览 '+names[key],()=>preview(file)),button('下载 '+names[key],()=>download(file)));}const details=el('details');details.append(el('summary','改动记录与来源版本'),el('pre',JSON.stringify({changes:row.changes,sourceVersions:row.sourceVersions,validation:row.validation},null,2)));node.append(details);result.append(node);}}
- function showJD(rows){jdArea.replaceChildren();for(const row of rows){const node=el('article');node.className='offline-jd';node.dataset.jobId=row.jobId;node.append(el('h4',row.company+' · '+row.title));links(row,node);node.append(el('p',row.jdReview.captureStatus));for(const warning of row.jdReview.warnings)node.append(el('p',warning));const body=el('pre',row.jd||'（缺少正文，不能导出）');body.className='offline-jd-body';node.append(body);const check=el('input');check.type='checkbox';check.dataset.offline='jd-confirm';check.checked=reviews.get(row.jobId)?.confirmed===true;check.disabled=row.jdReview.missing;check.addEventListener('change',()=>{reviews.get(row.jobId).confirmed=check.checked;});const label=el('label','我已对照来源核对本岗当前JD原文（可暂不确认；导出将注明未核对）');label.append(check);node.append(label);jdArea.append(node);}}
- exp.addEventListener('click',wrap(async alive=>{const items=await selection(alive);if(!alive())return;const data=await api('/api/offline/jd-preview',{method:'POST',value:{items}});if(!alive())return;let changed=false;const ids=new Set(data.items.map(r=>r.jobId));for(const id of reviews.keys())if(!ids.has(id))reviews.delete(id);for(const row of data.items){if(reviews.get(row.jobId)?.sha256!==row.jdReview.sha256){reviews.set(row.jobId,{sha256:row.jdReview.sha256,confirmed:false});changed=true;}}showJD(data.items);const nextCapacityKey=JSON.stringify({items,capacity:data.capacity});if(capacityKey!==nextCapacityKey){capacityAccepted=false;capacityKey=nextCapacityKey;}const capacityText=el('p',data.capacity.message);capacityText.dataset.offline='export-capacity';jdArea.append(capacityText);if(data.capacity.requiresAcknowledgement){const c=el('input');c.type='checkbox';c.dataset.offline='capacity-ack';c.checked=capacityAccepted;c.addEventListener('change',()=>capacityAccepted=c.checked);const l=el('label','我了解容量不足以保存全部全新成品，仍导出；返回后按容量选择岗位或复用已有成品。');l.append(c);jdArea.append(l);}if(data.items.some(r=>r.jdReview.missing)){announce('缺少JD正文，不能导出。请先补全后重新预览。',true);return;}if(changed){exp.textContent='下载已预览岗位任务包';announce('已显示实际将导出的JD原文；新正文的人工确认尚未勾选。核对后再次点击下载。');return;}if(data.capacity.requiresAcknowledgement&&!capacityAccepted){announce(data.capacity.message+' 请减少岗位或确认容量提示。',true);return;}for(const item of items){const review=reviews.get(item.jobId);item.jdHash=review.sha256;item.jdConfirmed=review.confirmed;}const response=await api('/api/offline/export',{method:'POST',value:{items,capacityAcknowledged:capacityAccepted}});if(!alive())return;result.replaceChildren();if(!response.exported){for(const e of response.errors)result.append(el('p',e.jobId+'：'+e.error));reviews.clear();announce('任务包未导出，请补齐以上岗位资料并重新预览。',true);return;}const bytes=Uint8Array.from(atob(response.base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'application/zip'})),a=el('a','下载任务包');a.href=url;a.download=response.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status.textContent='已导出 '+response.count+' 岗任务包；请自行上传对话AI，完成后选择返回ZIP。';box.dataset.packetId=response.packetId;}));
- load.addEventListener('click',wrap(async alive=>{if(!input.files[0])throw Error('请选择返回ZIP');if(input.files[0].size>25*1024*1024)throw Error('ZIP超过25MB');result.replaceChildren();const data=await api('/api/offline/import-preview',{method:'POST',file:input.files[0]});if(!alive())return;result.replaceChildren();const included=new Map();for(const error of data.errors)result.append(el('p','错误：'+error));for(const missing of data.missing)result.append(el('p','未返回：'+missing.company+' · '+missing.title));for(const row of data.rows){const node=el('article');node.className='offline-mapping';const choice=el('input');choice.type='checkbox';choice.dataset.offline='include';choice.dataset.jobId=row.jobId;choice.checked=!row.errors.length;choice.disabled=!!row.errors.length;included.set(row.jobId,choice);const chooseLabel=el('label',row.errors.length?'本岗检查未通过':'导入本岗');chooseLabel.append(choice);node.append(chooseLabel);node.append(el('h4',row.company+' · '+row.title),el('p','岗位ID '+row.jobId+(row.alreadyImported?' · 已导入，将复用原结果':'')));links(row,node);for(const error of row.errors)node.append(el('p','错误：'+error));for(const warning of row.warnings)node.append(el('p','待人工核对：'+warning));for(const file of row.files)node.append(el('p',names[file.key]+' · '+(file.pages===1?'PDF实际渲染1页':'Word页数待人工核对')));result.append(node);}
- let consumed=false;const ack=el('input');ack.type='checkbox';ack.dataset.offline='ack';const label=el('label','我确认仅导入预览中有效岗位，已知缺失/被拒岗位不会保存；真实性、Word一页和最终版式仍待逐岗人工核对。此操作不申请。');label.append(ack);result.append(label);const confirm=button('确认导入有效岗位',async current=>{if(consumed)return;if(!ack.checked)throw Error('请先确认预览与人工核对说明');const saved=await api('/api/offline/import-confirm',{method:'POST',value:{token:data.token,confirmed:true,manualReviewAcknowledged:true,jobIds:[...included].filter(([,c])=>c.checked).map(([id])=>id)}});if(!current())return;consumed=true;versions(saved.results);input.value='';announce('已新增 '+saved.createdCount+' 岗结果，复用 '+saved.reusedCount+' 岗已有结果；原件保留，未投递。',false,result);});confirm.dataset.offline='confirm';const capacityInfo=el('p');capacityInfo.dataset.offline='import-capacity';capacityInfo.setAttribute('role','status');result.append(capacityInfo,confirm);function updateCapacity(){const chosen=data.rows.filter(r=>included.get(r.jobId).checked),needed=new Map();for(const row of chosen)if(!row.alreadyImported)for(const f of row.files)if(!f.existing)needed.set(f.reuseKey,f.size);const bytes=[...needed.values()].reduce((a,b)=>a+b,0),fits=needed.size<=data.capacity.remainingFiles&&bytes<=data.capacity.remainingBytes;capacityInfo.textContent='已选'+chosen.length+'岗，需新增'+needed.size+'个文件；剩余'+data.capacity.remainingFiles+'个名额、'+(data.capacity.remainingBytes/1048576).toFixed(1)+'MB。'+(fits?'':'容量不足，请取消部分岗位。');confirm.disabled=!data.canConfirm||!chosen.length||!fits;}for(const c of included.values())c.addEventListener('change',updateCapacity);updateCapacity();announce(data.canConfirm?'返回包检查完成，请核对匹配与警告后确认。':'返回包检查未通过，请修正错误后重试。',!data.canConfirm);}));
- history.addEventListener('click',wrap(async alive=>{const rows=await api('/api/offline/results');if(alive()){versions(rows);status.textContent='已读取 '+rows.length+' 个独立岗位版本。';}}));
- return {setSelectionState(count,running){exp.disabled=running||!count;load.disabled=history.disabled=input.disabled=running;},selectionChanged(){reviews.clear();capacityAccepted=false;capacityKey='';jdArea.replaceChildren();feedback.textContent='';exp.textContent='下载所选岗位任务包';},clear(){epoch++;busy=false;capacityAccepted=false;capacityKey='';reviews.clear();jdArea.replaceChildren();feedback.textContent='';box.removeAttribute('aria-busy');exp.textContent='下载所选岗位任务包';result.replaceChildren();input.value='';delete box.dataset.packetId;}};
+export function offlineExchangeUI({ panel, selection, api, exclusive, status, preview, download }) {
+  const names = {
+    resume_docx: '简历 Word',
+    resume_pdf: '简历 PDF',
+    cover_docx: '求职信 Word',
+    cover_pdf: '求职信 PDF'
+  };
+  const el = (tag, text = '') => {
+      const n = document.createElement(tag);
+      n.textContent = text;
+      return n;
+    },
+    box = el('section'),
+    result = el('div');
+  box.className = 'offline-exchange';
+  box.append(el('h3', '离线批量定制'));
+  const help = el('details');
+  help.append(
+    el('summary', '任务包与返回要求'),
+    el(
+      'p',
+      '建议每批3岗，最多5岗。任务包仅含所选JD与本人原件，由你自行上传对话AI。导回每岗Word/PDF成品后先预览、再确认保存；不代表已申请。'
+    )
+  );
+  box.append(help);
+  const exp = el('button', '下载所选岗位任务包'),
+    input = el('input'),
+    load = el('button', '检查返回ZIP'),
+    history = el('button', '读取已导入版本');
+  exp.type = load.type = history.type = 'button';
+  exp.className = 'primary';
+  exp.dataset.offline = 'export';
+  input.type = 'file';
+  input.accept = '.zip';
+  input.dataset.offline = 'zip';
+  input.setAttribute('aria-label', '选择返回ZIP');
+  load.dataset.offline = 'inspect';
+  history.dataset.offline = 'history';
+  box.append(exp, input, load, history, result);
+  panel.append(box);
+  let epoch = 0,
+    busy = false,
+    capacityAccepted = false,
+    capacityKey = '';
+  const reviews = new Map(),
+    jdArea = el('div'),
+    feedback = el('p');
+  feedback.tabIndex = -1;
+  feedback.setAttribute('role', 'status');
+  feedback.setAttribute('aria-live', 'polite');
+  feedback.setAttribute('aria-atomic', 'true');
+  result.tabIndex = -1;
+  result.setAttribute('aria-label', '离线导入结果');
+  box.insertBefore(jdArea, result);
+  box.insertBefore(feedback, result);
+  function announce(message, error = false, target = feedback) {
+    status.textContent = message;
+    feedback.textContent = message;
+    feedback.setAttribute('role', error ? 'alert' : 'status');
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  }
+  const wrap = work => async () => {
+    if (busy) return;
+    const ticket = epoch;
+    busy = true;
+    box.setAttribute('aria-busy', 'true');
+    try {
+      await exclusive(async alive => {
+        try {
+          await work(() => alive() && ticket === epoch);
+        } catch (e) {
+          if (alive() && ticket === epoch) announce(e.message, true);
+        }
+      });
+    } finally {
+      if (ticket === epoch) {
+        busy = false;
+        box.removeAttribute('aria-busy');
+      }
+    }
+  };
+  const button = (label, work) => {
+    const b = el('button', label);
+    b.type = 'button';
+    b.addEventListener('click', wrap(work));
+    return b;
+  };
+  function links(row, node) {
+    for (const [label, url] of [
+      ['官网入口', row.url],
+      ...(row.school || []).flatMap(s => [
+        ['学校入口 ' + s.schoolId, s.url],
+        ['学校提供官网 ' + s.schoolId, s.externalUrl]
+      ])
+    ])
+      if (url && /^https:\/\//.test(url)) {
+        const a = el('a', label);
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        node.append(a, document.createTextNode(' '));
+      }
+  }
+  function versions(rows) {
+    result.replaceChildren();
+    for (const row of rows) {
+      const node = el('article');
+      node.className = 'offline-result';
+      node.dataset.jobId = row.jobId;
+      node.append(
+        el('h4', row.company + ' · ' + row.title),
+        el('p', row.status + ' · 版本 ' + row.id),
+        el('p', '官网与学校状态仍独立；本次没有产生任何申请记录。')
+      );
+      links(row, node);
+      for (const warning of row.warnings) node.append(el('p', '待人工核对：' + warning));
+      for (const [key, file] of Object.entries(row.files)) {
+        node.append(
+          button('预览 ' + names[key], () => preview(file)),
+          button('下载 ' + names[key], () => download(file))
+        );
+      }
+      const details = el('details');
+      details.append(
+        el('summary', '改动记录与来源版本'),
+        el(
+          'pre',
+          JSON.stringify(
+            { changes: row.changes, sourceVersions: row.sourceVersions, validation: row.validation },
+            null,
+            2
+          )
+        )
+      );
+      node.append(details);
+      result.append(node);
+    }
+  }
+  function showJD(rows) {
+    jdArea.replaceChildren();
+    for (const row of rows) {
+      const node = el('article');
+      node.className = 'offline-jd';
+      node.dataset.jobId = row.jobId;
+      node.append(el('h4', row.company + ' · ' + row.title));
+      links(row, node);
+      node.append(el('p', row.jdReview.captureStatus));
+      for (const warning of row.jdReview.warnings) node.append(el('p', warning));
+      const body = el('pre', row.jd || '（缺少正文，不能导出）');
+      body.className = 'offline-jd-body';
+      node.append(body);
+      const check = el('input');
+      check.type = 'checkbox';
+      check.dataset.offline = 'jd-confirm';
+      check.checked = reviews.get(row.jobId)?.confirmed === true;
+      check.disabled = row.jdReview.missing;
+      check.addEventListener('change', () => {
+        reviews.get(row.jobId).confirmed = check.checked;
+      });
+      const label = el('label', '我已对照来源核对本岗当前JD原文（可暂不确认；导出将注明未核对）');
+      label.append(check);
+      node.append(label);
+      jdArea.append(node);
+    }
+  }
+  exp.addEventListener(
+    'click',
+    wrap(async alive => {
+      const items = await selection(alive);
+      if (!alive()) return;
+      const data = await api('/api/offline/jd-preview', { method: 'POST', value: { items } });
+      if (!alive()) return;
+      let changed = false;
+      const ids = new Set(data.items.map(r => r.jobId));
+      for (const id of reviews.keys()) if (!ids.has(id)) reviews.delete(id);
+      for (const row of data.items) {
+        if (reviews.get(row.jobId)?.sha256 !== row.jdReview.sha256) {
+          reviews.set(row.jobId, { sha256: row.jdReview.sha256, confirmed: false });
+          changed = true;
+        }
+      }
+      showJD(data.items);
+      const nextCapacityKey = JSON.stringify({ items, capacity: data.capacity });
+      if (capacityKey !== nextCapacityKey) {
+        capacityAccepted = false;
+        capacityKey = nextCapacityKey;
+      }
+      const capacityText = el('p', data.capacity.message);
+      capacityText.dataset.offline = 'export-capacity';
+      jdArea.append(capacityText);
+      if (data.capacity.requiresAcknowledgement) {
+        const c = el('input');
+        c.type = 'checkbox';
+        c.dataset.offline = 'capacity-ack';
+        c.checked = capacityAccepted;
+        c.addEventListener('change', () => (capacityAccepted = c.checked));
+        const l = el('label', '我了解容量不足以保存全部全新成品，仍导出；返回后按容量选择岗位或复用已有成品。');
+        l.append(c);
+        jdArea.append(l);
+      }
+      if (data.items.some(r => r.jdReview.missing)) {
+        announce('缺少JD正文，不能导出。请先补全后重新预览。', true);
+        return;
+      }
+      if (changed) {
+        exp.textContent = '下载已预览岗位任务包';
+        announce('已显示实际将导出的JD原文；新正文的人工确认尚未勾选。核对后再次点击下载。');
+        return;
+      }
+      if (data.capacity.requiresAcknowledgement && !capacityAccepted) {
+        announce(data.capacity.message + ' 请减少岗位或确认容量提示。', true);
+        return;
+      }
+      for (const item of items) {
+        const review = reviews.get(item.jobId);
+        item.jdHash = review.sha256;
+        item.jdConfirmed = review.confirmed;
+      }
+      const response = await api('/api/offline/export', {
+        method: 'POST',
+        value: { items, capacityAcknowledged: capacityAccepted }
+      });
+      if (!alive()) return;
+      result.replaceChildren();
+      if (!response.exported) {
+        for (const e of response.errors) result.append(el('p', e.jobId + '：' + e.error));
+        reviews.clear();
+        announce('任务包未导出，请补齐以上岗位资料并重新预览。', true);
+        return;
+      }
+      const bytes = Uint8Array.from(atob(response.base64), c => c.charCodeAt(0)),
+        url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' })),
+        a = el('a', '下载任务包');
+      a.href = url;
+      a.download = response.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      status.textContent = '已导出 ' + response.count + ' 岗任务包；请自行上传对话AI，完成后选择返回ZIP。';
+      box.dataset.packetId = response.packetId;
+    })
+  );
+  load.addEventListener(
+    'click',
+    wrap(async alive => {
+      if (!input.files[0]) throw Error('请选择返回ZIP');
+      if (input.files[0].size > 25 * 1024 * 1024) throw Error('ZIP超过25MB');
+      result.replaceChildren();
+      const data = await api('/api/offline/import-preview', { method: 'POST', file: input.files[0] });
+      if (!alive()) return;
+      result.replaceChildren();
+      const included = new Map();
+      for (const error of data.errors) result.append(el('p', '错误：' + error));
+      for (const missing of data.missing) result.append(el('p', '未返回：' + missing.company + ' · ' + missing.title));
+      for (const row of data.rows) {
+        const node = el('article');
+        node.className = 'offline-mapping';
+        const choice = el('input');
+        choice.type = 'checkbox';
+        choice.dataset.offline = 'include';
+        choice.dataset.jobId = row.jobId;
+        choice.checked = !row.errors.length;
+        choice.disabled = !!row.errors.length;
+        included.set(row.jobId, choice);
+        const chooseLabel = el('label', row.errors.length ? '本岗检查未通过' : '导入本岗');
+        chooseLabel.append(choice);
+        node.append(chooseLabel);
+        node.append(
+          el('h4', row.company + ' · ' + row.title),
+          el('p', '岗位ID ' + row.jobId + (row.alreadyImported ? ' · 已导入，将复用原结果' : ''))
+        );
+        links(row, node);
+        for (const error of row.errors) node.append(el('p', '错误：' + error));
+        for (const warning of row.warnings) node.append(el('p', '待人工核对：' + warning));
+        for (const file of row.files)
+          node.append(el('p', names[file.key] + ' · ' + (file.pages === 1 ? 'PDF实际渲染1页' : 'Word页数待人工核对')));
+        result.append(node);
+      }
+      let consumed = false;
+      const ack = el('input');
+      ack.type = 'checkbox';
+      ack.dataset.offline = 'ack';
+      const label = el(
+        'label',
+        '我确认仅导入预览中有效岗位，已知缺失/被拒岗位不会保存；真实性、Word一页和最终版式仍待逐岗人工核对。此操作不申请。'
+      );
+      label.append(ack);
+      result.append(label);
+      const confirm = button('确认导入有效岗位', async current => {
+        if (consumed) return;
+        if (!ack.checked) throw Error('请先确认预览与人工核对说明');
+        const saved = await api('/api/offline/import-confirm', {
+          method: 'POST',
+          value: {
+            token: data.token,
+            confirmed: true,
+            manualReviewAcknowledged: true,
+            jobIds: [...included].filter(([, c]) => c.checked).map(([id]) => id)
+          }
+        });
+        if (!current()) return;
+        consumed = true;
+        versions(saved.results);
+        input.value = '';
+        announce(
+          '已新增 ' + saved.createdCount + ' 岗结果，复用 ' + saved.reusedCount + ' 岗已有结果；原件保留，未投递。',
+          false,
+          result
+        );
+      });
+      confirm.dataset.offline = 'confirm';
+      const capacityInfo = el('p');
+      capacityInfo.dataset.offline = 'import-capacity';
+      capacityInfo.setAttribute('role', 'status');
+      result.append(capacityInfo, confirm);
+      function updateCapacity() {
+        const chosen = data.rows.filter(r => included.get(r.jobId).checked),
+          needed = new Map();
+        for (const row of chosen)
+          if (!row.alreadyImported) for (const f of row.files) if (!f.existing) needed.set(f.reuseKey, f.size);
+        const bytes = [...needed.values()].reduce((a, b) => a + b, 0),
+          fits = needed.size <= data.capacity.remainingFiles && bytes <= data.capacity.remainingBytes;
+        capacityInfo.textContent =
+          '已选' +
+          chosen.length +
+          '岗，需新增' +
+          needed.size +
+          '个文件；剩余' +
+          data.capacity.remainingFiles +
+          '个名额、' +
+          (data.capacity.remainingBytes / 1048576).toFixed(1) +
+          'MB。' +
+          (fits ? '' : '容量不足，请取消部分岗位。');
+        confirm.disabled = !data.canConfirm || !chosen.length || !fits;
+      }
+      for (const c of included.values()) c.addEventListener('change', updateCapacity);
+      updateCapacity();
+      announce(
+        data.canConfirm ? '返回包检查完成，请核对匹配与警告后确认。' : '返回包检查未通过，请修正错误后重试。',
+        !data.canConfirm
+      );
+    })
+  );
+  history.addEventListener(
+    'click',
+    wrap(async alive => {
+      const rows = await api('/api/offline/results');
+      if (alive()) {
+        versions(rows);
+        status.textContent = '已读取 ' + rows.length + ' 个独立岗位版本。';
+      }
+    })
+  );
+  return {
+    setSelectionState(count, running) {
+      exp.disabled = running || !count;
+      load.disabled = history.disabled = input.disabled = running;
+    },
+    selectionChanged() {
+      reviews.clear();
+      capacityAccepted = false;
+      capacityKey = '';
+      jdArea.replaceChildren();
+      feedback.textContent = '';
+      exp.textContent = '下载所选岗位任务包';
+    },
+    clear() {
+      epoch++;
+      busy = false;
+      capacityAccepted = false;
+      capacityKey = '';
+      reviews.clear();
+      jdArea.replaceChildren();
+      feedback.textContent = '';
+      box.removeAttribute('aria-busy');
+      exp.textContent = '下载所选岗位任务包';
+      result.replaceChildren();
+      input.value = '';
+      delete box.dataset.packetId;
+    }
+  };
 }

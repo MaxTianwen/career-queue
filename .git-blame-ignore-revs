@@ -1,0 +1,5 @@
+# Layout-only commits; hide them from git blame:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Format src/v2 and web/v2 with Prettier 3.3.3
+c8936e392fdb4d90a61368ab51afec8200e9def8

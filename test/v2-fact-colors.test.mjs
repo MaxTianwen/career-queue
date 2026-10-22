@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {factPalette,factBadges} from '../web/v2/opportunity.js';
 import {mountView} from '../web/v2/opportunity-view.js';
-const css=readFileSync(new URL('../web/v2/style.css',import.meta.url),'utf8');
+// Layout-insensitive: compare rules without whitespace or the optional last semicolon.
+const css=readFileSync(new URL('../web/v2/style.css',import.meta.url),'utf8').replace(/\s+/g,'').replace(/;}/g,'}');
 function luminance(hex){const rgb=hex.slice(1).match(/../g).map(c=>parseInt(c,16)/255).map(c=>c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;}
 test('fixed semantic palettes have explicit text, unique category colours and AA text contrast',()=>{
  assert.deepEqual(Object.keys(factPalette),['season-summer','season-fall','season-winter','months-4','months-8','months-12','months-16','unknown']);
