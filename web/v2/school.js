@@ -78,13 +78,19 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
   }
   function drawHistory(history) {
     const container = $('#school-history'); container.replaceChildren();
+    // One line per event; expanding shows the reason and only the fields that changed.
+    const jobLabel = value => value?.job ? `${value.job.company} · ${value.job.title}` : (value?.row ? `${value.row.company} · ${value.row.title}` : '');
     for (const event of history.events.slice().reverse()) {
-      const detail = node('details', ''); detail.append(node('summary', `${event.schoolId} · ${actionNames[event.action]} · ${new Date(event.created).toLocaleString()}`), node('p', `原因：${event.reason} · 操作者：${event.actor}`), node('h4', '操作前'), snapshot(event.before), node('h4', '操作后'), snapshot(event.after)); container.append(detail);
+      const detail = node('details', ''), target = jobLabel(event.after) || jobLabel(event.before);
+      detail.append(node('summary', `${event.schoolId} · ${actionNames[event.action]}${target ? ' · ' + target : ''} · ${new Date(event.created).toLocaleString()}`), node('p', `原因：${event.reason}`));
+      if (event.action === 'relink') detail.append(node('p', `${jobLabel(event.before)} → ${jobLabel(event.after)}`));
+      if (event.before && event.after) for (const [key, label] of Object.entries(labels)) if ((event.before.row[key] || '') !== (event.after.row[key] || '')) detail.append(node('p', `${label}：${event.before.row[key] || '未提供'} → ${event.after.row[key] || '清空'}`));
+      container.append(detail);
     }
-    for (const source of history.sources) {
-      const detail = node('details', '');
-      const basis = { submission: '记录学校实际提交时', 'confirmed-association': '本人后来确认关联时', 'existing-association': '升级时已有的关联', 'channel-correction': '本人更正为学校渠道时' }[source.basis];
-      detail.append(node('summary', `${source.schoolId} · 已保留的提交关联资料`), node('p', `${basis}记录；${new Date(source.captured).toLocaleString()}。${source.basis === 'submission' ? '' : '不代表提交当时已保存此来源资料。'} 当前渠道：${channelName(source.channel)} · 日期：${source.date}`), snapshot({ schoolId: source.schoolId, jobId: source.jobId, row: source.row })); container.append(detail);
+    // Sources still attached to a saved association are already shown above; keep only the ones that outlived theirs.
+    for (const source of history.sources.filter(source => !records.some(record => record.schoolId === source.schoolId))) {
+      const basis = { submission: '记录学校实际提交时', 'confirmed-association': '本人后来确认关联时', 'existing-association': '升级时已有的关联', 'channel-correction': '本人更正为学校渠道时', 'school-portal': '学校 Portal 显示已提交时', 'manual-confirmation': '本人确认提交时' }[source.basis] || '提交时';
+      container.append(node('p', `${source.schoolId} · 已保留提交关联资料 · ${source.row.company} · ${source.row.title} · ${basis}记录于 ${new Date(source.captured).toLocaleString()}`));
     }
     if (!history.events.length && !history.sources.length) container.append(node('p', '尚无维护历史。已有旧关联会在首次维护时保留原值。'));
   }
@@ -107,11 +113,12 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
     if (row.requisitionId) box.append(node('br', ''), node('span', `雇主招聘编号：${row.requisitionId}`));
     return box;
   }
+  const needsAttention = row => ['candidates', 'invalid'].includes(row.category) || Boolean(row.sourceChanged);
   function count() { $('#school-selection-count').textContent = `已选择 ${choices.size} 条（包含筛选后隐藏的选择）`; }
   function drawPreview() {
     if (!preview) return;
     const filter = $('#school-preview-filter').value;
-    const rows = preview.rows.filter(row => filter === 'all' || row.category === filter);
+    const rows = preview.rows.filter(row => filter === 'all' || (filter === 'attention' ? needsAttention(row) : row.category === filter));
     $('#school-results').replaceChildren(); count();
     for (const item of rows.slice(0, limit)) {
       const card = node('article', ''); card.className = 'recommendation-card';
@@ -166,7 +173,7 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
       if(record.eligibilityExclusion)card.append(node('p','已按公民限制排除，保留历史 · '+(record.eligibilityExclusion.evidence||[]).join(' ')));
       card.append(node('small', record.status), node('h3', record.row.title), facts(record.row));
       card.append(node('p', `关联：${record.job.company} · ${record.job.title}`));
-      for (const submission of record.submissions) card.append(node('p', `${channelName(submission.channel)}本人已记录提交 · ${submission.date}`));
+      for (const submission of record.submissions) card.append(node('p', `${channelName(submission.channel)}本人已记录提交 · ${submission.date || '日期未知'}`));
       card.append(openButton(record.jobId));
       card.append(maintenanceButton(record));
       if (safeHref(record.row.url)) { const link = node('a', '打开学校岗位 ↗'); link.href = safeHref(record.row.url); link.target = '_blank'; link.rel = 'noopener noreferrer'; card.append(link); }
@@ -222,7 +229,8 @@ export function schoolWorkspace({ api, action, chooseJob, jobsChanged, readView=
     const updated=await api('/api/school/opportunities',{method:'POST',value:{text:draft.text,fingerprint:draft.fingerprint,requestId:draft.requestId,confirmed:true}});
     if(listDraft!==draft)return;
     cancelListPreview();invalidate();preview=updated.preview;originalText=draft.text;limit=20;
-    $('#school-preview').hidden=false;$('#school-warnings').replaceChildren(...[...preview.warnings,...preview.errors].map(v=>node('p',v)));drawPreview();
+    // Only surface the comparison when some row still needs a decision; the list import itself is already saved.
+    $('#school-preview').hidden=!preview.rows.some(needsAttention);$('#school-preview-filter').value='attention';$('#school-warnings').replaceChildren(...preview.errors.map(v=>node('p',v)));drawPreview();
     try{await refreshOpportunities();await refresh();await jobsChanged();$('#school-status').textContent=`已确认导入 / 更新 ${updated.updated} 条；新增学校提交记录 ${updated.submissions.added} 条。`;}
     catch{$('#school-status').textContent='导入已保存，但列表刷新失败；请刷新列表，无需重复导入。';}
   }));
