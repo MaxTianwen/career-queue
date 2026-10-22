@@ -67,7 +67,8 @@ export function countryCounts(jobs,filters={}) {
 }
 export function countryCountSummary(jobs,filters={}) {
  const c=countryCounts(jobs,filters),p=document.createElement('p');p.className='country-count-summary muted';
- p.textContent=`其他当前条件下：全部 ${c.all} 个唯一岗位 = 仅加拿大组 ${c.caOnly} + 仅美国组 ${c.usOnly} + 两组共有 ${c.both} + 其他／待确认 ${c.other}。加拿大 ${c.CA}、美国 ${c.US} 包含共有岗位，不能直接相加。美国组沿用已确认的全远程规则。`;
+ p.textContent=`其他条件下：加拿大 ${c.CA} · 美国 ${c.US}${c.both?` （其中 ${c.both} 个两边都算）`:''}${c.other?` · 国家待确认 ${c.other}`:''}`;
+ p.title=`共 ${c.all} 个岗位 = 仅加拿大 ${c.caOnly} + 仅美国 ${c.usOnly} + 两组共有 ${c.both} + 其他／待确认 ${c.other}。美国组沿用已确认的全远程规则。`;
  return p;
 }
 export function placementGroups(placements) {
@@ -88,14 +89,15 @@ export function factsLabel(job) {
 export function mountFilters(container,onChange,{schoolOnly=false,country='CA',publication=true}={}) {
  container.className='opportunity-filters';if(publication){const scope=document.createElement('p');scope.className='muted opportunity-year-scope';scope.textContent='当前机会范围：2027年开始；开始年未知的职位保留，需核实。';container.append(scope);}
  const search=document.createElement('label');search.className='filter-search';search.textContent='搜索职位';const query=document.createElement('input');query.type='search';query.name='query';query.placeholder='职位、公司或编号';search.append(query);container.append(search);
+ const toggle=document.createElement('button');toggle.type='button';toggle.className='filter-toggle';toggle.setAttribute('aria-expanded','false');container.dataset.collapsed='true';toggle.addEventListener('click',()=>{const open=container.dataset.collapsed==='true';container.dataset.collapsed=String(!open);toggle.setAttribute('aria-expanded',String(open));});container.append(toggle);
  const extra=document.createElement('details');extra.className='filter-extra';const title=document.createElement('summary');title.textContent='更多条件';extra.append(title);
  for(const [name,label,choices] of [['year','开始年份',[['','所有年份'],...['2026','2027','2028','2029','2030'].map(y=>[y,y])]],['publication','发布时间',[['','所有发布时间'],['24h','最近 24 小时（精确时间）']]],['category','职位类别',[['','所有类别'],['cs','CS / Software'],['embedded','Firmware / Embedded'],['data','数据 / 分析']]],['season','开始学期',[['','所有学期'],['winter','Winter'],['summer','Summer'],['fall','Fall']]],['months','时长（月）',[['','所有时长'],...[3,4,8,12,16].map(n=>[String(n),n+' 个月'])]],['country','国家筛选',[['CA','加拿大'],['US','美国'],['all','全部']]],['source','职位来源',[['','全部来源'],['school','学校职位'],['public','网络发现']]],['platform','申请方式',[['','所有平台'],['Greenhouse','Greenhouse'],['Ashby','Ashby'],['Lever','Lever'],['Workday','Workday'],['公司官网','公司官网'],['学校 Portal','学校 Portal']]]]) {
   if(schoolOnly&&name==='source'||!publication&&name==='publication'||publication&&name==='year')continue;
   const l=document.createElement('label');l.textContent=label;const select=document.createElement('select');select.name=name;for(const [v,t] of choices)select.add(new Option(t,v));if(name==='year'){select.value=publication?'2027':'';select.dataset.defaultValue=select.value;}if(name==='country'){select.value=normalizeCountry(country);select.title='美国公司的全远程岗位归美国；现场或混合岗位按实际工作地点。未知公司国家不由Remote推断。';}l.append(select);(['source','platform'].includes(name)?extra:container).append(l);
  }
- const l=document.createElement('label');l.textContent='城市 / 地点';const input=document.createElement('input');input.name='location';input.placeholder='如 Toronto、Montreal、Remote';l.append(input);container.append(l);const locationHint=document.createElement('small');locationHint.className='muted location-filter-help';locationHint.textContent='仅匹配工作地点中包含的关键词（忽略大小写和首尾空格）；不扩展城市范围，未知地点不匹配。清空地点恢复其他筛选结果。';l.append(locationHint);
+ const l=document.createElement('label');l.textContent='城市 / 地点';const input=document.createElement('input');input.name='location';input.placeholder='如 Toronto、Montreal、Remote';input.title='按工作地点里的关键词匹配，不区分大小写；不扩展城市范围，地点未知的职位不匹配。';l.append(input);container.append(l);
  const u=document.createElement('label');u.className='check';const c=document.createElement('input');c.type='checkbox';c.name='unknown';u.append(c,'同时保留相关条件未知的职位');extra.append(u);container.append(extra);
- const reset=document.createElement('button');reset.type='button';reset.className='filter-reset';let active=0;const syncReset=()=>{active=[...container.querySelectorAll('input,select')].filter(e=>e.type==='checkbox'?e.checked:e.name==='country'?normalizeCountry(e.value)!=='all':Boolean(e.value.trim())).length;reset.textContent=active?'清空筛选（'+active+'）':'无筛选条件';reset.setAttribute('aria-disabled',String(active===0));reset.dataset.active=String(active>0);};const notify=()=>{syncReset();onChange();};reset.addEventListener('click',()=>{if(!active)return;for(const e of container.querySelectorAll('input,select')){if(e.type==='checkbox')e.checked=false;else e.value=e.name==='country'?'all':'';}notify();});container.append(reset);syncReset();
+ const reset=document.createElement('button');reset.type='button';reset.className='filter-reset';let active=0;const syncReset=()=>{active=[...container.querySelectorAll('input,select')].filter(e=>e.type==='checkbox'?e.checked:e.name==='country'?normalizeCountry(e.value)!=='all':Boolean(e.value.trim())).length;reset.textContent=active?'清空筛选（'+active+'）':'无筛选条件';const names=[...container.querySelectorAll('input,select')].filter(e=>e.type==='checkbox'?e.checked:e.name==='country'?normalizeCountry(e.value)!=='all':Boolean(e.value.trim())).map(e=>(e.type==='checkbox'?e.closest?.('label')?.textContent?.trim():e.closest?.('label')?.firstChild?.textContent?.trim())||e.name);reset.title=names.length?'当前条件：'+names.join('、'):'';toggle.textContent=active?'筛选条件（'+active+'）':'筛选条件';reset.setAttribute('aria-disabled',String(active===0));reset.dataset.active=String(active>0);};const notify=()=>{syncReset();onChange();};reset.addEventListener('click',()=>{if(!active)return;for(const e of container.querySelectorAll('input,select')){if(e.type==='checkbox')e.checked=false;else e.value=e.name==='country'?'all':'';}notify();});container.append(reset);syncReset();
  container.addEventListener('input',event=>{if(event.target.tagName!=='SELECT')notify();});container.addEventListener('change',notify);
  return ()=>{syncReset();const values=Object.fromEntries([...container.querySelectorAll('input,select')].map(e=>{if(e.name==='country')e.value=normalizeCountry(e.value);return [e.name,e.type==='checkbox'?e.checked:e.value];}));if(publication)values.year='2027';return values;};
 }
@@ -177,7 +179,7 @@ export function freshnessSummary(job,now=Date.now()) {
 // One badge per opportunity; discovery novelty is independent of official publication.
 export function discoveryPriority(job,now=Date.now()) {
  const first=Date.parse(job.firstSeenAt),age=Number(now)-first;
- if(job.hasPublic&&Number.isFinite(first)&&age>=0&&age<86400000)return {rank:0,label:'24小时内新增',kind:'new',note:'首次发现至今未满24小时；不代表刚刚发布，重复刷新不会延长。'};
+ if(job.hasPublic&&Number.isFinite(first)&&age>=0&&age<86400000)return {rank:0,label:'新发现',kind:'new',note:'首次发现至今未满24小时；不代表刚刚发布，重复刷新不会延长。'};
  if(publicationFacts({...job,sourceEvidence:job.publicationEvidence||job.sourceEvidence},now).recent24h)return {rank:1,label:'近24小时发布',kind:'recent',note:'来源明确的发布时间在过去24小时内。'};
  return {rank:2,label:'',kind:'other',note:''};
 }
@@ -197,11 +199,12 @@ export function discoveryBadge(job,now=Date.now()) {
 export function displayScore(value) {
  return typeof value==='number' && Number.isFinite(value) ? Math.max(0,Math.min(100,Math.round(value))) : null;
 }
-export function scoreRing(value) {
+// needsResume: no usable resume was resolved, so the score can only appear after one is set in 我的文件.
+export function scoreRing(value,{reason='',needsResume=false}={}) {
  const score=displayScore(value),wrap=document.createElement('div'),ring=document.createElement('span'),label=document.createElement('span');
  wrap.className='match-score';ring.className='score-ring';
  ring.dataset.level=score===null?'unknown':score>=75?'high':score>=40?'medium':'low';
  ring.style.setProperty('--score',score??0);ring.textContent=score===null?'—':String(score);
- ring.setAttribute('role','img');ring.setAttribute('aria-label',score===null?'匹配分未知，暂不评分':`匹配分 ${score} / 100`);
- label.className='score-label';label.textContent=score===null?'暂不评分':'匹配分';label.setAttribute('aria-hidden','true');wrap.append(ring,label);return wrap;
+ ring.setAttribute('role','img');ring.setAttribute('aria-label',score===null?(needsResume?'匹配分未知，需先在我的文件设置简历':'匹配分未知，暂不评分'):`匹配分 ${score} / 100`);
+ label.className='score-label';label.textContent=score===null?(needsResume?'需设置简历':'暂不评分'):'匹配分';label.setAttribute('aria-hidden','true');if(score===null&&reason)wrap.title=reason;wrap.append(ring,label);return wrap;
 }

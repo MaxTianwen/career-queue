@@ -36,19 +36,21 @@ function clearPrivate(message = '') {
   $('#job-link').hidden = true; $('#job-link').removeAttribute('href');
   authMode(false);emailMode();$('#notice').textContent = message;
 }
+const ringContext=match=>({reason:match?.reason||'',needsResume:Boolean(match?.selection&&!match.selection.ready)});
 async function api(path, { method = 'GET', value, file, kind, signal } = {}) {
   const captured = epoch;
   const headers = { 'X-CQ-CSRF': csrf };
   if (value) headers['Content-Type'] = 'application/json';
   if (file) { headers['Content-Type'] = 'application/octet-stream'; headers['X-File-Name'] = encodeURIComponent(file.name);if(kind)headers['X-File-Kind']=kind; }
   const response = await fetch(path, { method, headers, signal, credentials: 'same-origin', cache: 'no-store', body: file || (value ? JSON.stringify(value) : undefined) });
-  const data = await response.json().catch(() => null);
+  // A literal JSON null is a valid answer (e.g. no active resume); only an unparseable body is an error.
+  const data = await response.json().catch(() => undefined);
   if (captured !== epoch) throw new Error('账号已切换，请重试');
   if (!response.ok) {
     if (account && [401, 403].includes(response.status)) clearPrivate('会话已结束或账号已切换，请重新登录。');
     throw new Error(data?.error || '请求失败，请重试');
   }
-  if (data === null) throw new Error('服务响应无法读取，请重试');
+  if (data === undefined) throw new Error('服务响应无法读取，请重试');
   if(invalidatesViews(path,method))viewReads.invalidate();
   return data;
 }
@@ -87,7 +89,7 @@ function selectJob(job, preserveApplication = false) {
   if (preserveApplication) applications.refresh().catch(error => { $('#application-status').textContent = `职位已保存；材料区刷新失败：${error.message}`; }); else applications.reset(job?.id ?? null);
   const form = $('#job-form'); form.reset();
   for (const name of ['id', 'company', 'title', 'location', 'url', 'notes', 'jd']) form.elements[name].value = job?.[name] ?? '';
-  $('#job-mode').textContent = job?.schoolId ? '学校职位 · School ID '+job.schoolId : job ? 'APPLICATION DRAFT' : 'NEW OPPORTUNITY';
+  $('#job-mode').textContent = job?.schoolId ? '学校职位 · School ID '+job.schoolId : job ? '申请草稿' : '新职位';
   $('#back-school-jobs').hidden = !job?.schoolId;
   $('#job-title').textContent = job?.schoolId ? '学校职位与申请准备' : job ? '职位与备注' : '准备职位资料';
   $('#job-status').textContent = ''; $('#job-match').replaceChildren(matchView(job?.match,job));
@@ -308,7 +310,7 @@ async function boot() {
 function node(tag, text, className) { const el = document.createElement(tag); el.textContent = text; if (className) el.className = className; return el; }
 function matchView(match,job,{showScore=true}={}) {
   const box = node('div', '', 'match-view');
-  if(showScore)box.append(scoreRing(match?.score));
+  if(showScore)box.append(scoreRing(match?.score,ringContext(match)));
   if (!match) return box;
   if(match.selection){const s=match.selection;box.append(node('p',s.classification.label+' · '+(s.mode==='manual'?'单岗覆盖':s.mode==='legacy'?'旧版单简历':'按JD职责选择'),'resume-routing-summary'),node('p',s.reason||s.classification.basis,'muted'));for(const line of Object.values(s.classification.evidence).flat())box.append(node('small','JD依据：'+line));}
   if(job){const choose=node('button','选择／覆盖本岗简历');choose.type='button';choose.addEventListener('click',()=>openResumeChoice(job,box));box.append(choose);}
@@ -382,7 +384,7 @@ function drawRecommendations() {
   for (const job of available.slice(0, visibleRecommendations)) {
     const card = node('article', '', 'recommendation-card'+(job.hasSchool?' school-opportunity':''));card.dataset.jobId=job.id;
     const header=node('div','','card-header');header.append(node('span',job.company,'company-name'));const priority=discoveryBadge(job,now);if(priority)header.append(priority);header.append(batch.checkbox(job));card.append(header,node('h3',job.title),node('p',job.location || '地点未知','card-location'),factBadges(job),publicationSummary(job),deadlineSummary(job));
-    const score=node('div','','card-resume-selection');score.append(scoreRing(job.match?.score));card.append(score);
+    const score=node('div','','card-resume-selection');score.append(scoreRing(job.match?.score,ringContext(job.match)));card.append(score);
     if(job.hasSchool){const confirmed=(job.schoolSources||[]).map(s=>s.requirement).filter(r=>r?.source==='user');const requirement=confirmed.length?(new Set(confirmed.map(r=>r.kind)).size===1?confirmed[0]:{kind:'unknown'}):schoolRequirement((job.schoolSources||[]).map(s=>s.row),job);card.append(node('p',({both:'学校 Portal + 官网均需提交',portal_only:'仅学校 Portal 提交',unknown:'申请途径待确认'})[requirement.kind],'route-summary'));}
     const detail=document.createElement('details');detail.className='card-detail';detail.append(node('summary','职位详情与匹配依据'),publicationSummary(job,{detailed:true}),freshnessSummary(job));
     detail.append(node('p',`${job.workMode || '办公方式未知'} · ${job.salary || '薪资未披露'}`,'muted'));

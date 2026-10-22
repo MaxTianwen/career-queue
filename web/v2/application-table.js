@@ -1,7 +1,7 @@
 export function applicationCells(row){
  const submitted=new Set(row.submissions.map(s=>s.channel)),school=Boolean(row.schoolContext)||submitted.has('school');
  const status=[];for(const [key,label] of [['school','学校'],['employer','官网']]){if(submitted.has(key))status.push(label+'已提交');else if(row.channelProgress?.missing?.includes(key))status.push(label+'待提交');else if(key==='employer'&&school&&row.channelProgress?.employer==='待确认')status.push('官网待确认');}
- return {company:row.company,title:row.title,source:school?'学校':'外部',status,dates:row.submissions.map(s=>({channel:s.channel,label:s.channel==='school'?'学校':'官网',date:s.date||'—'}))};
+ return {company:row.company,title:row.title,source:school?'学校':'官网',status,dates:row.submissions.map(s=>({channel:s.channel,label:s.channel==='school'?'学校':'官网',date:s.date||'—'}))};
 }
 export function renderApplicationTable(container,rows,details){
  container.replaceChildren();const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
