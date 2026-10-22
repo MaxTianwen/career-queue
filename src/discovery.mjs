@@ -10,6 +10,7 @@ import { postingMetadata } from './posting-metadata.mjs';
 import { EMPLOYER_SOURCES, readEmployerBoard, readPublicJson, boardPosting, pinpointUrl, fetchPinpoint } from './discovery-sources.mjs';
 import { enrichFields } from './job-field-evidence.mjs';
 import { discoveryMetrics } from './discovery-metrics.mjs';
+import { titleFamily } from './job-category.mjs';
 import { locationRegion } from '../web/job-facts.js';
 import { postingUrl, sourceName, mergeDiscoveryJobs, discoveryCoverage } from './discovery-records.mjs';
 
@@ -20,6 +21,8 @@ export const SOURCE = {
 };
 const geography = /\b(canada|toronto|north york|scarborough|markham|vaughan|newmarket|waterloo|vancouver|montreal|montréal|ottawa|calgary|edmonton|remote)\b/i;
 const role = /\b(software|developer|programmer|data|analytics|analyst|machine learning|AI|ML|QA|quality assurance|test|SRE|DevOps|cloud|platform|IT|information (systems|technology)|cyber|security|firmware|embedded|full.stack|front.end|back.end)\b/i;
+// Hardware, AI/ML and business-analysis titles share the v2 category families.
+const relevantTitle = title => role.test(title) || Boolean(titleFamily(title));
 
 const readJson = readPublicJson;
 
@@ -114,7 +117,7 @@ export function extractFacts(job) {
     workMode, durationMonths: duration.length === 1 ? duration[0] : null,
     inGta: ['toronto', 'gta'].includes(region) ? true : region === 'outside' ? false : null,
     isIntern: /\b(intern(?:ship)?|co[ -]?op)\b/i.test(job.title) ? true : null,
-    relevant: role.test(job.title) ? true : null,
+    relevant: relevantTitle(job.title) ? true : null,
     postedAt: job.postedAt ?? null, salary: job.salary || '未披露', paid: job.paid ?? null,
     meetsMinimumWage: null, coverLetterRequired: null,
     eligibilityNotes: /remote/i.test(job.location) ? '远程岗位需核实是否允许在加拿大办公；来源中的美国远程不代表加拿大可申请。' : null };
@@ -133,11 +136,11 @@ export async function discover({ fetchImpl = fetch, now = new Date(), onProgress
     if (!Array.isArray(data) || !data.length || !data.some(x => typeof x?.company_name === 'string' && Array.isArray(x.terms))) throw new Error('职位索引格式变化或为空，请稍后重试');
     index.raw = data.length; index.pages = 1;
     for (const entry of data) {
-      if (!entry || !entry.active || !entry.is_visible || !Array.isArray(entry.terms) || !Array.isArray(entry.locations) || !entry.terms.some(t => TARGET_TERMS.has(t)) || !entry.locations.some(l => geography.test(l)) || !role.test(entry.title)) {
+      if (!entry || !entry.active || !entry.is_visible || !Array.isArray(entry.terms) || !Array.isArray(entry.locations) || !entry.terms.some(t => TARGET_TERMS.has(t)) || !entry.locations.some(l => geography.test(l)) || !relevantTitle(entry.title)) {
         report.skipped++;
         if (typeof entry?.company_name === 'string' && typeof entry.title === 'string' && Array.isArray(entry.terms) && Array.isArray(entry.locations)) {
           try { report.filteredJobs.push({ company: entry.company_name, title: entry.title, url: postingUrl(entry.url), location: entry.locations.join(' / '), term: entry.terms.join(' / '), sourceId: 'index',
-            reasons: [!entry.active && '公共索引标记非活跃（未核实官网）', !entry.is_visible && '公共索引未公开展示', !entry.terms.some(t => TARGET_TERMS.has(t)) && '索引入职季不在 Winter / Summer / Fall 2027', !entry.locations.some(l => geography.test(l)) && '索引地点不在当前发现范围', !role.test(entry.title) && '标题不在当前 CS / Data 方向'].filter(Boolean) }); } catch {}
+            reasons: [!entry.active && '公共索引标记非活跃（未核实官网）', !entry.is_visible && '公共索引未公开展示', !entry.terms.some(t => TARGET_TERMS.has(t)) && '索引入职季不在 Winter / Summer / Fall 2027', !entry.locations.some(l => geography.test(l)) && '索引地点不在当前发现范围', !relevantTitle(entry.title) && '标题不在当前 CS / Data / 硬件 / 商业分析方向'].filter(Boolean) }); } catch {}
         }
         continue;
       }
@@ -160,10 +163,10 @@ export async function discover({ fetchImpl = fetch, now = new Date(), onProgress
   const boardResults = await Promise.all(sources.map(source => readEmployerBoard(source, fetchImpl)));
   const inline = new Map();
   for (const { jobs, ...stats } of boardResults) {
-    const selected = jobs.filter(j => (geography.test(j.location) || stats.type === 'workday' && /^(?:Unknown|\d+ Locations?)$/i.test(j.location)) && role.test(j.title) && /\b(intern(?:ship)?|co[ -]?op)\b/i.test(j.title));
+    const selected = jobs.filter(j => (geography.test(j.location) || stats.type === 'workday' && /^(?:Unknown|\d+ Locations?)$/i.test(j.location)) && relevantTitle(j.title) && /\b(intern(?:ship)?|co[ -]?op)\b/i.test(j.title));
     const chosen = new Set(selected);
     for (const job of jobs) if (!chosen.has(job)) report.filteredJobs.push({ company: job.company, title: job.title, url: job.url, location: job.location, requisitionId: job.requisitionId, sourceId: stats.id,
-      reasons: [!(geography.test(job.location) || stats.type === 'workday' && /^(?:Unknown|\d+ Locations?)$/i.test(job.location)) && '雇主列表地点不在当前发现范围', !role.test(job.title) && '标题不在当前 CS / Data 方向', !/\b(intern(?:ship)?|co[ -]?op)\b/i.test(job.title) && '标题未标明 intern / co-op'].filter(Boolean) });
+      reasons: [!(geography.test(job.location) || stats.type === 'workday' && /^(?:Unknown|\d+ Locations?)$/i.test(job.location)) && '雇主列表地点不在当前发现范围', !relevantTitle(job.title) && '标题不在当前 CS / Data / 硬件 / 商业分析方向', !/\b(intern(?:ship)?|co[ -]?op)\b/i.test(job.title) && '标题未标明 intern / co-op'].filter(Boolean) });
     stats.candidates = selected.length; report.sources.push(stats);
     for (const job of selected) { candidates.push(job); if (job.jd) inline.set(postingUrl(job.url), job); }
   }
