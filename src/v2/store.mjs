@@ -438,9 +438,10 @@ export class WorkspaceStore {
       return {...item,officialFacts,facts:officialFacts || {...item.row,jd:item.row.jd || job.jd || ''},requirement,explicitMatch:Boolean(item.jobId && association && !AUTO_LINK_REASONS.has(association.reason))};
     });
   }
-  schoolListRow(owner,pasted) {
-    const row={...pasted},link=this.schoolLinks(owner).find(link=>link.schoolId===row.id);
-    const current=this.schoolOpportunities(owner).find(item=>item.schoolId===row.id)?.row || {};
+  // Batch callers pass lists they already read; IDs are unique per batch, so earlier rows' writes never change a later row's lookup.
+  schoolListRow(owner,pasted,{links=this.schoolLinks(owner),opportunities=this.schoolOpportunities(owner)}={}) {
+    const row={...pasted},link=links.find(link=>link.schoolId===row.id);
+    const current=opportunities.find(item=>item.schoolId===row.id)?.row || {};
     const previous={...link?.row,...Object.fromEntries(Object.entries(current).filter(([,value])=>value!==''&&value!=null))};
     for(const key of ['url','externalUrl','requisitionId','duration','jd','applicationInstructions','durationSource','durationEvidence','sourceEvidence','schoolCurrentPageEvidence','schoolCapture','officialTitle','fieldEvidence','eligibilityText','citizenshipInfo'])if(!row[key]&&previous[key])row[key]=previous[key];
     return row;
@@ -448,9 +449,9 @@ export class WorkspaceStore {
   schoolListPlan(owner,text,preview) {
     const existing=this.schoolOpportunities(owner),observations=this.db.prepare('SELECT school_id,submission_id FROM portal_submission_observations WHERE user_id=? ORDER BY school_id').all(owner);
     const confirmations=this.db.prepare("SELECT id,school_snapshot,withdrawn,revision FROM submission_confirmations WHERE user_id=? AND channel='school' ORDER BY id").all(owner);
-    const active=this.schoolSubmissionSources(owner);
+    const active=this.schoolSubmissionSources(owner),links=this.schoolLinks(owner);
     const changes=preview.rows.filter(item=>item.row).map(item=>{
-      const row=this.schoolListRow(owner,item.row),previous=existing.find(v=>v.schoolId===row.id)?.row;
+      const row=this.schoolListRow(owner,item.row,{links,opportunities:existing}),previous=existing.find(v=>v.schoolId===row.id)?.row;
       const kind=!previous?'new':schoolHash(previous)===schoolHash(row)?'unchanged':'updated';
       const statusChanged=Boolean(previous&&(previous.sourceStatus||'')!==(row.sourceStatus||''));
       const submitted=/^application submitted$/i.test(row.sourceStatus?.trim()||'');
@@ -473,22 +474,23 @@ export class WorkspaceStore {
       const preview=this.schoolPreview(owner,text);
       if(!preview.listImport.canConfirm)fail(400,'列表有重复编号或无法识别的行，请修正后重新预览');
       if(preview.listImport.fingerprint!==fingerprint)fail(409,'列表、学校资料或提交状态已变化，请重新预览后确认');
-      const result=this.syncSchoolOpportunities(owner,text);
+      const result=this.syncSchoolOpportunities(owner,text,preview);
       this.db.prepare('INSERT INTO school_imports VALUES (?,?,?,?,?)').run(owner,requestId,requestHash,JSON.stringify(result),this.now());
       this.db.exec('COMMIT');return result;
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
-  syncSchoolOpportunities(owner, text) {
+  syncSchoolOpportunities(owner, text, preview=null) {
     textField(text,150000,true);
-    const preview=this.schoolPreview(owner,text);
+    preview ||= this.schoolPreview(owner,text);
     if (preview.errors.length || preview.rows.some(item=>!item.row)) fail(400,'列表有无法识别的行，请修正后更新；原学校职位保留');
     const rows=preview.rows.map(item=>item.row);
     if (!rows.length || new Set(rows.map(row=>row.id)).size!==rows.length) fail(400,'没有有效职位或 School ID 重复，请核对');
     this.db.exec('SAVEPOINT school_list_sync');
     try {
+      const links=this.schoolLinks(owner),opportunities=this.schoolOpportunities(owner);
       for (const pasted of rows) {
-        const link=this.schoolLinks(owner).find(link=>link.schoolId===pasted.id);
-        const row=this.schoolListRow(owner,pasted);
+        const link=links.find(link=>link.schoolId===pasted.id);
+        const row=this.schoolListRow(owner,pasted,{links,opportunities});
         if(link && schoolHash(link.row)!==schoolHash(row)) {
           const job=this.job(owner,link.jobId), before={schoolId:row.id,jobId:job.id,row:link.row,job}, after={...before,row};
           this.schoolAudit(owner,row.id,'update',before,after,'本人粘贴更新学校列表',randomUUID(),schoolHash(row));
@@ -527,9 +529,10 @@ export class WorkspaceStore {
     const result={added:0,existing:0,skipped:0,schoolIds:[]};let current=null;
     this.db.exec('SAVEPOINT portal_submitted');
     try {
+      const opportunities=this.schoolOpportunities(owner);
       for(const schoolId of schoolIds) {
         current={schoolId};
-        const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
+        const item=opportunities.find(item=>item.schoolId===schoolId);
         if(item)current=item;
         if(!item) fail(404,'当前账号没有该学校编号');
         if(!/^application submitted$/i.test(item.row.sourceStatus?.trim() || '')) {result.skipped++;continue;}
@@ -590,7 +593,8 @@ export class WorkspaceStore {
   schoolPreview(owner, text) {
     const jobs = this.jobs(owner).map(job => ({ ...job, submissions: this.application(owner, job.id).submissions.map(({ channel, date }) => ({ channel, date })) }));
     const preview = previewSchool(text, { jobs, links: this.schoolLinks(owner), catalogue: this.catalogue(), preferences: this.preferences(owner), now: new Date(this.now()) });
-    return { ...preview, listImport:this.schoolListPlan(owner,text.trim(),preview), rows:preview.rows.map(item=>({...item,eligibilityExclusion:item.row?this.citizenExclusion(owner,{...this.schoolOpportunities(owner).find(s=>s.schoolId===item.row.id)?.facts,...item.row,schoolId:item.row.id}):null})), savedJobs: jobs.map(({ id, company, title }) => ({ id, company, title })) };
+    const opportunities=this.schoolOpportunities(owner);
+    return { ...preview, listImport:this.schoolListPlan(owner,text.trim(),preview), rows:preview.rows.map(item=>({...item,eligibilityExclusion:item.row?this.citizenExclusion(owner,{...opportunities.find(s=>s.schoolId===item.row.id)?.facts,...item.row,schoolId:item.row.id}):null})), savedJobs: jobs.map(({ id, company, title }) => ({ id, company, title })) };
   }
   importSchool(owner, input) {
     if (input.confirmed !== true) fail(400, '请核对所选学校职位及关联目标后确认');
