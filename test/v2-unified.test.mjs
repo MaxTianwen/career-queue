@@ -27,8 +27,8 @@ test('unified exact canonical official URL merges without requisition and retain
  const {s,a,publish}=setup(t);publish();s.syncSchoolOpportunities(a,pasted('900001',{req:'',url:'https://boards.greenhouse.io/example/jobs/12345/apply?utm_source=school'}));const [j]=s.opportunities(a);assert.equal(s.opportunities(a).length,1);assert.ok(j.publicUpdated);assert.ok(j.schoolSources[0].updated);assert.match(j.schoolSources[0].row.externalUrl,/boards.greenhouse.io/);
 });
 for(const changes of [{req:'DIFFERENT'},{location:'Vancouver, BC'},{term:'2027 - Fall'},{title:'Software Intern - 8 months'}])test('unified known identity conflict stays separate '+JSON.stringify(changes),t=>{const {s,a,publish}=setup(t);publish();s.syncSchoolOpportunities(a,pasted('900001',{url:raw.url,...changes}));assert.equal(s.opportunities(a).length,2);});
-test('unified similar or unknown identifiers never fuzzy-merge; ambiguous requisitions do not guess',t=>{
- const {s,a,publish}=setup(t);publish();s.syncSchoolOpportunities(a,pasted('900001',{req:''}));assert.equal(s.opportunities(a).length,2);
+test('unified unique same employer and title merges; ambiguous requisitions do not guess',t=>{
+ const {s,a,publish}=setup(t);publish();s.syncSchoolOpportunities(a,pasted('900001',{req:''}));assert.equal(s.opportunities(a).length,1);assert.equal(s.opportunities(a)[0].schoolSources[0].match,'title');
  const publicJob=catalogueJob(raw,source),school={schoolId:'9',row:{...raw,id:'9'},updated:1};delete school.row.url;
  const jobs=[publicJob,{...publicJob,id:'b'.repeat(64),url:'https://example.com/another'}];assert.equal(unifiedOpportunities(a,{jobs},[school],[]).length,3);
  assert.deepEqual(identityConflicts({location:''},{location:'Toronto'}),[]);

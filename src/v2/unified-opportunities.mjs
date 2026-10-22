@@ -94,6 +94,29 @@ export function identityConflicts(a, b) {
     .filter(([, v]) => v[0] && v[1] && v[0] !== v[1])
     .map(([k]) => (k.startsWith('term') ? 'term' : k));
 }
+// Same posting without a shared link or requisition: compare employer and title after removing
+// school prefixes, requisition numbers and term words. Used only when both sides are unique.
+const companyKey = value =>
+  norm(value)
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\b(?:the|inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+export const titleKey = value =>
+  norm(String(value || '').replace(/\(\s*[A-Z]{2,6}\s*\)/g, ' '))
+    .replace(/^new\s+/, '')
+    .replace(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/g, ' ')
+    .replace(/[[(]\s*(?:jr|r)?[\d-]{4,}\s*[\])]/g, ' ')
+    .replace(/\s[-–]\s*(?:jr|r)?\d[\d-]{3,}\s*$/, ' ')
+    .replace(/\b(?:winter|summer|fall|spring|20\d{2})\b/g, ' ')
+    .replace(/co-?op/g, 'coop')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+// The employer was already compared by companyKey, so suffixes like "Inc." are not a conflict here.
+const titleConflicts = (a, b) => identityConflicts(a, b).filter(field => field !== 'company');
+const postingKey = job => companyKey(job.company) && titleKey(job.title) ? companyKey(job.company) + '|' + titleKey(job.title) : '';
 // Personal read projection only: never copy a school's private rows into the global catalogue.
 export function unifiedOpportunities(owner, catalogue, schools, saved) {
   const result = catalogue.jobs.map(job => ({
@@ -111,6 +134,15 @@ export function unifiedOpportunities(owner, catalogue, schools, saved) {
       )
       .map(s => s.id)
   }));
+  const schoolKeys = new Map(), publicKeys = new Map();
+  for (const item of schools) {
+    const key = postingKey(item.officialFacts || item.row);
+    if (key) schoolKeys.set(key, (schoolKeys.get(key) || 0) + 1);
+  }
+  for (const job of result) {
+    const key = postingKey(job);
+    if (key) publicKeys.set(key, (publicKeys.get(key) || 0) + 1);
+  }
   for (const item of [...schools].sort((a, b) => a.schoolId.localeCompare(b.schoolId))) {
     const row = item.officialFacts || item.row,
       linked = saved.find(s => s.id === item.jobId);
@@ -127,7 +159,13 @@ export function unifiedOpportunities(owner, catalogue, schools, saved) {
             norm(row.requisitionId) === norm(j.requisitionId))) &&
         !identityConflicts(row, j).length
     );
-    const matches = explicit.length === 1 ? explicit : candidates;
+    // Last resort: one school row and one public posting share employer and title, with no conflicts.
+    const key = postingKey(row);
+    const sameTitle =
+      !explicit.length && !candidates.length && key && schoolKeys.get(key) === 1 && publicKeys.get(key) === 1
+        ? result.filter(j => j.hasPublic && !j.schoolSources.length && postingKey(j) === key && !titleConflicts(row, j).length)
+        : [];
+    const matches = explicit.length === 1 ? explicit : candidates.length ? candidates : sameTitle;
     let job = matches.length === 1 ? matches[0] : null;
     const evidence = {
       schoolId: item.schoolId,
@@ -135,8 +173,8 @@ export function unifiedOpportunities(owner, catalogue, schools, saved) {
       jobId: item.jobId,
       requirement: item.requirement,
       row: { ...row },
-      match: explicit.length === 1 ? 'explicit' : job ? 'identifier' : 'unmatched',
-      conflicts: job ? identityConflicts(row, job) : []
+      match: explicit.length === 1 ? 'explicit' : job && !candidates.length ? 'title' : job ? 'identifier' : 'unmatched',
+      conflicts: job ? (candidates.length || explicit.length ? identityConflicts(row, job) : titleConflicts(row, job)) : []
     };
     if (!job) {
       job = {

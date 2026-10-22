@@ -93,14 +93,14 @@ function matchesCountry(job, country, facts = countryFilterFacts(job)) {
     : facts.countries.includes(country);
 }
 export function matchesOpportunity(job, filters = {}) {
-  if (
-    filters.publication === '24h' &&
-    !publicationFacts(
+  if (['24h', '2d'].includes(filters.publication)) {
+    const p = publicationFacts(
       { ...job, sourceEvidence: job.publicationEvidence || job.sourceEvidence },
       filters.now ?? Date.now()
-    ).recent24h
-  )
-    return false;
+    );
+    // '2d' also admits date-only sources (Workday) whose Toronto date is today or yesterday.
+    if (!(p.recent24h || (filters.publication === '2d' && p.recentDay))) return false;
+  }
   const query = String(filters.query || '')
     .trim()
     .toLocaleLowerCase();
@@ -320,7 +320,8 @@ export function mountFilters(container, onChange, { schoolOnly = false, country 
       '发布时间',
       [
         ['', '所有发布时间'],
-        ['24h', '最近 24 小时（精确时间）']
+        ['24h', '最近 24 小时（精确时间）'],
+        ['2d', '今天或昨天发布（含仅有日期的来源）']
       ]
     ],
     [
@@ -733,8 +734,11 @@ export function discoveryPriority(job, now = Date.now()) {
       kind: 'new',
       note: '首次发现至今未满24小时；不代表刚刚发布，重复刷新不会延长。'
     };
-  if (publicationFacts({ ...job, sourceEvidence: job.publicationEvidence || job.sourceEvidence }, now).recent24h)
+  const published = publicationFacts({ ...job, sourceEvidence: job.publicationEvidence || job.sourceEvidence }, now);
+  if (published.recent24h)
     return { rank: 1, label: '近24小时发布', kind: 'recent', note: '来源明确的发布时间在过去24小时内。' };
+  if (published.recentDay)
+    return { rank: 1, label: '今天或昨天发布', kind: 'recent', note: '来源只给发布日期、没有具体时间；按多伦多日期为今天或昨天。' };
   return { rank: 2, label: '', kind: 'other', note: '' };
 }
 export function orderDiscovery(jobs, now = Date.now()) {
@@ -762,11 +766,12 @@ export function orderDiscovery(jobs, now = Date.now()) {
 }
 export function discoveryBadge(job, now = Date.now()) {
   const info = discoveryPriority(job, now),
-    recent = publicationFacts({ ...job, sourceEvidence: job.publicationEvidence || job.sourceEvidence }, now).recent24h;
+    published = publicationFacts({ ...job, sourceEvidence: job.publicationEvidence || job.sourceEvidence }, now),
+    recent = published.recent24h ? ' · 近24小时发布' : published.recentDay ? ' · 今天或昨天发布' : '';
   if (!info.label) return null;
   const badge = document.createElement('strong');
   badge.className = 'discovery-priority priority-' + info.kind;
-  badge.textContent = info.label + (info.kind === 'new' && recent ? ' · 近24小时发布' : '');
+  badge.textContent = info.label + (info.kind === 'new' ? recent : '');
   badge.title = info.note;
   return badge;
 }
