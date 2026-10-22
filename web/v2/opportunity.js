@@ -330,7 +330,9 @@ export function mountFilters(container, onChange, { schoolOnly = false, country 
         ['', '所有类别'],
         ['cs', 'CS / Software'],
         ['embedded', 'Firmware / Embedded'],
-        ['data', '数据 / 分析']
+        ['hardware', '硬件 / 芯片'],
+        ['data', '数据 / 分析'],
+        ['business', '商业 / 产品分析']
       ]
     ],
     [

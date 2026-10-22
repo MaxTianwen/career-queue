@@ -10,9 +10,12 @@ import { extractDeadline, deadlineExpired } from '../deadlines.mjs';
 import { postingUrl } from '../discovery-records.mjs';
 import { digest, scoreFor, resumeProfile } from './resume.mjs';
 import { officialJob, SOURCE } from '../discovery.mjs';
+import { boardRegistry, readEmployerBoards } from '../employer-boards.mjs';
 
 // Public index and employer boards; no personal v1 cache or Notion data.
 export const INDEX_SOURCE = { ...SOURCE, id: 'index' };
+// Every employer board the index has linked for a Canadian role, read directly from the employer.
+export const BOARDS_SOURCE = { id: 'boards', name: '雇主招聘板直读', url: SOURCE.url };
 export async function readInternshipIndex(fetchImpl = fetch) {
   const data = await readPublicJson(SOURCE.dataUrl, fetchImpl);
   if (!Array.isArray(data) || !data.length) throw new Error('公共索引格式异常');
@@ -48,7 +51,8 @@ export async function readInternshipIndex(fetchImpl = fetch) {
     jobs,
     raw: data.length,
     status: malformed ? 'partial' : 'complete',
-    error: malformed ? '索引有无效记录' : null
+    error: malformed ? '索引有无效记录' : null,
+    registry: boardRegistry(data)
   };
 }
 const canada =
@@ -61,7 +65,8 @@ export function catalogueJob(raw, source) {
   )
     return null;
   const classification = classifyResume(raw);
-  if (classification.track === 'unknown' && jobCategory(raw).primary !== 'embedded') return null;
+  // Keep any role a category can name (CS/Data tracks, embedded, AI/ML, hardware, business analysis).
+  if (classification.track === 'unknown' && jobCategory({ ...raw, classification }).primary === 'unknown') return null;
   const url = postingUrl(raw.url);
   if (!url || String(raw.jd || '').length > 60000) return null;
   return {
@@ -167,7 +172,8 @@ export async function fetchCatalogue({
   readBoard = readEmployerBoard,
   readDetail = readCatalogueDetail,
   readIndex = readInternshipIndex,
-  sources = [INDEX_SOURCE, ...EMPLOYER_SOURCES],
+  readBoards = readEmployerBoards,
+  sources = [INDEX_SOURCE, ...EMPLOYER_SOURCES, BOARDS_SOURCE],
   cachedJobs = [],
   now = Date.now()
 } = {}) {
@@ -175,6 +181,10 @@ export async function fetchCatalogue({
     statuses = [],
     cached = new Map(cachedJobs.map(j => [postingUrl(j.url), j]));
   let cursor = 0;
+  // The board list comes from the index; the boards source waits for it (an empty list if the index failed).
+  let registryReady;
+  const registry = new Promise(resolve => (registryReady = resolve));
+  if (!sources.some(s => s.id === 'index')) registryReady([]);
   const deniedHosts = new Set(cachedJobs.filter(accessDenied).map(accessScope));
   const rates = new Map(),
     queues = new Map();
@@ -225,7 +235,14 @@ export async function fetchCatalogue({
     while (cursor < sources.length) {
       const source = sources[cursor++];
       try {
-        const result = source.id === 'index' ? await readIndex() : await readBoard(source, fetch);
+        let result;
+        if (source.id === 'index') {
+          try {
+            result = await readIndex();
+          } finally {
+            registryReady(result?.registry || []);
+          }
+        } else result = source.id === 'boards' ? await readBoards(await registry, fetch) : await readBoard(source, fetch);
         let selected = 0,
           detailed = 0,
           position = 0;
@@ -235,7 +252,10 @@ export async function fetchCatalogue({
             const raw = records[position++];
             try {
               let job = catalogueJob(raw, source);
-              if (job && (!job.jd || raw.fullJd === false)) {
+              // The index and an employer board often list the same posting; read its detail once.
+              const sibling = job && jobs.get(job.id);
+              if (job && sibling?.jd && sibling.fullJd !== false && (!job.jd || raw.fullJd === false)) job = { ...sibling, source: job.source };
+              else if (job && (!job.jd || raw.fullJd === false)) {
                 const previous = cached.get(job.url),
                   age = now - Date.parse(previous?.sourceEvidence?.retrievedAt || previous?.sourceUpdatedAt || '');
                 if (
@@ -324,7 +344,7 @@ export async function fetchCatalogue({
         await Promise.all([details(), details(), details()]);
         statuses.push({
           id: source.id,
-          name: source.name,
+          name: source.id === 'boards' ? `${source.name}（${result.boards ?? 0} 个）` : source.name,
           status: result.status,
           raw: result.raw ?? records.length,
           count: selected,
@@ -358,8 +378,10 @@ export function recommend(jobs, preferences, resume, now = new Date()) {
       job =>
         !preferences.direction ||
         job.classification.track === preferences.direction ||
-        (preferences.direction === 'cs' && jobCategory(job).primary === 'embedded') ||
-        (preferences.direction !== 'mixed' && job.classification.track === 'mixed')
+        // Hardware sits with CS and business analysis with Data; AI/ML counts for both.
+        (preferences.direction === 'cs' && ['embedded', 'hardware'].includes(jobCategory(job).primary)) ||
+        (preferences.direction === 'data' && jobCategory(job).primary === 'business') ||
+        (preferences.direction !== 'mixed' && (job.classification.track === 'mixed' || jobCategory(job).primary === 'mixed'))
     )
     .filter(
       job => !keywords.length || keywords.some(word => `${job.location} ${job.workMode}`.toLowerCase().includes(word))
