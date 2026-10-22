@@ -58,3 +58,12 @@ test('portal submitted row outside the account scope is still recorded and does 
  assert.equal(s.schoolOpportunities(a).length,2);assert.equal(s.applications(a)[0].submissions[0].channel,'school');assert.deepEqual(s.pendingSchoolOpportunities(a).map(item=>item.schoolId),['900002']);
  assert.throws(()=>{s.syncSchoolOpportunities(a,paste('900003','').replace('|Toronto|','|London, UK|'));const item=s.schoolOpportunities(a).find(row=>row.schoolId==='900003');s.startSchoolOpportunity(a,item.schoolId,item.fingerprint);},/资格条件排除/);
 });
+test('portal import failure names the school row that stopped the batch',t=>{
+ const{s,a}=setup(t);s.startSchoolOpportunity=()=>{throw Object.assign(new Error('Synthetic conflict'),{status:409});};
+ assert.throws(()=>s.syncSchoolOpportunities(a,paste()),error=>error.status===409&&/^学校 ID 900001（Example Labs · Software Intern）：Synthetic conflict。本批未写入/.test(error.message));assert.equal(s.schoolOpportunities(a).length,0);
+});
+test('portal auto-link records its own reason and stays a non-explicit match',t=>{
+ const{s,a}=setup(t);s.syncSchoolOpportunities(a,paste());s.syncSchoolOpportunities(a,paste('900002',''));const item=s.schoolOpportunities(a).find(row=>row.schoolId==='900002');s.startSchoolOpportunity(a,item.schoolId,item.fingerprint);
+ const reasons=Object.fromEntries(s.schoolHistory(a).filter(e=>e.action==='link').map(e=>[e.schoolId,e.reason]));assert.equal(reasons['900001'],'学校 Portal 显示已提交，自动建立关联');assert.equal(reasons['900002'],'本人从学校职位开始准备');
+ for(const row of s.schoolOpportunities(a))assert.equal(row.explicitMatch,false);
+});

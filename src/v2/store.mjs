@@ -60,6 +60,9 @@ function requestIdentifier(value) {
 
 // This store is independent of v1's Notion, knowledge base and material directories.
 // Owner IDs always come from a validated session, never request body fields.
+// Links the app creates itself (not a person confirming a match) never count as an explicit official-site match.
+const START_LINK_REASON='本人从学校职位开始准备',PORTAL_LINK_REASON='学校 Portal 显示已提交，自动建立关联';
+const AUTO_LINK_REASONS=new Set([START_LINK_REASON,PORTAL_LINK_REASON]);
 export class WorkspaceStore {
   constructor(filename, { now = Date.now, readOnly = false } = {}) {
     if (!readOnly) mkdirSync(dirname(filename), { recursive: true });
@@ -432,7 +435,7 @@ export class WorkspaceStore {
       const requirement=plan?{kind:({both:'both','school-only':'portal_only'}[plan.channel] || 'unknown'),source:'user',evidence:[],conflict:false}:schoolRequirement([item.row],job);
       const cached=official.get(item.schoolId),detail=cached?.source_hash===item.fingerprint?JSON.parse(cached.payload):null;
       const officialFacts=detail?{...item.row,jd:detail.jd,externalUrl:detail.url,officialTitle:detail.title,postedAt:detail.postedAt || item.row.postedAt || null,postedAtKind:detail.postedAtKind || null,sourceEvidence:detail.sourceEvidence,durationEvidence:detail.durationEvidence || item.row.durationEvidence || null,fullJd:detail.fullJd ?? null}:null;
-      return {...item,officialFacts,facts:officialFacts || {...item.row,jd:item.row.jd || job.jd || ''},requirement,explicitMatch:Boolean(item.jobId && association && association.reason!=='本人从学校职位开始准备')};
+      return {...item,officialFacts,facts:officialFacts || {...item.row,jd:item.row.jd || job.jd || ''},requirement,explicitMatch:Boolean(item.jobId && association && !AUTO_LINK_REASONS.has(association.reason))};
     });
   }
   schoolListRow(owner,pasted) {
@@ -515,17 +518,19 @@ export class WorkspaceStore {
       if(existing && this.schoolLinks(owner).some(link=>link.jobId===existing.id && link.schoolId!==schoolId)) fail(409,'该草稿已关联其他学校编号，请核对来源');
       const job=existing || this.saveJob(owner,{...opportunity,location:opportunity.location || '',notes:''});
       this.db.prepare('INSERT INTO school_links VALUES (?,?,?,?,?)').run(owner,schoolId,job.id,JSON.stringify(item.row),this.now());
-      this.schoolAudit(owner,schoolId,'link',null,{schoolId,jobId:job.id,row:item.row,job},'本人从学校职位开始准备',randomUUID(),fingerprint);
+      this.schoolAudit(owner,schoolId,'link',null,{schoolId,jobId:job.id,row:item.row,job},portalSubmitted?PORTAL_LINK_REASON:START_LINK_REASON,randomUUID(),fingerprint);
       this.db.exec('RELEASE school_start'); return job;
     } catch(error) { this.db.exec('ROLLBACK TO school_start'); this.db.exec('RELEASE school_start'); throw error; }
   }
   importPortalSubmissions(owner,schoolIds,evidence={kind:'school-portal-paste'}) {
     if(!Array.isArray(schoolIds) || schoolIds.length>100 || new Set(schoolIds).size!==schoolIds.length) fail(400,'学校编号列表无效');
-    const result={added:0,existing:0,skipped:0,schoolIds:[]};
+    const result={added:0,existing:0,skipped:0,schoolIds:[]};let current=null;
     this.db.exec('SAVEPOINT portal_submitted');
     try {
       for(const schoolId of schoolIds) {
+        current={schoolId};
         const item=this.schoolOpportunities(owner).find(item=>item.schoolId===schoolId);
+        if(item)current=item;
         if(!item) fail(404,'当前账号没有该学校编号');
         if(!/^application submitted$/i.test(item.row.sourceStatus?.trim() || '')) {result.skipped++;continue;}
         const known=this.db.prepare('SELECT * FROM portal_submission_observations WHERE user_id=? AND school_id=?').get(owner,schoolId);
@@ -550,7 +555,12 @@ export class WorkspaceStore {
         result.schoolIds.push(schoolId);
       }
       this.db.exec('RELEASE portal_submitted');return result;
-    } catch(error) {this.db.exec('ROLLBACK TO portal_submitted');this.db.exec('RELEASE portal_submitted');throw error;}
+    } catch(error) {
+      this.db.exec('ROLLBACK TO portal_submitted');this.db.exec('RELEASE portal_submitted');
+      // The whole batch rolls back, so say which row stopped it.
+      if(current&&error.status)error.message=`学校 ID ${current.schoolId}${current.row?`（${current.row.company} · ${current.row.title}）`:''}：${error.message}。本批未写入，请核对该条后重新预览。`;
+      throw error;
+    }
   }
   submittedJobIds(owner) {
     // Same set as applications() rows with submissions, without building every application.
