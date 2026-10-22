@@ -11,7 +11,7 @@ test('US needs explicit full remote and CS; restrictions are retained, Canada mu
 });
 test('country combines with season/month/category; clearing UI removes the country constraint',()=>{
  const job={...us,term:'Summer 2027',duration:'8 months',hasPublic:true};assert.equal(matchesOpportunity(job,{country:'CA'}),false);for(const country of ['US','CA-US','all'])assert.equal(matchesOpportunity(job,{country,season:'summer',months:'8',category:'cs'}),true);assert.equal(matchesOpportunity(job,{country:'US',months:'4'}),false);
- const ui=readFileSync('web/v2/opportunity.js','utf8');assert.match(ui,/\['CA','加拿大'\]/);assert.match(ui,/e.name==='country'\?'all':''/);assert.ok(!ui.includes('时长依据'));
+ const ui=readFileSync('web/v2/opportunity.js','utf8').replace(/\s+/g,'');assert.match(ui,/\['CA','加拿大'\]/);assert.match(ui,/e.name==='country'\?'all':''/);assert.ok(!ui.includes('时长依据'));
 });
 test('future refresh retains official workplace evidence and accepts US explicit full remote detail',async()=>{
  const source={id:'index',name:'fixture'},raw={...us,url:'https://example.com/jobs/11',location:'US Remote',jd:'',indexInternship:true},old={...raw,jd:'Software engineering internship.',workMode:'remote',fieldEvidence:{workMode:{status:'extracted',source:'workplaceType',raw:'Remote'}},sourceEvidence:{retrievedAt:new Date().toISOString()}};
