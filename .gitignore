@@ -13,6 +13,9 @@ __pycache__/
 *.log
 # Local operator instructions contain machine paths; not part of the public release.
 /AGENTS.md
+/CLAUDE.md
+/TASK.md
+/docs/task-01/
 # Deferred integration draft, not installed or validated in v1.0.
 /openclaw/
 
