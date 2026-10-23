@@ -160,7 +160,7 @@ export async function readWorkdayBoard(source, fetchImpl = fetch, { keywords = [
 const lastRead = new Map();
 // One composite source: every learned board, a few at a time, each re-read at most every `maxAgeMs`.
 export async function readEmployerBoards(registry, fetchImpl = fetch, { concurrency = 6, maxAgeMs = 6 * 3600000, now = Date.now(), cache = lastRead } = {}) {
-  const totals = { status: 'complete', raw: 0, pages: 0, jobs: [], boards: registry.length, failed: 0, reused: 0, error: null };
+  const totals = { status: 'complete', raw: 0, pages: 0, jobs: [], boards: registry.length, failed: 0, failedBoards: [], reused: 0, error: null };
   let cursor = 0;
   // One employer can expose the same Workday posting on several sites (e.g. External and Campus).
   const seen = new Set();
@@ -183,14 +183,17 @@ export async function readEmployerBoards(registry, fetchImpl = fetch, { concurre
             : await readEmployerBoard({ id: source.id, name: source.name, type: source.type, board: source.board, url: source.url }, fetchImpl);
         if (result.status !== 'failed') cache.set(source.id, { at: now, result });
       }
-      if (result.status === 'failed') totals.failed++;
+      if (result.status === 'failed') {
+        totals.failed++;
+        totals.failedBoards.push(source.id);
+      }
       totals.raw += result.raw || 0;
       totals.pages += result.pages || 0;
       for (const job of result.jobs || []) {
         const key = identity(job);
         if (seen.has(key)) continue;
         seen.add(key);
-        totals.jobs.push(job);
+        totals.jobs.push({ ...job, boardId: source.id });
       }
     }
   }
