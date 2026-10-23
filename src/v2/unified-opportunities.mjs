@@ -116,6 +116,44 @@ export const titleKey = value =>
     .trim();
 // The employer was already compared by companyKey, so suffixes like "Inc." are not a conflict here.
 const titleConflicts = (a, b) => identityConflicts(a, b).filter(field => field !== 'company');
+// One employer posting can appear under several URLs (e.g. CIBC lists requisition 2621523 on
+// two Workday sites as _2621523 and _2621523-1). Same employer + same base requisition + same
+// title is one posting; keep the record with a full JD and remember the other links.
+const workdayRequisition = url => String(url || '').match(/\.myworkdayjobs\.com\/.*_([A-Za-z]*\d[\w]*?)(?:-\d+)?$/)?.[1] || '';
+const baseRequisition = job => String(job.requisitionId || workdayRequisition(job.url) || '').trim().replace(/-\d+$/, '').toLowerCase();
+export function collapseSamePostings(jobs) {
+  const groups = new Map(),
+    out = [];
+  for (const job of jobs) {
+    const req = baseRequisition(job),
+      key = req && companyKey(job.company) && titleKey(job.title) ? [companyKey(job.company), req, titleKey(job.title)].join('|') : '';
+    if (!key) {
+      out.push(job);
+      continue;
+    }
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      out.push(key);
+    }
+    groups.get(key).push(job);
+  }
+  const rank = job => [job.jd && job.fullJd !== false ? 0 : 1, job.stale ? 1 : 0, /-\d+$/.test(job.url) ? 1 : 0, job.url.length];
+  const better = (a, b) => {
+    const x = rank(a),
+      y = rank(b);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i];
+    return a.url < b.url;
+  };
+  return out.map(item => {
+    if (typeof item !== 'string') return item;
+    const group = groups.get(item);
+    if (group.length === 1) return group[0];
+    const keep = group.reduce((best, job) => (better(job, best) ? job : best));
+    const sources = [...new Map(group.flatMap(job => job.sources || (job.source ? [job.source] : [])).map(s => [s.id, s])).values()];
+    const aliasUrls = [...new Set([...(keep.aliasUrls || []), ...group.filter(job => job !== keep).flatMap(job => [job.url, ...(job.aliasUrls || [])])])].filter(url => url !== keep.url);
+    return { ...keep, sources, aliasUrls };
+  });
+}
 const postingKey = job => companyKey(job.company) && titleKey(job.title) ? companyKey(job.company) + '|' + titleKey(job.title) : '';
 // Personal read projection only: never copy a school's private rows into the global catalogue.
 export function unifiedOpportunities(owner, catalogue, schools, saved) {
@@ -129,7 +167,7 @@ export function unifiedOpportunities(owner, catalogue, schools, saved) {
       .filter(
         s =>
           identityUrl(s.url) &&
-          identityUrl(s.url) === identityUrl(job.url) &&
+          [job.url, ...(job.aliasUrls || [])].some(url => identityUrl(url) === identityUrl(s.url)) &&
           !schools.some(item => item.jobId === s.id && !item.explicitMatch && identityConflicts(item.row, job).length)
       )
       .map(s => s.id)

@@ -28,3 +28,8 @@ test('direction preference keeps hardware with CS, business analysis with Data a
  assert.deepEqual(titles('data'),['Credit Risk Intern','Machine Learning Intern']);
  assert.equal(titles('').length,3);
 });
+test('the category filter has three groups: CS, Data/business analysis, Hardware/embedded',()=>{
+ const job=(title,track='unknown')=>({title,classification:{track}});
+ const cases=[['Firmware Engineer Intern',['hardware']],['Hardware Design Engineer Intern',['hardware']],['Credit Risk Intern',['data']],['Data Analyst Intern',['data'],'data'],['Software Intern',['cs'],'cs'],['Machine Learning Intern',['cs','data']]];
+ for(const [title,groups,track] of cases)for(const group of ['cs','data','hardware'])assert.equal(matchesOpportunity(job(title,track),{category:group}),groups.includes(group),title+' in '+group);
+});

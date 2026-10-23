@@ -60,13 +60,13 @@ export function opportunityFacts(job) {
     ];
   if (durationInfo.placements.length) seasons = [...new Set(durationInfo.placements.map(p => p.season))];
   const track = job.classification?.track || classifyResume(job).track;
-  const category = job.resumeSelection
-    ? {
-        primary: job.resumeSelection.classification.category,
-        label: job.resumeSelection.classification.label,
-        evidence: Object.values(job.resumeSelection.classification.evidence).flat()
-      }
-    : jobCategory(job);
+  // Resume routing only knows CS/Data/embedded; when it cannot tell, the title families
+  // (hardware, business analysis, AI/ML) still give the card and the filter a category.
+  const routed = job.resumeSelection?.classification;
+  const category =
+    routed && routed.category !== 'unknown'
+      ? { primary: routed.category, label: routed.label, evidence: Object.values(routed.evidence).flat() }
+      : jobCategory(job);
   return {
     terms,
     seasons,
@@ -92,6 +92,15 @@ function matchesCountry(job, country, facts = countryFilterFacts(job)) {
     ? facts.usEmployerRemote || usRemoteEligibility(job).eligible
     : facts.countries.includes(country);
 }
+// Three filter groups over the finer card categories; AI/ML (mixed) belongs to both CS and Data.
+// 'embedded' and 'business' stay accepted for older saved filter values.
+const categoryGroups = {
+  cs: ['cs', 'mixed'],
+  data: ['data', 'business', 'mixed'],
+  hardware: ['hardware', 'embedded'],
+  embedded: ['hardware', 'embedded'],
+  business: ['data', 'business', 'mixed']
+};
 export function matchesOpportunity(job, filters = {}) {
   if (['24h', '2d'].includes(filters.publication)) {
     const p = publicationFacts(
@@ -178,8 +187,7 @@ export function matchesOpportunity(job, filters = {}) {
     filters.category &&
     !matches(
       f.category.primary !== 'unknown',
-      f.category.primary === filters.category ||
-        (f.category.primary === 'mixed' && ['cs', 'data'].includes(filters.category))
+      categoryGroups[filters.category]?.includes(f.category.primary) ?? f.category.primary === filters.category
     )
   )
     return false;
@@ -330,10 +338,8 @@ export function mountFilters(container, onChange, { schoolOnly = false, country 
       [
         ['', '所有类别'],
         ['cs', 'CS / Software'],
-        ['embedded', 'Firmware / Embedded'],
-        ['hardware', '硬件 / 芯片'],
-        ['data', '数据 / 分析'],
-        ['business', '商业 / 产品分析']
+        ['data', '数据 / 商业分析'],
+        ['hardware', '硬件 / 嵌入式']
       ]
     ],
     [
@@ -346,7 +352,8 @@ export function mountFilters(container, onChange, { schoolOnly = false, country 
         ['fall', 'Fall']
       ]
     ],
-    ['months', '时长（月）', [['', '所有时长'], ...[3, 4, 8, 12, 16].map(n => [String(n), n + ' 个月'])]],
+    // Co-op and intern terms are 4, 8, 12 or 16 months; a "3–4 months" range still matches 4.
+    ['months', '时长（月）', [['', '所有时长'], ...[4, 8, 12, 16].map(n => [String(n), n + ' 个月'])]],
     [
       'country',
       '国家筛选',

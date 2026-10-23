@@ -38,10 +38,10 @@ test('portal imported history remains hidden while employer step can be confirme
 test('view preferences persist only valid display modes and storage denial is harmless',()=>{
  const values=new Map(),storage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};assert.equal(readView(storage,'school'),'cards');saveView(storage,'school','table');assert.equal(readView(storage,'school'),'table');assert.equal(readView(storage,'discovery'),'cards');saveView(storage,'school','invalid');assert.equal(readView(storage,'school'),'table');assert.equal(readView({getItem(){throw Error();}},'school'),'cards');assert.doesNotThrow(()=>saveView({setItem(){throw Error();}},'school','table'));
 });
-test('school filters omit source and include the evidenced three-month choice',()=>{
+test('school filters omit source and offer only 4, 8, 12 and 16 month terms',()=>{
  const before=[globalThis.document,globalThis.Option];class N{constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.value='';}setAttribute(k,v){this[k]=v;}append(...children){this.children.push(...children);}add(child){this.children.push(child);}addEventListener(){}querySelectorAll(){return this.children.flatMap(c=>c instanceof N?[...(['select','input'].includes(c.tag)?[c]:[]),...c.querySelectorAll()]:[]);}}
  globalThis.document={createElement:t=>new N(t)};globalThis.Option=class{constructor(text,value){this.text=text;this.value=value;}};
- try{const school=new N('div');mountFilters(school,()=>{},{schoolOnly:true});assert.equal(school.querySelectorAll().some(n=>n.name==='source'),false);assert.deepEqual(school.querySelectorAll().find(n=>n.name==='months').children.map(n=>n.value),['','3','4','8','12','16']);}finally{[globalThis.document,globalThis.Option]=before;}
+ try{const school=new N('div');mountFilters(school,()=>{},{schoolOnly:true});assert.equal(school.querySelectorAll().some(n=>n.name==='source'),false);assert.deepEqual(school.querySelectorAll().find(n=>n.name==='months').children.map(n=>n.value),['','4','8','12','16']);}finally{[globalThis.document,globalThis.Option]=before;}
 });
 test('table mode moves the same card nodes and actions in original row order',()=>{
  const before=[globalThis.document,globalThis.localStorage];
