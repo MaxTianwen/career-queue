@@ -28,12 +28,15 @@ export function classifyResumeDuties(job = {}) {
     if (requirement && /\b(?:preferred|nice to have|optional|bonus|an asset)\b/i.test(line)) return false;
     return true;
   };
-  const matches = (re, requirement = false) =>
-    lines.flatMap(line =>
-      [...line.matchAll(new RegExp(re.source, 'gi'))]
+  const matches = (re, requirement = false) => {
+    // Compile once per pattern (it was rebuilt for every line); matchAll clones it per line.
+    const global = new RegExp(re.source, 'gi');
+    return lines.flatMap(line =>
+      [...line.matchAll(global)]
         .filter(match => ownEvidence(line, match, requirement))
         .map(match => match[0].trim().slice(0, 350))
     );
+  };
   const patterns = {
     embedded:
       /\b(?:develop|design|implement|debug|test|maintain|build|port|integrate)(?:ing|s)?\b[^.!?\n]{0,75}\b(?:firmware|embedded (?:software|systems?)|RTOS|BSP|device drivers?|board support packages?)\b/i,
@@ -146,10 +149,23 @@ export function setOverride(store, owner, id, input) {
   }
   return resolveResume(store, owner, store.job(owner, id)).selection;
 }
+// Classification reads only the JD text, so equal text gives an equal result across requests and
+// accounts; only the CS/Data verdict is kept, never resume data. Bounded so it cannot grow forever.
+const classified = new Map();
+export function cachedClassification(job) {
+  const jd = job.fullJd === false ? '' : String(job.jd || '');
+  let result = classified.get(jd);
+  if (!result) {
+    if (classified.size >= 5000) classified.clear();
+    result = classifyResumeDuties(job);
+    classified.set(jd, result);
+  }
+  return result;
+}
 export function resolveResume(store, owner, job, cache = {}) {
   if (cache.owner && cache.owner !== owner) fail(403, '评分缓存账户不匹配');
   cache.owner = owner;
-  const classification = classifyResumeDuties(job),
+  const classification = cachedClassification(job, cache),
     bindings = (cache.bindings ??= routingBindings(store, owner));
   const ids = [job.id, ...(job.draftIds || [])].filter(Boolean);
   const overrides = ids

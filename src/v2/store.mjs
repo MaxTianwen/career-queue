@@ -2681,10 +2681,20 @@ export class WorkspaceStore {
       .run(JSON.stringify(value));
     return value;
   }
+  // Every write through this connection advances total_changes(), so an unchanged version means
+  // unchanged data. A rollback does not move it back, so nothing is cached inside a transaction.
+  dataVersion() {
+    if (this.db.isTransaction !== false) return null;
+    // data_version moves when another connection to the same file commits.
+    return this.db.prepare('PRAGMA data_version').get().data_version + ':' + this.db.prepare('SELECT total_changes() n').get().n;
+  }
   opportunities(owner) {
+    const version = this.dataVersion(),
+      hit = this.opportunityCache?.get(owner);
+    if (version !== null && hit?.version === version) return hit.value;
     const catalogue = this.catalogue(),
       fresh = new Set(catalogue.refreshBatch?.newIds || []);
-    return projectAliases(
+    const value = projectAliases(
       unifiedOpportunities(
         owner,
         { ...catalogue, jobs: catalogue.jobs.map(j => ({ ...j, newInRefresh: fresh.has(j.id) })) },
@@ -2693,6 +2703,8 @@ export class WorkspaceStore {
       ),
       readAliases(this.db)
     );
+    if (version !== null) (this.opportunityCache ??= new Map()).set(owner, { version, value });
+    return value;
   }
   saveSuggested(owner, id) {
     const job = this.opportunities(owner).find(job => job.id === id);

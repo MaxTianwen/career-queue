@@ -157,28 +157,36 @@ export function collapseSamePostings(jobs) {
 const postingKey = job => companyKey(job.company) && titleKey(job.title) ? companyKey(job.company) + '|' + titleKey(job.title) : '';
 // Personal read projection only: never copy a school's private rows into the global catalogue.
 export function unifiedOpportunities(owner, catalogue, schools, saved) {
+  // Parse each saved link once instead of once per catalogue job.
+  const savedUrls = saved.map(s => ({ s, url: identityUrl(s.url) })).filter(x => x.url);
   const result = catalogue.jobs.map(job => ({
     ...job,
     schoolSources: [],
     hasSchool: false,
     hasPublic: true,
     publicUpdated: job.sourceUpdatedAt || (!job.stale ? catalogue.finishedAt : null) || null,
-    draftIds: saved
-      .filter(
-        s =>
-          identityUrl(s.url) &&
-          [job.url, ...(job.aliasUrls || [])].some(url => identityUrl(url) === identityUrl(s.url)) &&
-          !schools.some(item => item.jobId === s.id && !item.explicitMatch && identityConflicts(item.row, job).length)
-      )
-      .map(s => s.id)
+    draftIds: (() => {
+      if (!savedUrls.length) return [];
+      const urls = new Set([job.url, ...(job.aliasUrls || [])].map(identityUrl));
+      return savedUrls
+        .filter(
+          ({ s, url }) =>
+            urls.has(url) &&
+            !schools.some(item => item.jobId === s.id && !item.explicitMatch && identityConflicts(item.row, job).length)
+        )
+        .map(({ s }) => s.id);
+    })()
   }));
   const schoolKeys = new Map(), publicKeys = new Map();
   for (const item of schools) {
     const key = postingKey(item.officialFacts || item.row);
     if (key) schoolKeys.set(key, (schoolKeys.get(key) || 0) + 1);
   }
+  // Title keys are computed once per posting; the school loop below only looks them up.
+  const keyOf = new Map();
   for (const job of result) {
     const key = postingKey(job);
+    keyOf.set(job, key);
     if (key) publicKeys.set(key, (publicKeys.get(key) || 0) + 1);
   }
   for (const item of [...schools].sort((a, b) => a.schoolId.localeCompare(b.schoolId))) {
@@ -201,7 +209,7 @@ export function unifiedOpportunities(owner, catalogue, schools, saved) {
     const key = postingKey(row);
     const sameTitle =
       !explicit.length && !candidates.length && key && schoolKeys.get(key) === 1 && publicKeys.get(key) === 1
-        ? result.filter(j => j.hasPublic && !j.schoolSources.length && postingKey(j) === key && !titleConflicts(row, j).length)
+        ? result.filter(j => j.hasPublic && !j.schoolSources.length && keyOf.get(j) === key && !titleConflicts(row, j).length)
         : [];
     const matches = explicit.length === 1 ? explicit : candidates.length ? candidates : sameTitle;
     let job = matches.length === 1 ? matches[0] : null;

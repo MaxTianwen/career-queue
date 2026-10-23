@@ -3,7 +3,7 @@ import { startTerms } from '../../src/start-terms.mjs';
 import { publicationFacts, publicationLabel } from '../../src/publication-facts.mjs';
 import { deadlineExpired } from '../../src/deadlines.mjs';
 import { jobCategory } from '../../src/job-category.mjs';
-import { jobCountries, countryFilterFacts, remoteFacts, usRemoteEligibility } from '../../src/job-country.mjs';
+import { jobCountries, countryFilterFacts, remoteFacts, usRemoteEligibility, contentMemo } from '../../src/job-country.mjs';
 import { durationFacts } from '../../src/duration-facts.mjs';
 import { classifyResume } from '../../src/resume-track.mjs';
 // Display and filtering only. Unknown facts stay unknown; never alter eligibility or records.
@@ -47,7 +47,12 @@ const termLabels = f =>
         )
         .join(' / ')
     : '开始学期／年份未知';
+// Facts parse the whole JD; reuse them while the job's content is unchanged (see contentMemo).
+const factsCache = new WeakMap();
 export function opportunityFacts(job) {
+  return contentMemo(factsCache, job, computeOpportunityFacts);
+}
+function computeOpportunityFacts(job) {
   const terms = startTerms(job);
   let seasons = [...new Set(terms.map(p => p.season).filter(Boolean))];
   const durationInfo = durationFacts(job),
