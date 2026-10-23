@@ -14,7 +14,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'no
 import { promisify } from 'node:util';
 import { previewSchool, schoolHash } from './school.mjs';
 import { schoolDeadline } from '../portal-paste.mjs';
-import { unifiedOpportunities, identityUrl, collapseSamePostings } from './unified-opportunities.mjs';
+import { unifiedOpportunities, identityUrl } from './unified-opportunities.mjs';
 
 const derive = promisify(scrypt);
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -2587,14 +2587,7 @@ export class WorkspaceStore {
       sources = new Map(result.sources.map(source => [source.id, source]));
     const jobs = new Map(
       old.jobs
-        .filter(job =>
-          (job.sources || [job.source]).some(source => {
-            const status = sources.get(source.id);
-            if (!status || status.status === 'complete') return !status;
-            // The boards source is many boards: keep only records from the boards that failed this time.
-            return source.id === 'boards' && Array.isArray(status.failedBoards) ? status.failedBoards.includes(job.boardId) : true;
-          })
-        )
+        .filter(job => (job.sources || [job.source]).some(source => sources.get(source.id)?.status !== 'complete'))
         .map(job => [job.id, { ...job, sourceUpdatedAt: job.sourceUpdatedAt || old.finishedAt || null, stale: true }])
     );
     const previous = new Map(old.jobs.map(job => [job.id, job]));
@@ -2666,7 +2659,7 @@ export class WorkspaceStore {
       ...result,
       discoveryHistory: old.discoveryHistory,
       refreshBatch: old.refreshBatch,
-      jobs: collapseSamePostings([...jobs.values()]).map(job => ({ ...job, durationInfo: durationFacts(job) }))
+      jobs: [...jobs.values()].map(job => ({ ...job, durationInfo: durationFacts(job) }))
     };
     if (refreshId) Object.assign(value, refreshNovelty(old, value, refreshId, this.now(), readAliases(this.db)));
     const kept = refreshId ? new Set(value.discoveryHistory.seenIds) : null;
@@ -2681,20 +2674,10 @@ export class WorkspaceStore {
       .run(JSON.stringify(value));
     return value;
   }
-  // Every write through this connection advances total_changes(), so an unchanged version means
-  // unchanged data. A rollback does not move it back, so nothing is cached inside a transaction.
-  dataVersion() {
-    if (this.db.isTransaction !== false) return null;
-    // data_version moves when another connection to the same file commits.
-    return this.db.prepare('PRAGMA data_version').get().data_version + ':' + this.db.prepare('SELECT total_changes() n').get().n;
-  }
   opportunities(owner) {
-    const version = this.dataVersion(),
-      hit = this.opportunityCache?.get(owner);
-    if (version !== null && hit?.version === version) return hit.value;
     const catalogue = this.catalogue(),
       fresh = new Set(catalogue.refreshBatch?.newIds || []);
-    const value = projectAliases(
+    return projectAliases(
       unifiedOpportunities(
         owner,
         { ...catalogue, jobs: catalogue.jobs.map(j => ({ ...j, newInRefresh: fresh.has(j.id) })) },
@@ -2703,8 +2686,6 @@ export class WorkspaceStore {
       ),
       readAliases(this.db)
     );
-    if (version !== null) (this.opportunityCache ??= new Map()).set(owner, { version, value });
-    return value;
   }
   saveSuggested(owner, id) {
     const job = this.opportunities(owner).find(job => job.id === id);

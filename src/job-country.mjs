@@ -27,24 +27,12 @@ const employerCountries={
  'wex':{country:'US',sourceUrl:'https://customer.wexinc.com/contact/',basis:'Official corporate headquarters: Portland, Maine USA',checkedAt:'2026-10-14'}
 };
 export function employerCountry(job={}) {return employerCountries[String(job.company||'').trim().toLowerCase()]||null;}
-// Parsing a JD is far slower than serializing the job, so a result is reused only while the
-// job's full content (including nested evidence) is unchanged; in-place edits recompute.
-export function contentMemo(cache,job,compute){
- if(!job||typeof job!=='object')return compute(job);
- const signature=JSON.stringify(job),hit=cache.get(job);
- if(hit&&hit.signature===signature)return hit.value;
- const value=compute(job);cache.set(job,{signature,value});return value;
-}
-const countryFilterFactsCache=new WeakMap();
-export function countryFilterFacts(job={}) { return contentMemo(countryFilterFactsCache,job,computeCountryFilterFacts); }
-function computeCountryFilterFacts(job={}) {
+export function countryFilterFacts(job={}) {
  const workplaceCountries=jobCountries(job),employer=employerCountry(job),remote=remoteFacts(job);
  const usEmployerRemote=employer?.country==='US'&&remote.fullyRemote;
  return {workplaceCountries,employer,fullyRemote:remote.fullyRemote,countries:usEmployerRemote?['US']:workplaceCountries,usEmployerRemote};
 }
-const remoteFactsCache=new WeakMap();
-export function remoteFacts(job={}) { return contentMemo(remoteFactsCache,job,computeRemoteFacts); }
-function computeRemoteFacts(job={}) {
+export function remoteFacts(job={}) {
  const body=String(job.jd||''),location=String(job.location||''),mode=String(job.workMode||'');
  const restrictions=body.split(/\n|(?<=[.!?])\s+/).filter(s=>/\b(?:resid\w*|located|based in|work authori[sz]\w*|authori[sz]ed to work|sponsor\w*|visa\w*|U\.?S\.?[- ]only)\b/i.test(s)).map(s=>s.trim()).filter(Boolean);
  // An employer-wide menu of work modes is not a requirement for this job.
@@ -69,9 +57,7 @@ export function csRelatedFacts(job={}) {
  const actions=jd.split(/\n|(?<=[.!?])\s+/).filter(s=>/^\s*(?:[-•]\s*)?(?:build|create|develop|deploy|deliver|implement|maintain|design|conduct)\b/i.test(s)&&!/\b(?:degree|bachelor|master|collaborat\w* with|work(?:ing)? with)\b/i.test(s)).join('\n').match(/\b(?:build|create|develop|deploy|deliver|implement|maintain|design)(?:ing|s)?\s+(?:[\w,-]+\s+){0,5}(?:(?:AI|ML|generative|software)\s+(?:applications?|features|systems)|(?:production[- ]grade|backend)\s+(?:solutions?|services?)|(?:ETL|data)\s+pipelines?)\b|\bconduct\s+(?:[\w-]+\s+){0,3}machine learning research\b/i);
  return {csRelated:jobCategory(job).primary==='embedded'||['cs','mixed'].includes(classification.track)||Boolean(engineering||actions),csEvidence:[...(engineering?[engineering[0]]:[]),...(actions?[actions[0]]:[])],track:classification.track};
 }
-const usRemoteEligibilityCache=new WeakMap();
-export function usRemoteEligibility(job={}) { return contentMemo(usRemoteEligibilityCache,job,computeUsRemoteEligibility); }
-function computeUsRemoteEligibility(job={}) {
+export function usRemoteEligibility(job={}) {
  const countries=jobCountries(job),remote=remoteFacts(job),related=csRelatedFacts(job);
  return {...remote,countries,...related,eligible:countries.includes('US')&&related.csRelated&&remote.fullyRemote};
 }

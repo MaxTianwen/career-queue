@@ -11,7 +11,6 @@ import { postingUrl } from '../discovery-records.mjs';
 import { digest, scoreFor, resumeProfile } from './resume.mjs';
 import { officialJob, SOURCE } from '../discovery.mjs';
 import { boardRegistry, readEmployerBoards } from '../employer-boards.mjs';
-import { collapseSamePostings } from './unified-opportunities.mjs';
 
 // Public index and employer boards; no personal v1 cache or Notion data.
 export const INDEX_SOURCE = { ...SOURCE, id: 'index' };
@@ -105,8 +104,7 @@ export function catalogueJob(raw, source) {
     ...extractDeadline(raw),
     classification,
     jobCategory: jobCategory(raw),
-    source: { id: source.id, name: source.name, url: source.url },
-    ...(raw.boardId ? { boardId: raw.boardId } : {})
+    source: { id: source.id, name: source.name, url: source.url }
   };
 }
 export function catalogueDetailTarget(raw) {
@@ -351,7 +349,6 @@ export async function fetchCatalogue({
           raw: result.raw ?? records.length,
           count: selected,
           detailed,
-          ...(Array.isArray(result.failedBoards) ? { failedBoards: result.failedBoards } : {}),
           error: result.error ? '来源未能完整读取，请稍后重试' : null
         });
       } catch {
@@ -360,7 +357,7 @@ export async function fetchCatalogue({
     }
   }
   await Promise.all([worker(), worker()]);
-  return { jobs: collapseSamePostings([...jobs.values()]), sources: statuses, finishedAt: new Date().toISOString() };
+  return { jobs: [...jobs.values()], sources: statuses, finishedAt: new Date().toISOString() };
 }
 export function recommend(jobs, preferences, resume, now = new Date()) {
   if (preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)) return [];

@@ -4,7 +4,7 @@ import { EmailAccounts } from './email-accounts.mjs';
 import { schoolCapture } from './school-capture.mjs';
 import { browserFillBridge } from './browser-fill.mjs';
 import { rehearsalFields } from './fill-rehearsal.mjs';
-import { cachedClassification } from './resume-routing.mjs';
+import { classifyResumeDuties } from './resume-routing.mjs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -129,44 +129,13 @@ export function workspaceServer({
     let parsing = false;
     let generating = false;
     let exporting = false;
-    // Per-owner list cache: same data version within the same minute gives the same list. The minute
-    // bounds time-based facts (deadlines, today/yesterday); refresh status is added live by the caller.
-    const viewCache = new Map();
-    const cachedView = (owner, key, build) => {
-      const version = store.dataVersion(),
-        minute = Math.floor(store.now() / 60000),
-        id = owner + '|' + key,
-        hit = viewCache.get(id);
-      if (version !== null && hit?.version === version && hit.minute === minute) return hit.value;
-      const value = build();
-      if (version !== null) viewCache.set(id, { version, minute, value });
-      return value;
-    };
-    // A score depends only on the owner's resume version and the JD text, so it is kept per owner and
-    // resume version; a new upload or re-parse changes textHash and starts fresh. Bounded.
-    const scoreMemo = new Map();
-    const memoScore = (owner, job, resume, profile) => {
-      const key = resume ? [owner, resume.fileId, resume.textHash, job.jd || ''].join('\u0000') : null;
-      let score = key && scoreMemo.get(key);
-      if (!score) {
-        score = scoreFor(job, resume, profile);
-        if (key) {
-          if (scoreMemo.size >= 5000) scoreMemo.clear();
-          scoreMemo.set(key, score);
-        }
-      }
-      return score;
-    };
-    const scored = (owner, job, cache = {}) => {
+    const scored = (owner, job, cache) => {
       const { resume, selection } = store.resolveResume(owner, job, cache);
-      // One profile per resume per request (it was rebuilt for every job); never kept across requests.
-      cache.profiles ??= new Map();
-      if (resume && !cache.profiles.has(resume.fileId)) cache.profiles.set(resume.fileId, resumeProfile(resume));
       return {
         ...job,
         resumeSelection: selection,
         eligibilityExclusion: store.citizenExclusion(owner, job),
-        match: { ...memoScore(owner, job, resume, resume ? cache.profiles.get(resume.fileId) : undefined), selection, ...(!resume ? { reason: selection.reason } : {}) }
+        match: { ...scoreFor(job, resume), selection, ...(!resume ? { reason: selection.reason } : {}) }
       };
     };
     const server = httpServer ?? createServer();
@@ -672,29 +641,27 @@ export function workspaceServer({
           return json(res, 200, runner.setEnabled((await input()).enabled));
         }
         if (path === '/api/recommendations' && req.method === 'GET') {
-          const view = cachedView(owner, 'recommendations', () => {
-            const { discoveryHistory, ...catalogue } = store.catalogue();
-            const data = { ...catalogue, jobs: store.pendingOpportunities(owner).filter(job => inOpportunityYear(job)) },
-              preferences = store.preferences(owner),
-              scoreCache = {};
-            return {
-              ...data,
-              total: data.jobs.length,
-              jobs: recommend(
-                data.jobs.map(job => ({ ...job, classification: cachedClassification(job, scoreCache) })),
-                preferences,
-                null,
-                new Date(store.now())
-              ).map(job => scored(owner, job, scoreCache)),
-              unsupportedType: Boolean(
-                preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)
-              )
-            };
+          const { discoveryHistory, ...catalogue } = store.catalogue();
+          const data = { ...catalogue, jobs: store.pendingOpportunities(owner).filter(job => inOpportunityYear(job)) },
+            preferences = store.preferences(owner),
+            scoreCache = {};
+          return json(res, 200, {
+            ...data,
+            total: data.jobs.length,
+            refreshing: Boolean(runner.pending),
+            jobs: recommend(
+              data.jobs.map(job => ({ ...job, classification: classifyResumeDuties(job) })),
+              preferences,
+              null,
+              new Date(store.now())
+            ).map(job => scored(owner, job, scoreCache)),
+            unsupportedType: Boolean(
+              preferences.jobTypes && !['intern', 'co-op', 'intern,co-op'].includes(preferences.jobTypes)
+            )
           });
-          return json(res, 200, { ...view, refreshing: Boolean(runner.pending) });
         }
         if (path === '/api/eligibility/exclusions' && req.method === 'GET')
-          return json(res, 200, cachedView(owner, 'exclusions', () => store.eligibilityExclusions(owner)));
+          return json(res, 200, store.eligibilityExclusions(owner));
         if (path === '/api/recommendations/update' && req.method === 'POST') {
           const value = await input();
           return json(res, 202, runner.requestRefresh(value.trigger));
