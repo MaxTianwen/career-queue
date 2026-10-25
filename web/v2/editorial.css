@@ -1262,31 +1262,31 @@ body.signed-in > footer {
   white-space: nowrap;
 }
 .application-table thead th:nth-child(1) {
-  width: 9%;
+  width: 8%;
 }
 .application-table thead th:nth-child(2) {
-  width: 12%;
+  width: 11%;
 }
 .application-table thead th:nth-child(3) {
-  width: 18%;
+  width: 17%;
 }
 .application-table thead th:nth-child(4) {
   width: 9%;
 }
 .application-table thead th:nth-child(5) {
-  width: 9%;
+  width: 8%;
 }
 .application-table thead th:nth-child(6) {
-  width: 15%;
+  width: 12%;
 }
 .application-table thead th:nth-child(7) {
-  width: 12%;
+  width: 13%;
 }
 .application-table thead th:nth-child(8) {
   width: 7%;
 }
 .application-table thead th:nth-child(9) {
-  width: 9%;
+  width: 15%;
   text-align: right;
 }
 .application-applied,
@@ -1399,11 +1399,11 @@ body.signed-in > footer {
   border: 1px solid #bdcee1;
   border-radius: 8px;
 }
-.application-table .application-action {
-  white-space: nowrap;
-}
-.application-table .application-action > * + * {
-  margin-left: 6px;
+/* Buttons wrap to a second line instead of being clipped when the column is narrow. */
+.application-table .application-action > * {
+  display: inline-block;
+  margin: 3px 0 3px 6px;
+  vertical-align: middle;
 }
 .application-table .application-track-button {
   min-height: 40px;
