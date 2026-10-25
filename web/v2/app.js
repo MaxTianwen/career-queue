@@ -381,7 +381,7 @@ $('#toggle-file-trash').addEventListener('click', () =>
 );
 async function downloadFile(file) {
   const captured = epoch;
-  const response = await fetch(`/api/files/${file.id}${file.viewDownload ? '/view-download' : ''}`, {
+  const response = await fetch(file.path || `/api/files/${file.id}${file.viewDownload ? '/view-download' : ''}`, {
     headers: { 'X-CQ-CSRF': csrf },
     cache: 'no-store'
   });
