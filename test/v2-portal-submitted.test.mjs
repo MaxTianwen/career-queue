@@ -47,9 +47,11 @@ test('submitted identities match application rows through portal confirmation, w
 test('applications() equals the per-job derivation for submitted, withdrawn and unsubmitted jobs',t=>{
  const{s,a,b}=setup(t);const legacy=owner=>s.jobs(owner).flatMap(job=>{const app=s.application(owner,job.id);return app.submissions.length?[{jobId:job.id,company:job.company,title:job.title,status:app.status,channel:app.channel,requirement:app.requirement,channelProgress:app.channelProgress,schoolContext:s.schoolContext(owner,job.id),submissions:app.submissions}]:[];});
  s.syncSchoolOpportunities(a,paste());s.syncSchoolOpportunities(a,paste('900002','Shortlist'));const item=s.schoolOpportunities(a).find(row=>!s.submittedJobIds(a).has(row.jobId));if(item)s.startSchoolOpportunity(a,item.schoolId,item.fingerprint);s.saveJob(a,{company:'Synthetic Other',title:'Intern',jd:'Python'});
- assert.deepEqual(s.applications(a),legacy(a));assert.equal(s.applications(a).length,1);assert.deepEqual(s.applications(b),legacy(b));
+ // The tracking summary is an addition on top of the per-job derivation.
+ const core=rows=>rows.map(({tracking,...row})=>{assert.equal(typeof tracking?.stage,'string');return row;});
+ assert.deepEqual(core(s.applications(a)),legacy(a));assert.equal(s.applications(a).length,1);assert.deepEqual(core(s.applications(b)),legacy(b));
  const app=s.applications(a)[0],record=app.submissions[0];s.changeConfirmation(a,app.jobId,record.id,{action:'withdraw',revision:s.confirmations(a,app.jobId,true)[0].revision,confirmed:true,requestId:randomUUID(),schoolRevision:s.schoolContext(a,app.jobId).revision,date:'',receipt:'Portal evidence'});
- assert.deepEqual(s.applications(a),legacy(a));assert.equal(s.applications(a).length,0);
+ assert.deepEqual(core(s.applications(a)),legacy(a));assert.equal(s.applications(a).length,0);
 });
 test('portal submitted row outside the account scope is still recorded and does not abort the batch',t=>{
  const{s,a}=setup(t);s.db.prepare('UPDATE users SET preferences=? WHERE id=?').run(JSON.stringify({opportunityScope:'canada-or-remote'}),a);

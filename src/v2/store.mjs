@@ -2,6 +2,7 @@ import { refreshNovelty } from './refresh-novelty.mjs';
 import { WorkspaceSecurity } from './workspace-security.mjs';
 import { readAliases, projectAliases } from './opportunity-aliases.mjs';
 import { installResumeRouting, resolveResume, routingBindings, setBaseline, setOverride } from './resume-routing.mjs';
+import { ApplicationTracking, installApplicationTracking } from './application-tracking.mjs';
 import { mergePublication } from '../publication-facts.mjs';
 import { opportunityScope } from '../opportunity-scope.mjs';
 import { durationFacts } from '../duration-facts.mjs';
@@ -150,6 +151,7 @@ export class WorkspaceStore {
       CREATE TABLE IF NOT EXISTS active_resume (user_id TEXT PRIMARY KEY REFERENCES users(id), file_id TEXT NOT NULL REFERENCES files(id));
       CREATE TABLE IF NOT EXISTS catalogue (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL);`);
     installResumeRouting(this.db);
+    installApplicationTracking(this.db);
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS application_plans (job_id TEXT PRIMARY KEY REFERENCES jobs(id), user_id TEXT NOT NULL REFERENCES users(id), channel TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS pdf_reviews (file_id TEXT PRIMARY KEY REFERENCES files(id), user_id TEXT NOT NULL REFERENCES users(id), pages INTEGER NOT NULL, session_key TEXT NOT NULL, viewed INTEGER NOT NULL);
@@ -1792,6 +1794,7 @@ export class WorkspaceStore {
           'id,job_id,channel,submitted_date,receipt,source,school_snapshot,created,withdrawn,revision,timezone_offset'
         ),
         submissions: rows('submissions', 'id,job_id,channel,material_id,submitted_date,receipt,created'),
+        ...this.tracking.exportRows(owner),
         submissionCorrections: rows(
           'submission_corrections',
           'id,job_id,submission_id,revision,request_id,before_snapshot,after_snapshot,reason,actor,created'
@@ -2389,6 +2392,7 @@ export class WorkspaceStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+    this.tracking.captureFacts(owner, id);
     return this.application(owner, id);
   }
   recordSubmission(owner, id, input) {
@@ -2480,6 +2484,7 @@ export class WorkspaceStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+    this.tracking.captureFacts(owner, id);
     return this.application(owner, id);
   }
   correctSubmission(owner, id, submissionId, input) {
@@ -2553,10 +2558,14 @@ export class WorkspaceStore {
     }
     return this.application(owner, id);
   }
+  get tracking() {
+    return (this.trackingStore ??= new ApplicationTracking(this));
+  }
   applications(owner) {
     const submitted = this.submittedJobIds(owner),
-      links = this.schoolLinks(owner);
-    return this.jobs(owner)
+      links = this.schoolLinks(owner),
+      byJob = submitted.size ? this.tracking.opportunityByJob(owner) : new Map();
+    const rows = this.jobs(owner)
       .filter(job => submitted.has(job.id))
       .flatMap(job => {
         const app = this.application(owner, job.id, links);
@@ -2576,6 +2585,19 @@ export class WorkspaceStore {
             ]
           : [];
       });
+    return rows.map(row => ({ ...row, tracking: this.tracking.summary(owner, row, byJob) }));
+  }
+  saveApplicationTracking(owner, id, input) {
+    this.tracking.saveDetails(owner, id, input, { textField, requestIdentifier });
+    return this.applications(owner).find(row => row.jobId === id);
+  }
+  addApplicationStage(owner, id, input) {
+    this.tracking.addEvent(owner, id, input, { textField, requestIdentifier });
+    return this.applications(owner).find(row => row.jobId === id);
+  }
+  voidApplicationStage(owner, id, eventId, input) {
+    this.tracking.voidEvent(owner, id, eventId, input, { textField });
+    return this.applications(owner).find(row => row.jobId === id);
   }
   catalogue() {
     const row = this.db.prepare('SELECT payload FROM catalogue WHERE id=1').get();

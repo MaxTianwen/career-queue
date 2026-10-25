@@ -23,6 +23,7 @@ import { networkAvailable } from '../automation.mjs';
 import { readGreenhouseForm } from './greenhouse-form.mjs';
 import { timingSafeEqual } from 'node:crypto';
 import { exportArchive, wordWorkUsage } from './data.mjs';
+import { applicationsWorkbook } from './xlsx.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const assets = new Map([
@@ -381,6 +382,28 @@ export function workspaceServer({
           }
         }
         if (path === '/api/applications' && req.method === 'GET') return json(res, 200, store.applications(owner));
+        if (path === '/api/applications/export.xlsx' && req.method === 'GET') {
+          const bytes = applicationsWorkbook(store.applications(owner)),
+            day = new Date(store.now()).toISOString().slice(0, 10);
+          res.writeHead(200, {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="applications-${day}.xlsx"; filename*=UTF-8''${encodeURIComponent('申请记录-' + day + '.xlsx')}`,
+            'Cache-Control': 'no-store'
+          });
+          return res.end(bytes);
+        }
+        const tracking = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/tracking$/);
+        if (tracking && req.method === 'PUT')
+          return json(res, 200, store.saveApplicationTracking(owner, tracking[1], await input()));
+        const stage = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/stage-events(?:\/([a-f0-9-]{36})\/void)?$/);
+        if (stage && req.method === 'POST')
+          return json(
+            res,
+            200,
+            stage[2]
+              ? store.voidApplicationStage(owner, stage[1], stage[2], await input())
+              : store.addApplicationStage(owner, stage[1], await input())
+          );
         if (['/api/school/capture-preview', '/api/school/capture-import'].includes(path) && req.method === 'POST')
           return json(res, 200, schoolCapture(store, owner, await input(), path.endsWith('capture-import')));
         if (path === '/api/school/opportunities' && req.method === 'GET')
