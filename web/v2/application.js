@@ -1,4 +1,12 @@
 import { applicationCells, renderApplicationTable } from './application-table.js';
+import {
+  dueLabel,
+  filterApplications,
+  openTrackingDialog,
+  renderTrackerBar,
+  sortApplications,
+  stageBadge
+} from './application-tracker.js';
 import { readView as readDisplay, saveView } from './opportunity-view.js';
 import { questionDiff } from './question-diff.js';
 import { safeHref } from './safe-url.js';
@@ -82,6 +90,13 @@ export function applicationWorkspace({
     displayControls.append(b);
   }
   $('#applications-tab').insertBefore(displayControls, $('#applications-list'));
+  const trackerHost = el('div', '');
+  trackerHost.id = 'applications-tracker';
+  trackerHost.className = 'tracking-bar';
+  $('#applications-tab').insertBefore(trackerHost, displayControls);
+  let allRows = [],
+    allWithdrawn = [],
+    trackerState = { group: 'all', query: '' };
   display();
   const dirty = new Set();
   const preparation = $('#preparation-form');
@@ -1266,15 +1281,52 @@ export function applicationWorkspace({
   async function readRecords(current) {
     const [rows, withdrawn] = await Promise.all([api('/api/applications'), api('/api/withdrawn-applications')]);
     if (!current()) return;
+    allRows = rows;
+    allWithdrawn = withdrawn;
+    drawRecords();
+  }
+  function track(row) {
+    openTrackingDialog(row, {
+      api,
+      action,
+      localDate,
+      onSaved: async (next, message) => {
+        await records();
+        const fresh = allRows.find(item => item.jobId === row.jobId) || next;
+        track(fresh);
+        $('#tracking-status').textContent = message;
+      }
+    });
+  }
+  function exportRecords() {
+    action('#tracking-export-status', async () => {
+      await downloadFile({ path: '/api/applications/export.xlsx', name: '申请记录.xlsx' });
+      $('#tracking-export-status').textContent = '已导出 Excel：申请记录与进展时间线两张表。';
+    });
+  }
+  // Typing in the search box only redraws the lists, so the box keeps focus.
+  function drawRecords({ bar = true } = {}) {
+    const today = localDate(),
+      rows = sortApplications(filterApplications(allRows, trackerState, today)),
+      withdrawn = allWithdrawn;
+    if (bar)
+      renderTrackerBar(trackerHost, allRows, trackerState, {
+        today,
+        onChange: (next, typing) => {
+          trackerState = next;
+          drawRecords({ bar: !typing });
+        },
+        onExport: exportRecords
+      });
     $('#applications-list').replaceChildren();
     historyHost.replaceChildren();
-    renderApplicationTable(tableHost, rows, chooseJob);
+    renderApplicationTable(tableHost, rows, chooseJob, { track, today, total: allRows.length });
     display();
     for (const channel of ['all']) {
       const group = document.createElement('section');
       const entries = rows;
       group.className = 'application-group';
-      if (!entries.length) group.append(el('p', '暂无记录'));
+      if (!entries.length) group.append(el('p', allRows.length ? '没有符合当前筛选的记录。' : '暂无记录'));
       for (const row of entries) {
         const card = el('article', '');
         card.className = 'recommendation-card application-record-card';
@@ -1289,6 +1341,20 @@ export function applicationWorkspace({
         source.className = 'application-source-badge';
         source.dataset.source = data.source === '学校' ? 'school' : 'external';
         card.append(company, heading, source);
+        const progress = el('div', '');
+        progress.className = 'application-card-progress';
+        progress.append(stageBadge(row, today));
+        if (data.appliedDate) progress.append(el('span', '申请于 ' + data.appliedDate));
+        if (data.place) progress.append(el('span', data.place));
+        card.append(progress);
+        if (row.tracking?.nextStep || row.tracking?.due) {
+          const next = el(
+            'p',
+            [row.tracking.nextStep, row.tracking.due && '截止 ' + dueLabel(row.tracking.due)].filter(Boolean).join(' · ')
+          );
+          next.className = 'application-card-next';
+          card.append(next);
+        }
         const summary = el('div', '');
         summary.className = 'application-card-status';
         for (const value of data.status) {
@@ -1367,12 +1433,20 @@ export function applicationWorkspace({
         button.className = 'application-detail-button';
         button.setAttribute('aria-label', '查看 ' + data.company + ' · ' + data.title + ' 的申请详情');
         button.addEventListener('click', () => chooseJob(row.jobId));
-        card.append(recordDetails, button);
+        const trackButton = el('button', '跟进');
+        trackButton.type = 'button';
+        trackButton.className = 'application-track-button';
+        trackButton.setAttribute('aria-label', '记录 ' + data.company + ' · ' + data.title + ' 的进展');
+        trackButton.addEventListener('click', () => track(row));
+        const buttons = el('div', '');
+        buttons.className = 'application-card-actions';
+        buttons.append(trackButton, button);
+        card.append(recordDetails, buttons);
         group.append(card);
       }
       $('#applications-list').append(group);
     }
-    if (!rows.length)
+    if (!allRows.length)
       $('#applications-list').append(el('p', '尚无已提交记录。准备材料不会出现在这里；在网站实际提交后确认即可加入。'));
     if (withdrawn.length) {
       const history = document.createElement('details');
