@@ -33,6 +33,7 @@ const assets = new Map([
   ['/file-preview.js', ['file-preview.js', 'text/javascript']],
   ['/safe-url.js', ['safe-url.js', 'text/javascript']],
   ['/application-table.js', ['application-table.js', 'text/javascript']],
+  ['/application-tracker.js', ['application-tracker.js', 'text/javascript']],
   ['/files.js', ['files.js', 'text/javascript']],
   ['/src/publication-facts.mjs', ['../../src/publication-facts.mjs', 'text/javascript']],
   ['/src/deadlines.mjs', ['../../src/deadlines.mjs', 'text/javascript']],
